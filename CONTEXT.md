@@ -54,6 +54,10 @@ _Avoid_: thread, room, group
 One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Vendor, an Inspiration or a Note.
 _Avoid_: card, block, widget, element
 
+**Section**:
+A named part of a Canvas that holds Items. Every Event starts with four (Money and dates, Vendors, Inspirations, Notes), and Members can add their own. Each Item sits in one Section.
+_Avoid_: group, frame, area, cluster
+
 **Entry**:
 One row inside the Budget, the Timeline or the Vendor checklist, such as one budget line, one deadline or one checklist task.
 _Avoid_: line, row, task (as a general term)
