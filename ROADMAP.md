@@ -4,7 +4,7 @@ Target: PromptWars Virtual submission (code, live preview and a LinkedIn build-i
 
 ## Phase 0: Wayfinding
 
-Decide everything the build needs. Progress is tracked on the map, [Map: Utsavvy v1](issues/001-map-events-planning-assistant-v1.md).
+Decide everything the build needs. Progress is tracked on the map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6).
 
 - [x] Destination, scope and vocabulary settled (`CONTEXT.md`, ADR 0001)
 - [ ] All map tickets closed
@@ -16,9 +16,10 @@ Exit: nothing left to decide before building.
 
 Follow [docs/agents/build-workflow.md](docs/agents/build-workflow.md); its setup checklist has the exact steps.
 
-- [ ] Commit the planning docs, check no secrets are tracked, then publish the repo from GitHub Desktop as **public** (File > Add local repository > Publish repository, "Keep this code private" unticked)
+- [x] Commit the planning docs, check no secrets are tracked, then publish the repo from GitHub Desktop as **public** (File > Add local repository > Publish repository, "Keep this code private" unticked)
 - [ ] Install Ponytail in Claude Code and Codex
-- [ ] Set up GitHub after the human's go (repo settings, labels, Discussions "Ideas" category, planning tickets copied as closed `planning` issues, phase parent issues and milestones, build issues from `IMPLEMENTATION_PLAN.md`)
+- [x] GitHub basics (2026-10-21): merge settings, labels, Discussions with Ideas, issue and PR templates, planning tickets moved to GitHub
+- [ ] Set up the rest of GitHub after the human's go (repo settings, labels, Discussions "Ideas" category, planning tickets copied as closed `planning` issues, phase parent issues and milestones, build issues from `IMPLEMENTATION_PLAN.md`)
 - [ ] Connect Vercel and check Convex preview deployments on the free plan, which decides whether the browser test runs on each PR's preview
 - [ ] Contract slice built and merged after the human's go; ruleset on `main` turned on with the required checks
 - [ ] Build the remaining slices in waves of up to 3 worktree agents and merge into `main`

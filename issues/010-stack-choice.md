@@ -8,6 +8,8 @@ parent: 1
 blocked_by: [2, 4, 5, 15]
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/15. Edit it there; this file is no longer updated.
+
 ## Question
 
 Which stack do we build on: framework and hosting, backend and real-time layer, sign-in, file storage, LLM and agent framework, and map library and tiles? Record the choices that carry lock-in as ADRs.

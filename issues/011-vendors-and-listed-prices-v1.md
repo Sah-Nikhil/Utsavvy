@@ -8,6 +8,8 @@ parent: 1
 blocked_by: [2, 15]
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/16. Edit it there; this file is no longer updated.
+
 ## Question
 
 How do Vendors and Listed prices get into v1?

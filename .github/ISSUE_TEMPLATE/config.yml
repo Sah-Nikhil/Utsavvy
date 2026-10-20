@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ideas and feature requests
+    url: https://github.com/Sah-Nikhil/Utsavvy/discussions/categories/ideas
+    about: Suggest a feature or stretch goal in the Ideas discussions. An idea becomes an issue once it is specified enough to build.

@@ -8,6 +8,8 @@ parent: 1
 blocked_by: [6, 7, 8, 9, 10, 11, 12, 14]
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/18. Edit it there; this file is no longer updated.
+
 ## Question
 
 What is in v1, what does the two-minute demo show, and what is the day-by-day build plan to submission?

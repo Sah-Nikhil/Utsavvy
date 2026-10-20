@@ -6,7 +6,7 @@
 
 1. `CLAUDE.md`: what the project is, its status, stack, commands, structure, conventions and gotchas.
 2. `CONTEXT.md`: the domain vocabulary. Use its terms exactly.
-3. `issues/001-map-events-planning-assistant-v1.md`: the wayfinder map, i.e. what is decided and what is still open. How the local issue tracker works is in `docs/agents/issue-tracker.md`.
+3. The wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6) (`gh issue view 6 -R Sah-Nikhil/Utsavvy`): what is decided and what is still open. How the GitHub tracker works is in `docs/agents/issue-tracker.md`.
 4. `docs/adr/`: settled decisions. Don't re-derive them; if the docs have a gap, flag it instead of improvising.
 
 `CLAUDE.md` pulls in `orchestration.md` with an `@orchestration.md` import line. That syntax only works in Claude Code, so read `orchestration.md` directly.

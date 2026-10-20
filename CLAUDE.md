@@ -2,18 +2,19 @@
 
 Utsavvy (utsav, "festival", + savvy) is a GenAI planning Assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas. Built solo for PromptWars Virtual, with submission due about 2026-10-28.
 
-Status: **planning**. The wayfinder map in `issues/` is being worked through. There is no app code, no tests and no locked stack yet. Don't scaffold anything before the map ticket "Which stack do we build on?" (`issues/010-stack-choice.md`) closes.
+Status: **planning**. The wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is being worked through on GitHub Issues. There is no app code, no tests and no locked stack yet. Don't scaffold anything before the map ticket [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) closes.
 
 ## Stack (not locked yet)
 - Package manager: **bun**: `bun install`, `bun add`, `bun run <script>`, `bunx`. Never npm/npx/yarn/pnpm; translate `npx` in third-party docs to `bunx`.
-- Everything else (framework, backend and real-time layer, sign-in, LLM and agent framework, map library, hosting) is decided by `issues/010-stack-choice.md` and recorded as ADRs in `docs/adr/`.
+- Everything else (framework, backend and real-time layer, sign-in, LLM and agent framework, map library, hosting) is decided by [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) and recorded as ADRs in `docs/adr/`.
 
 ## Commands
 None yet.
 
 ## Structure
 - `AGENTS.md`: entry point for non-Claude agents; it defers to this file, so keep project instructions here.
-- `issues/`: local-markdown issue tracker. The map is `issues/001-map-events-planning-assistant-v1.md`; see `docs/agents/issue-tracker.md` for how it works.
+- `issues/`: frozen archive of the planning tickets from before 2026-10-21. The live tracker is GitHub Issues; see `docs/agents/issue-tracker.md` for how it works.
+- `.github/`: issue and PR templates. Ideas and stretch goals go in the Ideas discussions, not issues.
 - `docs/adr/`: numbered ADRs for settled tradeoffs.
 - `docs/agents/`: docs for agents working in this repo.
 

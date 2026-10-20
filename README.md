@@ -6,4 +6,4 @@ Built for PromptWars Virtual.
 
 ## Status
 
-Planning. Decisions are tracked as markdown issues in [`issues/`](issues/), starting from the [map](issues/001-map-events-planning-assistant-v1.md). Domain vocabulary is in [`CONTEXT.md`](CONTEXT.md) and settled decisions are in [`docs/adr/`](docs/adr/).
+Planning. Decisions are tracked in [GitHub Issues](https://github.com/Sah-Nikhil/Utsavvy/issues), starting from the [map](https://github.com/Sah-Nikhil/Utsavvy/issues/6), and ideas live in the [Ideas discussions](https://github.com/Sah-Nikhil/Utsavvy/discussions/categories/ideas). Domain vocabulary is in [`CONTEXT.md`](CONTEXT.md) and settled decisions are in [`docs/adr/`](docs/adr/).

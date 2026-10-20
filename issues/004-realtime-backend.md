@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/9. Edit it there; this file is no longer updated.
+
 ## Question
 
 Which backend best supports several Members sharing one Event's Chat and Canvas live, for a solo developer with about five build days?

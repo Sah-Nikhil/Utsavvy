@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/12. Edit it there; this file is no longer updated.
+
 ## Question
 
 How does the Assistant behave when several Members share one Event's Chat and Canvas?

@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/20. Edit it there; this file is no longer updated.
+
 ## Question
 
 Live Vendor discovery is in v1: when a Member asks, the Assistant finds Vendors' own websites, reads them, and saves Vendor cards (link, image, Listed price, contact, location) with source URL and date seen. Which services make that work legally and reliably from a hosted app, independently of which LLM provider runs the Assistant?

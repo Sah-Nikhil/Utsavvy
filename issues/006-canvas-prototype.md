@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/11. Edit it there; this file is no longer updated.
+
 ## Question
 
 How should the Canvas look and behave? Settle it by reacting to a rough, clickable prototype that covers:

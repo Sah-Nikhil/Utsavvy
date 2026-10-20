@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/8. Edit it there; this file is no longer updated.
+
 ## Question
 
 Which sources can put Inspirations on a Canvas legally and within a one-week build, and how can Pinterest references come in?

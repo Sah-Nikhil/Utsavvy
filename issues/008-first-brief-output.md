@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/13. Edit it there; this file is no longer updated.
+
 ## Question
 
 What does the Assistant produce from a Member's first brief, for each kind of Event (wedding, birthday, community event)?

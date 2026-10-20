@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/19. Edit it there; this file is no longer updated.
+
 ## Question
 
 Once the map closes, the repo is published from GitHub Desktop and the build plan becomes GitHub work items, so several agents can build at once in separate worktrees and merge into `main`. How does that work without merge pain?

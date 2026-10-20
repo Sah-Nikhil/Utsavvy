@@ -2,7 +2,7 @@
 
 How build work moves from the spec into GitHub, how several agents build it at the same time in separate worktrees, and how their work merges into `main` without merge pain. Decided in [How do parallel agents take build work from GitHub and merge it back cleanly?](../../issues/014-parallel-agent-build-workflow.md) on 2026-10-21.
 
-This doc is planning only. Nothing in it exists on GitHub yet: the `.github/` files, CI, `.gitattributes` and the GitHub issues are created by the hand-off steps at the end. Parts that depend on the stack (Convex, Vercel, Clerk, Playwright) assume the research pick from tickets 004 and 005 and are marked **(depends on 010)**. If [Which stack do we build on?](../../issues/010-stack-choice.md) picks something else, adjust those parts and keep the rest.
+Set up on GitHub on 2026-10-21: repo merge settings, Discussions with the "Ideas" category, the labels, Ideas discussions for the map's not-yet-specified items, and the issue and PR templates in `.github/`. Still to come from the hand-off steps at the end: CI, `.gitattributes`, milestones, phase issues and build issues. Parts that depend on the stack (Convex, Vercel, Clerk, Playwright) assume the research pick from tickets 004 and 005 and are marked **(depends on 010)**. If [Which stack do we build on?](../../issues/010-stack-choice.md) picks something else, adjust those parts and keep the rest.
 
 ## Roles
 
@@ -18,7 +18,7 @@ This doc is planning only. Nothing in it exists on GitHub yet: the `.github/` fi
 
 - **GitHub Issues**: every piece of build work an agent can pick up. Blank issues are turned off; issues are created from the build issue template.
 - **GitHub Discussions, "Ideas" category**: stretch goals and everything in the map's "Not yet specified" list (browser extension, live co-editing, voice, the "Next up" brief, Guest lists and RSVPs). An idea becomes an issue only once it is specified enough to build. The issue template's chooser links to the Ideas category, as t3code's does.
-- **Planning record**: the local `issues/` folder stays the source of truth for the planning phase. Its closed tickets are also copied to GitHub as closed issues with the `planning` label (see the setup checklist), so the whole history is visible on GitHub.
+- **Planning record**: on 2026-10-21 all planning tickets moved to GitHub Issues with the `planning` label, as sub-issues of the map with native "blocked by" links. The local `issues/` folder is a frozen archive. See [issue-tracker.md](issue-tracker.md).
 
 ## Phases
 
@@ -39,7 +39,7 @@ If a phase slips, move its milestone's due date. Nothing else needs to stay in s
    - the route map (every page exists, possibly as a stub),
    - every package the build plan already knows it needs, installed once (`package.json`, `bun.lock`),
    - `.env.example` with every variable the plan knows about,
-   - `.gitattributes`, `.editorconfig`, the CI workflow, the PR template and the issue templates,
+   - `.gitattributes`, `.editorconfig` and the CI workflow (the PR and issue templates already exist),
    - the Playwright setup with one smoke test that opens the app.
 
    The contract PR waits for the human's explicit go before merging.
@@ -213,7 +213,7 @@ Run after the map closes, in this order. Steps 2 to 4 are the human's; the orche
 4. **Install Ponytail** in Claude Code (`/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail`) and in Codex (`codex plugin marketplace add DietrichGebert/ponytail`, `codex plugin add ponytail@ponytail`, then trust its two hooks under `/hooks`). Install only from `DietrichGebert/ponytail`.
 5. **Repo settings**: squash merge only, automatically delete head branches, Discussions on with an "Ideas" category, blank issues off.
 6. **Labels** from the table above (`gh label create`).
-7. **Copy the planning tickets**: each file in `issues/` becomes a closed GitHub issue labelled `planning` plus its original `wayfinder:*` label, with the file's body and comments and a link back to the file. The map becomes the parent and its children sub-issues; `blocked_by` becomes native "blocked by" links. Update `docs/agents/issue-tracker.md` to say where build work now lives.
+7. **Planning tickets on GitHub**: done on 2026-10-21, earlier than planned. All 15 tickets moved to GitHub (the map is #6, its children are sub-issues with "blocked by" links), and GitHub became the tracker for the rest of planning.
 8. **Milestones and phase parent issues** from `ROADMAP.md`, then the build issues from `IMPLEMENTATION_PLAN.md` with `--parent`, `--milestone`, labels and "blocked by" links. Stretch goals and not-yet-specified items become Ideas discussions.
 9. **Hosting (depends on 010)**: connect the repo to Vercel (Hobby plan) for production and per-PR previews. Check Convex preview deployments on the free plan and pick the `e2e` route above. Set preview Deployment Protection so the browser test can reach previews (turn off Vercel Authentication for previews, or use the protection bypass header). Confirm Clerk development keys work on preview domains.
 10. **Contract slice**: start one build agent on the contract issue. Its PR adds the CI workflow, templates, `.gitattributes` and `.editorconfig`.

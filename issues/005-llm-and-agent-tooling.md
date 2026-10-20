@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/10. Edit it there; this file is no longer updated.
+
 ## Question
 
 Which model or models and which agent framework should the Assistant run on, given that it talks in a shared Chat and changes a shared Canvas through tools?

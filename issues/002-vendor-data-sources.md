@@ -8,6 +8,8 @@ parent: 1
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/7. Edit it there; this file is no longer updated.
+
 ## Question
 
 Which public sources can give us, legally and within a one-week build, (a) Vendor identity and location for Markers on the map and (b) Listed prices, with their source and date, for Venues, caterers, decorators and photographers in Indian cities?

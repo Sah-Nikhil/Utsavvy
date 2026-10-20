@@ -8,6 +8,8 @@ parent:
 blocked_by: []
 ---
 
+> **Archived.** This ticket moved to GitHub on 2026-10-21: https://github.com/Sah-Nikhil/Utsavvy/issues/6. Edit it there; this file is no longer updated.
+
 ## Destination
 
 A build-ready spec for v1 of the Assistant (scope, stack ADRs, data model, Canvas and Chat design, Assistant behavior, data sources), clear enough to build and submit to PromptWars Virtual (code, live preview and a LinkedIn build-in-public post) by about 2026-10-28.
@@ -42,11 +44,11 @@ A build-ready spec for v1 of the Assistant (scope, stack ADRs, data model, Canva
 
 ## Not yet specified
 
-- **Capture from any website**: a browser extension that adds things to an Event's Canvas from any page (Pinterest, Instagram, Vendor sites). Wanted after v1.
-- **Live co-editing**: live cursors and two Members editing the same Canvas item at once without conflicts. Stretch goal for the end of the hackathon.
-- **Voice**: talking to the Assistant (e.g. Gemini Live), Clicky-style.
-- **"Next up" brief**: the Assistant opening a return visit with what is due, what is over budget and which Vendors are unbooked; later possibly by email.
-- **Guest list and RSVPs**: whether the Assistant manages Guests (lists, invitations, RSVPs) or only counts them. Not discussed yet.
+- **Capture from any website**: a browser extension that adds things to an Event's Canvas from any page (Pinterest, Instagram, Vendor sites). Wanted after v1. [Ideas discussion](https://github.com/Sah-Nikhil/Utsavvy/discussions/1)
+- **Live co-editing**: live cursors and two Members editing the same Canvas item at once without conflicts. Stretch goal for the end of the hackathon. [Ideas discussion](https://github.com/Sah-Nikhil/Utsavvy/discussions/2)
+- **Voice**: talking to the Assistant (e.g. Gemini Live), Clicky-style. [Ideas discussion](https://github.com/Sah-Nikhil/Utsavvy/discussions/3)
+- **"Next up" brief**: the Assistant opening a return visit with what is due, what is over budget and which Vendors are unbooked; later possibly by email. [Ideas discussion](https://github.com/Sah-Nikhil/Utsavvy/discussions/4)
+- **Guest list and RSVPs**: whether the Assistant manages Guests (lists, invitations, RSVPs) or only counts them. Not discussed yet. [Ideas discussion](https://github.com/Sah-Nikhil/Utsavvy/discussions/5)
 
 ## Out of scope
 
