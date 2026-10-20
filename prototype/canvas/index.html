@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Utsavvy · Canvas prototype (throwaway)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{
+  --ground:#F4F1F0; --surface:#FFFFFF; --sunk:#F8F6F5;
+  --ink:#1F1B2D; --ink-2:#585367; --ink-3:#7A7588; --line:#E6E0DE; --line-2:#D6CFCC;
+  --indigo:#3B3FA0; --indigo-2:#2E3285; --indigo-soft:#ECEDFA;
+  --marigold:#D98E04; --marigold-ring:#F2A81D; --marigold-soft:#FFF3D6; --marigold-ink:#7A4E00;
+  --ok:#2F7D4F; --ok-soft:#E5F3EA; --warn:#B4361E; --warn-soft:#FBEAE5;
+  --aditi:#3B3FA0; --kabir:#127C77; --meera:#C2416B; --rohan:#7A4FB5;
+  --r:14px; --r-sm:9px;
+  --shadow:0 1px 2px rgba(31,27,45,.06), 0 6px 18px -8px rgba(31,27,45,.14);
+  --shadow-lift:0 2px 4px rgba(31,27,45,.08), 0 18px 40px -16px rgba(31,27,45,.28);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:"Hanken Grotesk",system-ui,sans-serif;color:var(--ink);background:var(--ground);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+::selection{background:var(--indigo-soft);color:var(--indigo-2)}
+button{font:inherit;color:inherit;cursor:pointer}
+input,textarea{font:inherit;color:inherit;caret-color:var(--indigo)}
+:focus-visible{outline:2px solid var(--indigo);outline-offset:2px;border-radius:6px}
+.num{font-variant-numeric:tabular-nums}
+svg.lucide{width:16px;height:16px;stroke-width:1.9;flex:none}
+*{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
+
+/* ---------- top bar ---------- */
+.top{height:56px;display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--line);position:relative;z-index:50}
+.brand{font-weight:700;letter-spacing:-.02em;font-size:17px;display:flex;align-items:center;gap:8px}
+.brand-mark{width:22px;height:22px;border-radius:7px;background:var(--marigold);display:grid;place-items:center;color:#fff}
+.brand-mark svg{width:14px;height:14px}
+.event{display:flex;flex-direction:column;line-height:1.2;padding-left:16px;border-left:1px solid var(--line)}
+.event b{font-size:15px;letter-spacing:-.01em}
+.event span{color:var(--ink-2);font-size:12.5px}
+.grow{flex:1}
+.presence{display:flex;align-items:center}
+.av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:600;border:2px solid var(--surface);margin-left:-6px;position:relative}
+.av.off{opacity:.42}
+.av .dot{position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:#2BB36B;border:2px solid var(--surface)}
+.av.ai{background:var(--marigold)}
+.av.ai svg{width:14px;height:14px}
+.av.ai.working{box-shadow:0 0 0 3px var(--marigold-soft);animation:breathe 1.2s ease-in-out infinite}
+@keyframes breathe{50%{box-shadow:0 0 0 6px var(--marigold-soft)}}
+.seg{display:flex;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:2px}
+.seg button{border:0;background:none;padding:5px 10px;border-radius:8px;font-size:12.5px;font-weight:500;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.proto-label{font-size:11.5px;color:var(--ink-3);text-transform:none}
+.ctrl-group{display:flex;align-items:center;gap:6px}
+.icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:9px;height:32px;padding:0 10px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500}
+.icon-btn:hover{background:var(--sunk)}
+
+/* ---------- desktop layout ---------- */
+.desk{display:grid;grid-template-columns:1fr 400px;height:calc(100vh - 56px)}
+.canvas-pane{position:relative;overflow:hidden;border-right:1px solid var(--line)}
+.sections{height:100%;overflow:auto;padding:20px 28px 80px}
+.sections-inner{max-width:1120px;margin:0 auto}
+
+.fnbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:500;display:inline-flex;gap:6px;align-items:center;color:var(--ink-2)}
+.chip small{color:var(--ink-3);font-weight:400}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chip.on small{color:#cfcadb}
+
+.sec{margin:28px 0 12px;display:flex;align-items:baseline;gap:10px}
+.sec h2{margin:0;font-size:17px;letter-spacing:-.015em}
+.sec .meta{color:var(--ink-3);font-size:12.5px}
+.sec .add{margin-left:auto;border:1px dashed var(--line-2);background:none;border-radius:8px;padding:4px 10px;font-size:12px;color:var(--ink-2);display:flex;gap:5px;align-items:center}
+.sec .add:hover{border-color:var(--indigo);color:var(--indigo)}
+.grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+
+/* ---------- cards ---------- */
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);position:relative;transition:box-shadow .2s, outline-color .2s;outline:2px solid transparent;outline-offset:0}
+.card-head{display:flex;align-items:center;gap:8px;padding:10px 10px 8px 14px;min-height:42px}
+.card-head .kind{font-size:11.5px;color:var(--ink-3);font-weight:500;display:flex;gap:5px;align-items:center}
+.card-head h3{margin:0;font-size:14px;font-weight:600;letter-spacing:-.005em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-actions{display:flex;gap:2px;opacity:.55;transition:opacity .15s}
+.card:hover .card-actions,.card.is-selected .card-actions{opacity:1}
+.mini{border:0;background:none;height:28px;min-width:28px;padding:0 6px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:var(--ink-2);font-size:12px}
+.mini:hover{background:var(--sunk);color:var(--ink)}
+.mini.ask:hover{background:var(--marigold-soft);color:var(--marigold-ink)}
+.mini.has{color:var(--indigo)}
+.card-body{padding:0 14px 14px}
+.here{display:flex}
+.here .av{width:20px;height:20px;font-size:10px;border-width:1.5px;margin-left:-4px}
+.edited{font-size:11.5px;color:var(--ink-3);padding:0 14px 12px;display:flex;gap:5px;align-items:center}
+.edited svg{width:13px;height:13px}
+
+.is-selected{outline:2px solid var(--indigo)!important;outline-offset:1px}
+tr.is-selected td,.row.is-selected{background:var(--indigo-soft)}
+.pointed{outline:3px solid var(--marigold-ring)!important;outline-offset:2px;animation:point-in .7s cubic-bezier(.16,1,.3,1)}
+.pointed::after{content:"Assistant";position:absolute;top:-11px;right:12px;background:var(--marigold);color:#fff;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:999px;letter-spacing:.01em;z-index:5}
+tr.pointed td,.row.pointed{background:var(--marigold-soft)!important}
+tr.pointed{outline:none!important}
+tr.pointed td:first-child{box-shadow:inset 3px 0 0 var(--marigold-ring)}
+tr.pointed::after,.row.pointed::after{display:none}
+.peek{outline:2px dashed var(--marigold-ring)!important;outline-offset:2px}
+tr.peek td{background:var(--marigold-soft)}
+@keyframes point-in{0%{outline-offset:10px;outline-color:rgba(242,168,29,0)}100%{outline-offset:2px}}
+.card.just-added{animation:land .8s cubic-bezier(.16,1,.3,1)}
+@keyframes land{0%{transform:translateY(-10px) scale(.97);opacity:.2}100%{transform:none;opacity:1}}
+
+/* budget */
+.budget-sum{display:flex;gap:18px;align-items:flex-end;margin:2px 0 12px;flex-wrap:wrap}
+.budget-sum .fig b{display:block;font-size:20px;letter-spacing:-.02em}
+.budget-sum .fig span{font-size:12px;color:var(--ink-2)}
+.bar{height:10px;border-radius:999px;background:var(--sunk);border:1px solid var(--line);display:flex;overflow:hidden;margin-bottom:6px}
+.bar i{display:block;height:100%}
+.bar .q{background:var(--indigo)}
+.bar .e{background:#B9BBE8}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);margin-bottom:12px}
+.legend span{display:flex;gap:6px;align-items:center}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+table{width:100%;border-collapse:collapse}
+th{font-size:11.5px;font-weight:500;color:var(--ink-3);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th.r,td.r{text-align:right}
+td{padding:7px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+tr[data-ref]{cursor:pointer;position:relative}
+tr[data-ref]:hover td{background:var(--sunk)}
+tr.fn-row td{background:var(--sunk);font-weight:600;font-size:12px;color:var(--ink-2);padding:5px 8px}
+.over{color:var(--warn);font-weight:600;font-size:12px}
+.row-cm{opacity:0}
+tr:hover .row-cm,.row:hover .row-cm,.row-cm.has{opacity:1}
+
+/* price badges: always labeled, never blended */
+.price{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.pl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:baseline}
+.badge{font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:999px;white-space:nowrap;letter-spacing:.01em;display:inline-flex;align-items:center;gap:4px}
+.badge.listed{background:#EEF0F3;color:#3D4656;border:1px solid #D7DCE3}
+.badge.estimate{background:var(--marigold-soft);color:var(--marigold-ink);border:1px dashed #E3B860}
+.badge.quote{background:var(--ok-soft);color:var(--ok);border:1px solid #BFE0CB}
+.badge svg{width:11px;height:11px}
+.pl b{font-size:14px}
+.pl .src{grid-column:2;font-size:11.5px;color:var(--ink-3)}
+.status{font-size:11.5px;font-weight:600;color:var(--ink-2);display:inline-flex;align-items:center;gap:5px}
+.status.booked{color:var(--ok)}
+.vmeta{display:flex;gap:10px;flex-wrap:wrap;color:var(--ink-2);font-size:12px;margin-top:2px}
+.vmeta span{display:inline-flex;gap:4px;align-items:center}
+.vmeta svg{width:13px;height:13px}
+
+/* timeline & checklist */
+.row{display:flex;gap:10px;align-items:center;padding:7px 6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:6px;position:relative}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--sunk)}
+.tl-date{width:62px;flex:none;font-size:12px;color:var(--ink-2);line-height:1.2}
+.tl-date b{display:block;color:var(--ink);font-size:13px}
+.row .main{flex:1;min-width:0}
+.row .main b{font-weight:600;font-size:13px}
+.row .main div{font-size:12px;color:var(--ink-2)}
+.sub-h{font-size:11.5px;font-weight:600;color:var(--ink-3);margin:12px 0 4px 6px}
+.check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line-2);display:grid;place-items:center;background:var(--surface);flex:none;padding:0}
+.check.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.check svg{width:12px;height:12px;stroke-width:3}
+.done .main b{color:var(--ink-3);text-decoration:line-through;text-decoration-color:var(--line-2)}
+.pill{font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.q{background:var(--indigo-soft);color:var(--indigo)}
+.pill.todo{background:var(--warn-soft);color:var(--warn)}
+
+/* inspiration: palette placeholder, not fake pictures */
+.insp-img{height:120px;border-radius:10px;display:flex;overflow:hidden;position:relative}
+.insp-img i{flex:1}
+.insp-img .ph{position:absolute;left:8px;bottom:8px;font-size:10.5px;color:#fff;background:rgba(20,16,30,.55);padding:1px 7px;border-radius:999px}
+.src-tag{font-size:11.5px;color:var(--ink-2);display:flex;gap:5px;align-items:center;margin-top:8px}
+.note-text{font-size:13.5px;line-height:1.5;outline:none;border-radius:6px;padding:2px 4px;margin:0 -4px}
+.note-text:focus{background:var(--sunk)}
+.card.note{background:#FFFBEF}
+
+/* comments popover */
+.pop{position:absolute;top:44px;right:8px;width:300px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow-lift);z-index:40;padding:12px;border:1px solid var(--line)}
+.pop h4{margin:0 0 8px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.pop h4 .x{margin-left:auto}
+.cm{display:flex;gap:8px;margin-bottom:10px}
+.cm .av{width:24px;height:24px;font-size:10.5px;margin:0;border:0}
+.cm div{font-size:13px}
+.cm div b{font-weight:600;font-size:12.5px}
+.cm div time{color:var(--ink-3);font-size:11.5px;margin-left:4px}
+.cm-form{display:flex;gap:6px}
+.cm-form input{flex:1;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:13px;outline:none}
+.cm-form input:focus{border-color:var(--indigo)}
+.btn{border:0;border-radius:9px;background:var(--indigo);color:#fff;font-weight:600;font-size:12.5px;padding:6px 12px;display:inline-flex;gap:6px;align-items:center}
+.btn:hover{background:var(--indigo-2)}
+.btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+.btn.ghost:hover{background:var(--sunk)}
+.btn.added{background:var(--ok-soft);color:var(--ok);cursor:default}
+.empty-cm{font-size:12.5px;color:var(--ink-3);margin-bottom:10px}
+
+/* ---------- freeform ---------- */
+.ff{position:absolute;inset:0;overflow:hidden;cursor:grab;background-color:#F1EEED;background-image:radial-gradient(circle,#D3CCC9 1px,transparent 1.2px);background-size:24px 24px}
+.ff.panning{cursor:grabbing}
+.ff-world{position:absolute;left:0;top:0;transform-origin:0 0}
+.ff-item{position:absolute}
+.ff-item .card-head{cursor:move}
+.ff-item.dragging .card{box-shadow:var(--shadow-lift)}
+.ff-tools{position:absolute;left:16px;bottom:16px;display:flex;gap:4px;background:var(--surface);border-radius:11px;box-shadow:var(--shadow);padding:4px;z-index:20;align-items:center}
+.ff-tools span{font-size:12px;color:var(--ink-2);width:44px;text-align:center}
+.ff-hint{position:absolute;right:16px;bottom:16px;font-size:12px;color:var(--ink-2);background:var(--surface);padding:6px 10px;border-radius:9px;box-shadow:var(--shadow);z-index:20}
+.ff-label{position:absolute;font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:-.01em;display:flex;gap:6px;align-items:center}
+
+/* ---------- chat ---------- */
+.chat{display:flex;flex-direction:column;background:var(--surface);min-height:0;height:100%}
+.chat-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.chat-head b{font-size:14px}
+.chat-head span{font-size:12px;color:var(--ink-3)}
+.msgs{flex:1;overflow:auto;padding:16px 14px 8px;display:flex;flex-direction:column;gap:14px}
+.msg{display:flex;gap:9px;position:relative}
+.msg .av{width:28px;height:28px;margin:0;border:0;font-size:11px}
+.msg-body{flex:1;min-width:0}
+.msg-who{font-size:12px;font-weight:600;display:flex;gap:6px;align-items:baseline}
+.msg-who time{font-weight:400;color:var(--ink-3);font-size:11.5px}
+.msg-text{font-size:13.5px;line-height:1.55;margin-top:1px}
+.msg.ai .msg-text{color:var(--ink)}
+.msg-tools{position:absolute;right:0;top:-6px;opacity:0;transition:opacity .15s;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
+.msg:hover .msg-tools{opacity:1}
+.msg-tools button{font-size:11.5px;height:26px}
+.ref{border:0;background:var(--marigold-soft);color:var(--marigold-ink);font-weight:600;font-size:12.5px;border-radius:6px;padding:0 6px;display:inline-flex;align-items:center;gap:4px;line-height:1.6;vertical-align:baseline}
+.ref:hover{background:#FFE6A8}
+.ref svg{width:12px;height:12px}
+.attach{display:flex;gap:8px;overflow-x:auto;margin-top:8px;padding-bottom:4px}
+.att{flex:none;width:200px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface)}
+.att .insp-img{height:84px}
+.att h5{margin:6px 0 2px;font-size:13px}
+.att .vmeta{font-size:11.5px}
+.att .pl{grid-template-columns:1fr}.att .pl .src{grid-column:1}
+.att .btn{margin-top:8px;width:100%;justify-content:center;padding:5px 10px}
+.suggest{border:1px solid #F0D79A;background:#FFFBEF;border-radius:12px;padding:10px 12px;margin-top:8px}
+.suggest .row{border:0;cursor:default;padding:4px 0}
+.suggest .row:hover{background:none}
+.typing{display:flex;gap:4px;padding:6px 0}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--marigold);animation:blink 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes blink{50%{opacity:.25}}
+.composer{border-top:1px solid var(--line);padding:10px 12px 12px}
+.ctx{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.ctx .chip{background:var(--indigo-soft);border-color:transparent;color:var(--indigo);padding:3px 6px 3px 10px;font-size:12px}
+.ctx .chip button{border:0;background:none;padding:0;display:flex;color:var(--indigo)}
+.ctx .chip svg{width:13px;height:13px}
+.ctx-label{font-size:11.5px;color:var(--ink-3);width:100%}
+.box{display:flex;gap:8px;align-items:flex-end;border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;background:var(--surface)}
+.box:focus-within{border-color:var(--indigo)}
+.box textarea{flex:1;border:0;outline:none;resize:none;font-size:13.5px;padding:5px 0;max-height:120px;background:none}
+.send{width:32px;height:32px;border-radius:9px;border:0;background:var(--indigo);color:#fff;display:grid;place-items:center}
+.send svg{width:15px;height:15px}
+.suggestions{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.suggestions button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--ink-2)}
+.suggestions button:hover{border-color:var(--marigold);color:var(--marigold-ink)}
+
+/* history */
+.hist{position:absolute;right:12px;top:62px;width:340px;max-height:70vh;overflow:auto;background:var(--surface);border-radius:14px;box-shadow:var(--shadow-lift);border:1px solid var(--line);z-index:60;padding:12px}
+.hist h4{margin:0 0 6px;font-size:13px;display:flex;align-items:center;gap:6px}
+.hist .h{display:flex;gap:8px;padding:8px 4px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;border-radius:6px}
+.hist .h:hover{background:var(--sunk)}
+.hist .h .av{width:22px;height:22px;font-size:10px;margin:0;border:0}
+.hist .h time{display:block;color:var(--ink-3);font-size:11.5px}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;z-index:100;box-shadow:var(--shadow-lift);animation:land .4s cubic-bezier(.16,1,.3,1)}
+
+/* ---------- mobile ---------- */
+.stage{height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center;gap:40px;padding:20px;overflow:auto}
+.phone{width:390px;height:min(820px,calc(100vh - 96px));background:var(--surface);border-radius:44px;box-shadow:0 0 0 10px #1F1B2D,0 30px 60px -20px rgba(0,0,0,.45);overflow:hidden;position:relative;display:flex;flex-direction:column;flex:none}
+.stage-notes{max-width:300px;color:var(--ink-2);font-size:13px}
+.stage-notes h3{color:var(--ink);font-size:15px;margin:0 0 8px}
+.stage-notes li{margin-bottom:6px}
+.m-status{height:34px;flex:none}
+.m-head{padding:4px 16px 10px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+.m-head .t{flex:1;min-width:0}
+.m-head .t b{display:block;font-size:15px;letter-spacing:-.01em}
+.m-head .t span{font-size:12px;color:var(--ink-2)}
+.m-head .av{width:24px;height:24px;font-size:10px}
+.m-body{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+.m-tabs{display:flex;border-top:1px solid var(--line);padding:6px 0 18px;flex:none;background:var(--surface)}
+.m-tabs button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11.5px;font-weight:600;color:var(--ink-3);position:relative}
+.m-tabs button svg{width:20px;height:20px}
+.m-tabs button.on{color:var(--indigo)}
+.m-tabs .count{position:absolute;top:-2px;left:calc(50% + 6px);background:var(--marigold);color:#fff;font-size:10px;border-radius:999px;padding:0 5px;line-height:16px}
+.m-list{flex:1;overflow:auto;padding:10px 12px 20px}
+.m-fn{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;margin:0 -12px;padding-left:12px;padding-right:12px}
+.m-fn .chip{flex:none}
+.m-group{margin-top:14px}
+.m-group h3{font-size:13px;margin:0 0 6px 2px;display:flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:600}
+.m-group h3 .add{margin-left:auto;border:0;background:none;color:var(--indigo);font-size:12px;font-weight:600;display:flex;align-items:center;gap:3px}
+.m-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative}
+.m-card .row{border-radius:0;padding:10px 12px}
+.m-row-right{text-align:right;font-size:12.5px;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.m-thumbs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.m-thumbs .m-card{flex:none;width:132px;padding:6px;cursor:pointer}
+.m-thumbs .insp-img{height:88px}
+.m-thumbs b{font-size:12px;display:block;margin:5px 2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.back-pill{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;background:var(--ink);color:#fff;border:0;border-radius:999px;padding:8px 14px;font-size:12.5px;font-weight:600;display:flex;gap:6px;align-items:center;box-shadow:var(--shadow-lift);z-index:20}
+.sheet-scrim{position:absolute;inset:0;background:rgba(20,16,30,.35);z-index:30;animation:fade .2s}
+@keyframes fade{from{opacity:0}}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:82%;background:var(--surface);border-radius:20px 20px 0 0;z-index:31;overflow:auto;padding:8px 16px 20px;animation:up .35s cubic-bezier(.16,1,.3,1)}
+@keyframes up{from{transform:translateY(40%);opacity:.4}}
+.grab{width:40px;height:4px;border-radius:9px;background:var(--line-2);margin:4px auto 10px}
+.sheet h3{margin:0;font-size:17px;letter-spacing:-.01em}
+.sheet .kind{font-size:12px;color:var(--ink-3);display:flex;gap:5px;align-items:center;margin-bottom:2px}
+.sheet-actions{display:flex;gap:8px;margin:14px 0 4px}
+.sheet-actions .btn{flex:1;justify-content:center;padding:9px}
+.sheet .sec-h{font-size:12.5px;font-weight:600;margin:16px 0 8px;color:var(--ink-2)}
+.m-chat .msgs{padding:12px 12px 6px}
+.m-chat .att{width:180px}
+.m-chat .composer{padding:8px 10px 8px}
+
+@media (max-width:760px){
+  .top{gap:8px;padding:0 10px}
+  .event,.proto-label,.hide-sm,.top>.presence{display:none}
+  .stage{padding:0;height:calc(100vh - 56px)}
+  .phone{width:100%;height:100%;border-radius:0;box-shadow:none}
+  .stage-notes,.m-status{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top" id="top"></header>
+<main id="app"></main>
+<div id="toast-root"></div>
+
+<script>
+/* =====================================================================
+   Throwaway prototype for "How should the Canvas look and behave on
+   desktop and mobile?" All data is fake. Nothing is saved.
+   ===================================================================== */
+
+const PEOPLE = {
+  aditi:{name:'Aditi',full:'Aditi (you)',color:'var(--aditi)',online:true},
+  kabir:{name:'Kabir',full:'Kabir',color:'var(--kabir)',online:false},
+  meera:{name:'Meera',full:'Meera (Kabir’s mother)',color:'var(--meera)',online:true,where:'budget'},
+  rohan:{name:'Rohan',full:'Rohan (cousin, on phone)',color:'var(--rohan)',online:true,where:'v-gulmohar'},
+  ai:{name:'Assistant',color:'var(--marigold)'}
+};
+const FNS = [
+  {id:'haldi',name:'Haldi',date:'Sat 12 Dec',time:'10:00',place:'Amer Bagh Lawns',guests:120},
+  {id:'mehendi',name:'Mehendi',date:'Sat 12 Dec',time:'17:00',place:'Haveli courtyard (home)',guests:150},
+  {id:'sangeet',name:'Sangeet',date:'Sun 13 Dec',time:'19:30',place:'Gulmohar Marriage Garden',guests:300},
+  {id:'wedding',name:'Wedding',date:'Mon 14 Dec',time:'18:00',place:'Amer Bagh Lawns · pheras 21:40',guests:300},
+  {id:'reception',name:'Reception',date:'Tue 15 Dec',time:'19:30',place:'Amer Bagh Lawns',guests:300},
+];
+const BUDGET = [
+  {id:'haldi-decor',fn:'haldi',cat:'Decor',alloc:40000,amt:38000,kind:'Estimate'},
+  {id:'haldi-food',fn:'haldi',cat:'Food',alloc:80000,amt:82000,kind:'Estimate'},
+  {id:'mehendi-artists',fn:'mehendi',cat:'Mehendi artists',alloc:40000,amt:45000,kind:'Quote'},
+  {id:'mehendi-food',fn:'mehendi',cat:'Food',alloc:100000,amt:95000,kind:'Estimate'},
+  {id:'mehendi-decor',fn:'mehendi',cat:'Decor',alloc:50000,amt:50000,kind:'Estimate'},
+  {id:'sangeet-venue',fn:'sangeet',cat:'Venue',alloc:200000,amt:190000,kind:'Quote'},
+  {id:'sangeet-decor',fn:'sangeet',cat:'Decor',alloc:300000,amt:350000,kind:'Quote'},
+  {id:'sangeet-food',fn:'sangeet',cat:'Food',alloc:300000,amt:310000,kind:'Estimate'},
+  {id:'sangeet-dj',fn:'sangeet',cat:'DJ & sound',alloc:60000,amt:55000,kind:'Estimate'},
+  {id:'wedding-venue',fn:'wedding',cat:'Venue',alloc:300000,amt:300000,kind:'Quote'},
+  {id:'wedding-food',fn:'wedding',cat:'Food',alloc:340000,amt:330000,kind:'Estimate'},
+  {id:'wedding-mandap',fn:'wedding',cat:'Mandap & decor',alloc:150000,amt:160000,kind:'Estimate'},
+  {id:'wedding-photo',fn:'wedding',cat:'Photography (all days)',alloc:160000,amt:155000,kind:'Quote'},
+  {id:'reception-food',fn:'reception',cat:'Food',alloc:160000,amt:170000,kind:'Estimate'},
+  {id:'reception-decor',fn:'reception',cat:'Decor',alloc:80000,amt:75000,kind:'Estimate'},
+];
+const DEADLINES = [
+  {id:'venues',when:'31 Oct',title:'Lock all Venues',who:'Kabir'},
+  {id:'invites',when:'10 Nov',title:'Send invitations to 300 Guests',who:'Meera'},
+  {id:'headcount',when:'1 Dec',title:'Final headcount to caterer',who:'Aditi'},
+];
+
+let S = {
+  arrangement:'sections', device: innerWidth<760?'mobile':'desktop', mobileTab:'chat', fn:'all',
+  selected:[], openComments:null, historyOpen:false, sheet:null, typing:false, returnToChat:false,
+  pointed:{refs:[],until:0}, peek:[], justAdded:null, unseen:0,
+  ff:{x:30,y:20,z:.72}, nextId:1,
+  checklist:[
+    {id:'cl-venue',cat:'Venue',vendor:'Amer Bagh Lawns',status:'Booked',done:true},
+    {id:'cl-caterer',cat:'Caterer',vendor:'Rasoi Royale Caterers',status:'Quote due 24 Oct',done:false},
+    {id:'cl-decor',cat:'Decorator',vendor:'Phoolwala Decor Studio',status:'Quote in',done:false},
+    {id:'cl-photo',cat:'Photographer',vendor:'Lens & Lehenga',status:'Booked',done:true},
+    {id:'cl-mehendi',cat:'Mehendi artist',vendor:'Mehendi by Saba',status:'Quote in',done:false},
+    {id:'cl-dj',cat:'DJ & sound',vendor:null,status:'To find',done:false},
+    {id:'cl-pandit',cat:'Pandit',vendor:null,status:'To find',done:false},
+    {id:'cl-transport',cat:'Guest transport',vendor:null,status:'To find',done:false},
+  ],
+  items:[
+    {id:'budget',type:'budget',title:'Budget',pos:{x:40,y:40,w:520}},
+    {id:'timeline',type:'timeline',title:'Timeline',pos:{x:600,y:40,w:380}},
+    {id:'checklist',type:'checklist',title:'Vendor checklist',pos:{x:1020,y:40,w:340}},
+    {id:'v-amer',type:'vendor',title:'Amer Bagh Lawns',cat:'Venue',area:'Amer Road',cap:400,fns:['haldi','wedding','reception'],status:'Booked for Wedding',booked:true,
+      prices:[{kind:'Quote',v:'₹3,00,000 venue fee',src:'Quote from Kabir · 17 Oct 2026'},{kind:'Listed price',v:'₹1,450 / plate',src:'amerbagh.example · seen 14 Oct 2026'}],pos:{x:1420,y:40,w:260}},
+    {id:'v-gulmohar',type:'vendor',title:'Gulmohar Marriage Garden',cat:'Venue',area:'Jaisinghpura',cap:350,fns:['sangeet'],status:'Holding date',
+      prices:[{kind:'Quote',v:'₹1,90,000 venue fee',src:'Quote from Meera · 19 Oct 2026'},{kind:'Listed price',v:'₹1,200 / plate',src:'gulmohargarden.example · seen 9 Oct 2026'}],pos:{x:1700,y:40,w:260}},
+    {id:'v-rasoi',type:'vendor',title:'Rasoi Royale Caterers',cat:'Caterer',area:'C-Scheme',fns:['haldi','mehendi','sangeet','wedding','reception'],status:'Quote due 24 Oct',
+      prices:[{kind:'Estimate',v:'₹1,050 / plate',src:'Estimate by the Assistant'},{kind:'Listed price',v:'₹950 to ₹1,400 / plate',src:'rasoiroyale.example · seen 12 Oct 2026'}],pos:{x:1980,y:40,w:260}},
+    {id:'v-phoolwala',type:'vendor',title:'Phoolwala Decor Studio',cat:'Decorator',area:'Malviya Nagar',fns:['sangeet','mehendi'],status:'Quote in',
+      prices:[{kind:'Quote',v:'₹3,50,000 Sangeet decor',src:'Quote from Aditi · 18 Oct 2026'},{kind:'Estimate',v:'₹2,80,000 without ceiling drapes',src:'Estimate by the Assistant'}],pos:{x:1420,y:340,w:260}},
+    {id:'v-lens',type:'vendor',title:'Lens & Lehenga',cat:'Photographer',area:'Vaishali Nagar',fns:['haldi','mehendi','sangeet','wedding','reception'],status:'Booked',booked:true,
+      prices:[{kind:'Quote',v:'₹1,55,000 for 4 days',src:'Quote from Aditi · 15 Oct 2026'}],pos:{x:1700,y:340,w:260}},
+    {id:'v-saba',type:'vendor',title:'Mehendi by Saba',cat:'Mehendi artist',area:'Johari Bazaar',fns:['mehendi'],status:'Quote in',
+      prices:[{kind:'Quote',v:'₹45,000 for 4 artists',src:'Quote from Meera · 16 Oct 2026'}],pos:{x:1980,y:340,w:260}},
+    {id:'i-marigold',type:'inspiration',title:'Marigold haldi canopy',src:'Pexels',fns:['haldi'],pal:['#F2A81D','#F7D046','#E9762B','#FFF1C9'],pos:{x:600,y:890,w:210}},
+    {id:'i-mirror',type:'inspiration',title:'Mirror-work sangeet stage',src:'AI generated',fns:['sangeet'],pal:['#2B2350','#C9A2E8','#F0E1FF','#D98E04'],pos:{x:830,y:890,w:210}},
+    {id:'i-mandap',type:'inspiration',title:'Pink City phera mandap',src:'Pinterest link',fns:['wedding'],pal:['#E88AA0','#F6CED6','#B5384F','#FFF4F0'],pos:{x:1060,y:890,w:210}},
+    {id:'i-indigo',type:'inspiration',title:'Indigo and ivory tables',src:'Uploaded by Rohan',fns:['reception'],pal:['#2E3285','#5C64C7','#F4EFE6','#C9B98F'],pos:{x:1290,y:890,w:210}},
+    {id:'n-nani',type:'note',title:'Step-free access',by:'meera',text:'Nani can’t manage stairs. Every Function needs step-free access, including the stage for the sangeet.',pos:{x:600,y:650,w:240}},
+    {id:'n-jain',type:'note',title:'Jain menu',by:'aditi',text:'About 40 Guests eat Jain. Ask every caterer for a separate Jain counter.',pos:{x:860,y:650,w:230}},
+  ],
+  comments:{
+    'b:sangeet-decor':[{who:'meera',text:'Can Phoolwala do it for 3L if we skip the ceiling drapes?',t:'3h'},{who:'aditi',text:'Asking them tomorrow.',t:'2h'}],
+    'v-gulmohar':[{who:'rohan',text:'Parking is tight here. Saw it on Sunday.',t:'1d'}],
+    'i-mirror':[{who:'kabir',text:'Love this, but less mirror, more marigold?',t:'5h'}],
+  },
+  history:[
+    {who:'rohan',text:'added Inspiration “Indigo and ivory tables”',ref:'i-indigo',t:'1h ago'},
+    {who:'meera',text:'changed Sangeet decor Quote from ₹3.0L to ₹3.5L',ref:'b:sangeet-decor',t:'3h ago'},
+    {who:'ai',text:'added an Estimate for Phoolwala without ceiling drapes',ref:'v-phoolwala',t:'3h ago'},
+    {who:'meera',text:'added a Quote to Gulmohar Marriage Garden',ref:'v-gulmohar',t:'2d ago'},
+    {who:'kabir',text:'marked Venue as booked: Amer Bagh Lawns',ref:'cl-venue',t:'4d ago'},
+    {who:'ai',text:'laid out the first plan: Budget, Timeline, Vendor checklist',ref:'budget',t:'5d ago'},
+  ],
+  offCanvas:{
+    'v-kesar':{id:'v-kesar',type:'vendor',title:'Kesar Haveli',cat:'Venue',area:'Kukas',cap:300,fns:['sangeet'],status:'Not contacted',
+      prices:[{kind:'Listed price',v:'₹1,600 / plate',src:'kesarhaveli.example · seen 20 Oct 2026'},{kind:'Estimate',v:'₹2,10,000 venue fee',src:'Estimate by the Assistant'}]},
+    'i-swing':{id:'i-swing',type:'inspiration',title:'Mehendi swing seating',src:'Pexels',fns:['mehendi'],pal:['#3E8E5A','#F2C14E','#E86A92','#FDF6E3']},
+    'i-lantern':{id:'i-lantern',type:'inspiration',title:'Brass lantern aisle',src:'AI generated',fns:['wedding'],pal:['#7A4E00','#D98E04','#1F1B2D','#F6E7C1']},
+  },
+  chat:[
+    {id:'m1',who:'aditi',t:'5d',text:'We’re 300 Guests, ₹25L total. Five Functions in Jaipur, 12 to 15 Dec.'},
+    {id:'m2',who:'ai',t:'5d',text:'I’ve laid out a first plan on the Canvas: the [[budget|Budget]], the [[timeline|Timeline]] and a [[checklist|Vendor checklist]]. The biggest open risk is [[b:sangeet-decor|Sangeet decor]], ₹50k over its share.'},
+    {id:'m3',who:'meera',t:'2d',text:'Can we look at lawns near Amer? Nani can’t do stairs.'},
+    {id:'m4',who:'ai',t:'2d',text:'Two Venues already on the Canvas are step-free: [[v-amer|Amer Bagh Lawns]] and [[v-gulmohar|Gulmohar Marriage Garden]]. One more worth a look for the sangeet:',attach:{type:'vendors',ids:['v-kesar']}},
+    {id:'m5',who:'rohan',t:'1h',text:'Show me sangeet and mehendi decor ideas, less pink please'},
+    {id:'m6',who:'ai',t:'1h',text:'Here are two that keep away from pink. Add the ones you like.',attach:{type:'insp',ids:['i-swing','i-lantern']}},
+    {id:'m7',who:'ai',t:'20m',text:'[[n-jain|Aditi’s note]] says about 40 Guests eat Jain. Want me to add a Vendor checklist task for it?',attach:{type:'suggest',row:{id:'cl-jain',cat:'Jain counter',vendor:'Rasoi Royale Caterers',status:'Ask in quote',done:false}}},
+  ],
+};
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const inr = a => a>=1e5 ? '₹'+(+(a/1e5).toFixed(2))+'L' : '₹'+(+(a/1e3).toFixed(1))+'k';
+const ico = n => `<i data-lucide="${n}"></i>`;
+const av = (p,cls='') => `<span class="av ${p==='ai'?'ai':''} ${cls}" style="background:${PEOPLE[p].color}" title="${esc(PEOPLE[p].full||PEOPLE[p].name)}">${p==='ai'?ico('sparkles'):PEOPLE[p].name[0]}</span>`;
+const isMobile = () => S.device==='mobile';
+const item = id => S.items.find(i=>i.id===id);
+const KIND = {budget:['wallet','Budget'],timeline:['calendar-days','Timeline'],checklist:['list-checks','Checklist'],vendor:['store','Vendor'],inspiration:['image','Inspiration'],note:['sticky-note','Note']};
+const fnOk = fns => S.fn==='all' || !fns || fns.includes(S.fn);
+const isPointed = r => S.pointed.until>Date.now() && S.pointed.refs.includes(r);
+const stateCls = r => (S.selected.includes(r)?' is-selected':'')+(isPointed(r)?' pointed':'');
+function labelFor(ref){
+  if(ref.startsWith('b:')){const b=BUDGET.find(x=>'b:'+x.id===ref);return b?`${FNS.find(f=>f.id===b.fn).name} · ${b.cat}`:ref}
+  if(ref.startsWith('tl:')) return FNS.find(f=>'tl:'+f.id===ref)?.name+' (Function)';
+  if(ref.startsWith('dl:')) return DEADLINES.find(d=>'dl:'+d.id===ref)?.title;
+  if(ref.startsWith('cl-')) return S.checklist.find(c=>c.id===ref)?.cat+' (checklist)';
+  return item(ref)?.title||ref;
+}
+function parentOf(ref){
+  if(ref.startsWith('b:')) return 'budget';
+  if(ref.startsWith('tl:')||ref.startsWith('dl:')) return 'timeline';
+  if(ref.startsWith('cl-')) return 'checklist';
+  return ref;
+}
+function toast(t){const r=$('#toast-root');r.innerHTML=`<div class="toast">${esc(t)}</div>`;clearTimeout(toast.h);toast.h=setTimeout(()=>r.innerHTML='',2400)}
+function richText(t){return esc(t).replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g,(_,r,l)=>`<button class="ref" data-action="point" data-ref="${r}">${ico('scan-eye')}${l}</button>`)}
+
+/* ---------- card bodies (shared by sections, freeform and the phone sheet) ---------- */
+function priceLines(p){
+  const ic={Quote:'badge-check','Listed price':'globe',Estimate:'sparkles'};
+  return `<div class="price">${p.map(x=>`<div class="pl"><span class="badge ${x.kind==='Listed price'?'listed':x.kind.toLowerCase()}">${ico(ic[x.kind])}${x.kind}</span><b class="num">${esc(x.v)}</b><span class="src">${esc(x.src)}</span></div>`).join('')}</div>`;
+}
+function cmCount(r){return (S.comments[r]||[]).length}
+function budgetBody(compact){
+  const rows=BUDGET.filter(b=>fnOk([b.fn]));
+  const q=BUDGET.filter(b=>b.kind==='Quote').reduce((a,b)=>a+b.amt,0);
+  const e=BUDGET.filter(b=>b.kind==='Estimate').reduce((a,b)=>a+b.amt,0);
+  const total=2500000;
+  let html=`<div class="budget-sum"><div class="fig"><b class="num">₹25L</b><span>Budget</span></div><div class="fig"><b class="num">${inr(q)}</b><span>in Quotes</span></div><div class="fig"><b class="num">${inr(e)}</b><span>in Estimates</span></div></div>
+  <div class="bar"><i class="q" style="width:${q/total*100}%"></i><i class="e" style="width:${e/total*100}%"></i></div>
+  <div class="legend"><span><i style="background:var(--indigo)"></i>Quotes</span><span><i style="background:#B9BBE8"></i>Estimates</span><span>Unplanned ${inr(total-q-e)}</span></div>
+  <table><thead><tr><th>Function · category</th><th class="r">Share</th><th class="r">Price</th><th></th></tr></thead><tbody>`;
+  let last='';
+  for(const b of rows){
+    if(b.fn!==last){const f=FNS.find(x=>x.id===b.fn);html+=`<tr class="fn-row"><td colspan="4">${f.name} · ${f.date} · ${f.guests} Guests</td></tr>`;last=b.fn}
+    const r='b:'+b.id, over=b.amt-b.alloc;
+    html+=`<tr data-ref="${r}" data-action="select" class="${stateCls(r)}"><td>${esc(b.cat)} ${over>0?`<span class="over num">+${inr(over)}</span>`:''}</td><td class="r num">${inr(b.alloc)}</td><td class="r num"><span class="badge ${b.kind.toLowerCase()}">${b.kind}</span> ${inr(b.amt)}</td><td class="r" style="width:${compact?30:64}px"><button class="mini row-cm ${cmCount(r)?'has':''}" data-action="comments" data-ref="${r}" title="Comment">${ico('message-circle')}${cmCount(r)||''}</button></td></tr>`;
+  }
+  return html+'</tbody></table>';
+}
+function timelineBody(){
+  let h=`<div class="sub-h">Functions</div>`;
+  for(const f of FNS.filter(f=>fnOk([f.id]))){const r='tl:'+f.id;
+    h+=`<div class="row${stateCls(r)}" data-ref="${r}" data-action="select"><div class="tl-date"><b>${f.date.split(' ').slice(1).join(' ')}</b>${f.time}</div><div class="main"><b>${f.name}</b><div>${esc(f.place)} · ${f.guests} Guests</div></div><button class="mini row-cm ${cmCount(r)?'has':''}" data-action="comments" data-ref="${r}">${ico('message-circle')}${cmCount(r)||''}</button></div>`}
+  h+=`<div class="sub-h">Deadlines</div>`;
+  for(const d of DEADLINES){const r='dl:'+d.id;
+    h+=`<div class="row${stateCls(r)}" data-ref="${r}" data-action="select"><div class="tl-date"><b>${d.when}</b></div><div class="main"><b>${esc(d.title)}</b><div>${d.who}</div></div><button class="mini row-cm ${cmCount(r)?'has':''}" data-action="comments" data-ref="${r}">${ico('message-circle')}${cmCount(r)||''}</button></div>`}
+  return h;
+}
+function checklistBody(){
+  return S.checklist.map(c=>{const cls=c.status==='Booked'?'ok':c.status==='To find'?'todo':'q';
+    return `<div class="row${c.done?' done':''}${stateCls(c.id)}" data-ref="${c.id}" data-action="select"><button class="check ${c.done?'on':''}" data-action="toggle" data-ref="${c.id}" aria-label="Mark ${esc(c.cat)} done">${c.done?ico('check'):''}</button><div class="main"><b>${esc(c.cat)}</b><div>${c.vendor?esc(c.vendor):'No Vendor yet'}</div></div><span class="pill ${cls}">${esc(c.status)}</span></div>`}).join('');
+}
+function vendorBody(v){
+  return `<div class="vmeta"><span>${ico('tag')}${v.cat}</span><span>${ico('map-pin')}${v.area}</span>${v.cap?`<span>${ico('users')}${v.cap}</span>`:''}</div>
+  <div style="margin-top:6px"><span class="status ${v.booked?'booked':''}">${ico(v.booked?'circle-check':'circle-dashed')}${esc(v.status)}</span></div>${priceLines(v.prices)}`;
+}
+function inspImg(i){return `<div class="insp-img">${i.pal.map(c=>`<i style="background:${c}"></i>`).join('')}<span class="ph">image placeholder</span></div>`}
+function inspBody(i){return `${inspImg(i)}<div class="src-tag">${ico(i.src.startsWith('AI')?'sparkles':i.src.startsWith('Pin')?'link':i.src.startsWith('Up')?'upload':'camera')}${esc(i.src)}</div>`}
+function noteBody(n){return `<div class="note-text" contenteditable="true" spellcheck="false">${esc(n.text)}</div><div class="src-tag">${av(n.by).replace('class="av','style="width:18px;height:18px;font-size:9px;border:0;margin:0" class="av')} ${PEOPLE[n.by].name}</div>`}
+function bodyFor(it,compact){
+  return it.type==='budget'?budgetBody(compact):it.type==='timeline'?timelineBody():it.type==='checklist'?checklistBody():it.type==='vendor'?vendorBody(it):it.type==='inspiration'?inspBody(it):noteBody(it);
+}
+function lastEdit(id){const h=S.history.find(h=>parentOf(h.ref)===id);return h?`<div class="edited">${ico('history')}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${PEOPLE[h.who].name} ${esc(h.text)} · ${h.t}</span></div>`:''}
+function card(it,compact){
+  const [ic,k]=KIND[it.type];
+  const here=Object.entries(PEOPLE).filter(([p,v])=>v.online&&v.where===it.id).map(([p])=>av(p)).join('');
+  return `<div class="card ${it.type==='note'?'note':''}${stateCls(it.id)}${S.justAdded===it.id?' just-added':''}" data-ref="${it.id}" data-action="select">
+    <div class="card-head" data-drag="${it.id}"><span class="kind">${ico(ic)}${k}</span><h3>${esc(it.title)}</h3>${here?`<span class="here" title="Viewing now">${here}</span>`:''}
+      <div class="card-actions"><button class="mini ask" data-action="ask" data-ref="${it.id}" title="Ask the Assistant about this">${ico('sparkles')}</button><button class="mini ${cmCount(it.id)?'has':''}" data-action="comments" data-ref="${it.id}" title="Comments">${ico('message-circle')}${cmCount(it.id)||''}</button></div></div>
+    <div class="card-body">${bodyFor(it,compact)}</div>${lastEdit(it.id)}
+    ${S.openComments && parentOf(S.openComments)===it.id ? commentsPop(S.openComments):''}
+  </div>`;
+}
+function commentList(r){
+  const list=S.comments[r]||[];
+  return (list.length?list.map(c=>`<div class="cm">${av(c.who)}<div><b>${PEOPLE[c.who].name}</b><time>${c.t}</time><br>${esc(c.text)}</div></div>`).join(''):`<div class="empty-cm">No Comments yet.</div>`)+
+  `<form class="cm-form" data-form="comment" data-ref="${r}"><input placeholder="Add a Comment" aria-label="Add a Comment"><button class="btn">Post</button></form>`;
+}
+function commentsPop(r){return `<div class="pop" data-stop><h4>${ico('message-circle')}${esc(labelFor(r))}<button class="mini x" data-action="close-comments">${ico('x')}</button></h4>${commentList(r)}</div>`}
+
+/* ---------- top bar ---------- */
+function renderTop(){
+  const ppl=['aditi','meera','rohan','kabir'].map(p=>av(p,PEOPLE[p].online?'':'off').replace('</span>',PEOPLE[p].online?'<span class="dot"></span></span>':'</span>')).join('');
+  $('#top').innerHTML=`<div class="brand"><span class="brand-mark">${ico('sparkle')}</span>Utsavvy</div>
+  <div class="event"><b>Aditi &amp; Kabir · Jaipur</b><span>Wedding · 12 to 15 Dec · 300 Guests · ₹25L</span></div>
+  <div class="grow"></div>
+  <div class="presence" title="Members here now" style="padding-left:6px">${ppl}${av('ai',S.typing?'working':'')}</div>
+  <button class="icon-btn hide-sm" data-action="history">${ico('history')}History</button>
+  <div class="ctrl-group"><span class="proto-label">Prototype:</span>
+    ${!isMobile()?`<div class="seg hide-sm" role="group" aria-label="Arrangement"><button class="${S.arrangement==='sections'?'on':''}" data-action="arr" data-v="sections">${ico('layout-list')}Sections</button><button class="${S.arrangement==='freeform'?'on':''}" data-action="arr" data-v="freeform">${ico('move')}Freeform</button></div>`:''}
+    <div class="seg" role="group" aria-label="Device"><button class="${!isMobile()?'on':''}" data-action="device" data-v="desktop">${ico('monitor')}<span class="hide-sm">Desktop</span></button><button class="${isMobile()?'on':''}" data-action="device" data-v="mobile">${ico('smartphone')}<span class="hide-sm">Mobile</span></button></div>
+  </div>
+  ${S.historyOpen?`<div class="hist" data-stop><h4>${ico('history')}Edit history<button class="mini" style="margin-left:auto" data-action="history">${ico('x')}</button></h4>${S.history.map(h=>`<div class="h" data-action="point" data-ref="${h.ref}">${av(h.who)}<div><b>${PEOPLE[h.who].name}</b> ${esc(h.text)}<time>${h.t}</time></div></div>`).join('')}</div>`:''}`;
+}
+
+/* ---------- desktop ---------- */
+function renderSections(){
+  const by=t=>S.items.filter(i=>i.type===t&&fnOk(i.fns));
+  const fnChips=`<button class="chip ${S.fn==='all'?'on':''}" data-action="fn" data-v="all">All Functions</button>`+FNS.map(f=>`<button class="chip ${S.fn===f.id?'on':''}" data-action="fn" data-v="${f.id}">${f.name}<small>${f.date.split(' ').slice(1).join(' ')}</small></button>`).join('');
+  return `<div class="sections" id="scroller"><div class="sections-inner">
+    <div class="fnbar">${fnChips}</div>
+    <div class="sec"><h2>Money and dates</h2></div>
+    <div class="grid2" style="align-items:start">${card(item('budget'))}<div style="display:flex;flex-direction:column;gap:16px">${card(item('timeline'))}${card(item('checklist'))}</div></div>
+    <div class="sec"><h2>Vendors</h2><span class="meta">${by('vendor').length} on the Canvas</span><button class="add" data-action="stub" data-v="Ask the Assistant in the Chat to find Vendors, or use Add to Canvas on a result.">${ico('plus')}Add Vendor</button></div>
+    <div class="grid3" style="align-items:start">${by('vendor').map(v=>card(v)).join('')}</div>
+    <div class="sec"><h2>Inspirations</h2><span class="meta">Pexels, uploads, AI images, Pinterest links</span><button class="add" data-action="stub" data-v="Would open search: Pexels, upload, generate, paste a Pinterest link.">${ico('plus')}Add Inspiration</button></div>
+    <div class="grid4" style="align-items:start">${by('inspiration').map(i=>card(i)).join('')}</div>
+    <div class="sec"><h2>Notes</h2><button class="add" data-action="add-note">${ico('plus')}Add note</button></div>
+    <div class="grid3">${by('note').map(n=>card(n)).join('')}</div>
+  </div></div>`;
+}
+function renderFreeform(){
+  const f=S.ff;
+  return `<div class="ff" id="ff"><div class="ff-world" id="ffw" style="transform:translate(${f.x}px,${f.y}px) scale(${f.z})">
+    <div class="ff-label" style="left:1420px;top:8px">${ico('store')}Vendors</div>
+    <div class="ff-label" style="left:600px;top:858px">${ico('image')}Inspirations</div>
+    ${S.items.map(it=>`<div class="ff-item" data-item="${it.id}" style="left:${it.pos.x}px;top:${it.pos.y}px;width:${it.pos.w}px">${card(it,true)}</div>`).join('')}
+  </div>
+  <div class="ff-tools"><button class="mini" data-action="zoom" data-v="-1" title="Zoom out">${ico('minus')}</button><span class="num">${Math.round(f.z*100)}%</span><button class="mini" data-action="zoom" data-v="1" title="Zoom in">${ico('plus')}</button><button class="mini" data-action="fit" title="Fit everything">${ico('maximize')}</button><button class="mini" data-action="add-note" title="Add note">${ico('sticky-note')}</button></div>
+  <div class="ff-hint">Drag the background to pan · drag a card by its header</div></div>`;
+}
+function chatHTML(mobile){
+  const msgs=S.chat.map(m=>{
+    let att='';
+    if(m.attach?.type==='vendors') att=`<div class="attach">${m.attach.ids.map(id=>{const v=S.offCanvas[id]||item(id);const on=!!item(id);return `<div class="att"><b style="font-size:13px">${esc(v.title)}</b>${vendorBody(v)}<button class="btn ${on?'added':''}" data-action="add" data-v="${id}">${on?ico('check')+'On the Canvas':ico('plus')+'Add to Canvas'}</button></div>`}).join('')}</div>`;
+    if(m.attach?.type==='insp') att=`<div class="attach">${m.attach.ids.map(id=>{const v=S.offCanvas[id]||item(id);const on=!!item(id);return `<div class="att">${inspImg(v)}<h5>${esc(v.title)}</h5><div class="src-tag" style="margin-top:0">${esc(v.src)}</div><button class="btn ${on?'added':''}" data-action="add" data-v="${id}">${on?ico('check')+'On the Canvas':ico('plus')+'Add to Canvas'}</button></div>`}).join('')}</div>`;
+    if(m.attach?.type==='suggest'){const on=S.checklist.some(c=>c.id===m.attach.row.id);att=`<div class="suggest"><div class="row"><span class="check"></span><div class="main"><b>${esc(m.attach.row.cat)}</b><div>${esc(m.attach.row.vendor)} · ${esc(m.attach.row.status)}</div></div></div><button class="btn ${on?'added':''}" data-action="add-row" data-v="${m.id}">${on?ico('check')+'Added to Vendor checklist':ico('plus')+'Add to Canvas'}</button></div>`}
+    const ctx=m.ctx?.length?`<div class="ctx" style="margin:4px 0 0">${m.ctx.map(r=>`<button class="ref" data-action="point" data-ref="${r}">${ico('mouse-pointer-click')}${esc(labelFor(r))}</button>`).join('')}</div>`:'';
+    return `<div class="msg ${m.who==='ai'?'ai':''}">${av(m.who)}<div class="msg-body"><div class="msg-who">${PEOPLE[m.who].name}<time>${m.t}</time></div>${ctx}<div class="msg-text">${richText(m.text)}</div>${att}</div>
+      ${m.who!=='ai'||!m.attach?`<div class="msg-tools"><button class="mini" data-action="msg-note" data-v="${m.id}" title="Turn this message into a note on the Canvas">${ico('square-plus')}Add to Canvas</button></div>`:''}</div>`}).join('');
+  const sel=S.selected.length?`<div class="ctx"><span class="ctx-label">Asking about ${S.selected.length>1?'these':'this'}:</span>${S.selected.map(r=>`<span class="chip">${esc(labelFor(r))}<button data-action="unselect" data-ref="${r}" aria-label="Remove">${ico('x')}</button></span>`).join('')}</div>`:'';
+  const sugg=S.selected.length?['Compare with alternatives','How do we bring this down?','What’s missing here?']:['Where are we over budget?','What’s due this week?','Find a DJ for the sangeet'];
+  return `${mobile?'':`<div class="chat-head">${ico('messages-square')}<b>Chat</b><span>4 Members and the Assistant</span></div>`}
+  <div class="msgs" id="msgs">${msgs}${S.typing?`<div class="msg ai">${av('ai')}<div class="msg-body"><div class="msg-who">Assistant<time>working on the Canvas</time></div><div class="typing"><i></i><i></i><i></i></div></div></div>`:''}</div>
+  <div class="composer">${sel}<div class="suggestions">${sugg.map(s=>`<button data-action="suggest" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+  <form class="box" data-form="send"><textarea id="ta" rows="1" placeholder="${S.selected.length?'Ask about the selection…':'Message the Assistant and Members…'}"></textarea><button class="send" aria-label="Send">${ico('arrow-up')}</button></form></div>`;
+}
+function renderDesktop(){
+  return `<div class="desk"><section class="canvas-pane" aria-label="Canvas">${S.arrangement==='sections'?renderSections():renderFreeform()}</section><aside class="chat" aria-label="Chat">${chatHTML(false)}</aside></div>`;
+}
+
+/* ---------- mobile ---------- */
+function mRow(ref,title,sub,right,extra=''){return `<div class="row${stateCls(ref)}" data-action="sheet" data-ref="${ref}">${extra}<div class="main"><b>${title}</b><div>${sub}</div></div><div class="m-row-right">${right}${cmCount(ref)?`<span style="color:var(--indigo);display:flex;gap:3px;align-items:center;font-size:11.5px">${ico('message-circle')}${cmCount(ref)}</span>`:''}</div></div>`}
+function mCanvas(){
+  const q=BUDGET.filter(b=>b.kind==='Quote').reduce((a,b)=>a+b.amt,0), e=BUDGET.filter(b=>b.kind==='Estimate').reduce((a,b)=>a+b.amt,0);
+  const fnChips=`<button class="chip ${S.fn==='all'?'on':''}" data-action="fn" data-v="all">All</button>`+FNS.map(f=>`<button class="chip ${S.fn===f.id?'on':''}" data-action="fn" data-v="${f.id}">${f.name}</button>`).join('');
+  const budgetRows=BUDGET.filter(b=>fnOk([b.fn])).map(b=>{const over=b.amt-b.alloc;return mRow('b:'+b.id,`${FNS.find(f=>f.id===b.fn).name} · ${esc(b.cat)}`,`Share ${inr(b.alloc)}${over>0?` · <span class="over">+${inr(over)}</span>`:''}`,`<span class="badge ${b.kind.toLowerCase()}">${b.kind}</span><b class="num">${inr(b.amt)}</b>`)}).join('');
+  return `<div class="m-list" id="scroller">
+    <div class="m-fn">${fnChips}</div>
+    <div class="m-group"><h3>${ico('wallet')}Budget</h3><div class="m-card" style="padding:12px"><div class="budget-sum" style="margin:0 0 8px;gap:14px"><div class="fig"><b class="num" style="font-size:17px">₹25L</b><span>Budget</span></div><div class="fig"><b class="num" style="font-size:17px">${inr(q)}</b><span>Quotes</span></div><div class="fig"><b class="num" style="font-size:17px">${inr(e)}</b><span>Estimates</span></div></div><div class="bar" style="margin:0"><i class="q" style="width:${q/25e5*100}%"></i><i class="e" style="width:${e/25e5*100}%"></i></div></div>
+      <div class="m-card" style="margin-top:8px">${budgetRows}</div></div>
+    <div class="m-group"><h3>${ico('calendar-days')}Timeline</h3><div class="m-card">${FNS.filter(f=>fnOk([f.id])).map(f=>mRow('tl:'+f.id,f.name,`${esc(f.place)}`,`<b>${f.date.split(' ').slice(1).join(' ')}</b><span>${f.time}</span>`)).join('')}${DEADLINES.map(d=>mRow('dl:'+d.id,esc(d.title),d.who,`<b>${d.when}</b>`)).join('')}</div></div>
+    <div class="m-group"><h3>${ico('list-checks')}Vendor checklist</h3><div class="m-card">${S.checklist.map(c=>mRow(c.id,esc(c.cat),c.vendor?esc(c.vendor):'No Vendor yet',`<span class="pill ${c.status==='Booked'?'ok':c.status==='To find'?'todo':'q'}">${esc(c.status)}</span>`,`<button class="check ${c.done?'on':''}" data-action="toggle" data-ref="${c.id}" aria-label="Done">${c.done?ico('check'):''}</button>`)).join('')}</div></div>
+    <div class="m-group"><h3>${ico('store')}Vendors</h3><div class="m-card">${S.items.filter(i=>i.type==='vendor'&&fnOk(i.fns)).map(v=>{const p=v.prices[0];return mRow(v.id,esc(v.title),`${v.cat} · ${esc(v.status)}`,`<span class="badge ${p.kind==='Listed price'?'listed':p.kind.toLowerCase()}">${p.kind}</span><b class="num" style="font-size:12px">${esc(p.v.split(' ')[0])}</b>`)}).join('')}</div></div>
+    <div class="m-group"><h3>${ico('image')}Inspirations<button class="add" data-action="stub" data-v="Would open: Pexels search, upload, generate, paste a link.">${ico('plus')}Add</button></h3><div class="m-thumbs">${S.items.filter(i=>i.type==='inspiration'&&fnOk(i.fns)).map(i=>`<div class="m-card${stateCls(i.id)}" data-action="sheet" data-ref="${i.id}">${inspImg(i)}<b>${esc(i.title)}</b></div>`).join('')}</div></div>
+    <div class="m-group"><h3>${ico('sticky-note')}Notes<button class="add" data-action="add-note">${ico('plus')}Add</button></h3><div class="m-card">${S.items.filter(i=>i.type==='note').map(n=>mRow(n.id,esc(n.title),esc(n.text.slice(0,60))+'…',av(n.by).replace('class="av','style="width:22px;height:22px;font-size:10px;border:0;margin:0" class="av'))).join('')}</div></div>
+  </div>${S.returnToChat?`<button class="back-pill" data-action="tab" data-v="chat">${ico('arrow-left')}Back to Chat</button>`:''}`;
+}
+function sheetHTML(r){
+  const pid=parentOf(r), it=item(pid), [ic,k]=KIND[it.type];
+  let body='';
+  if(r.startsWith('b:')){const b=BUDGET.find(x=>'b:'+x.id===r);body=`<div class="price"><div class="pl"><span class="badge ${b.kind.toLowerCase()}">${b.kind}</span><b class="num">${inr(b.amt)}</b><span class="src">${b.kind==='Quote'?'Entered by Meera · 3h ago':'Estimate by the Assistant'}</span></div></div><p style="font-size:13px;color:var(--ink-2)">Share of budget: <b class="num">${inr(b.alloc)}</b></p>`}
+  else if(r.startsWith('tl:')){const f=FNS.find(x=>'tl:'+x.id===r);body=`<p style="font-size:13.5px">${f.date}, ${f.time}<br>${esc(f.place)}<br>${f.guests} Guests</p>`}
+  else if(r.startsWith('dl:')){const d=DEADLINES.find(x=>'dl:'+x.id===r);body=`<p style="font-size:13.5px">Due ${d.when} · owner ${d.who}</p>`}
+  else if(r.startsWith('cl-')){const c=S.checklist.find(x=>x.id===r);body=`<p style="font-size:13.5px">${c.vendor?esc(c.vendor):'No Vendor yet'} · ${esc(c.status)}</p>`}
+  else body=bodyFor(it,true);
+  return `<div class="sheet-scrim" data-action="close-sheet"></div><div class="sheet" data-stop><div class="grab"></div>
+    <div class="kind">${ico(ic)}${k}${pid!==r?' · part of '+esc(it.title):''}</div><h3>${esc(labelFor(r))}</h3>
+    <div style="margin-top:10px">${body}</div>
+    <div class="sheet-actions"><button class="btn" data-action="ask" data-ref="${r}">${ico('sparkles')}Ask the Assistant</button><button class="btn ghost" data-action="stub" data-v="Light edit: change the amount, status or text here.">${ico('pencil')}Edit</button></div>
+    <div class="sec-h">Comments</div>${commentList(r)}</div>`;
+}
+function renderMobile(){
+  const ppl=['meera','rohan'].map(p=>av(p).replace('</span>','<span class="dot"></span></span>')).join('');
+  const inner=`<div class="m-status"></div>
+    <div class="m-head"><div class="t"><b>Aditi &amp; Kabir · Jaipur</b><span>12 to 15 Dec · 300 Guests · ₹25L</span></div><div class="presence">${ppl}${av('ai',S.typing?'working':'')}</div><button class="mini" data-action="m-history" title="Edit history">${ico('history')}</button></div>
+    <div class="m-body">${S.mobileTab==='chat'?`<div class="chat m-chat">${chatHTML(true)}</div>`:mCanvas()}
+      ${S.sheet?sheetHTML(S.sheet):''}</div>
+    <nav class="m-tabs"><button class="${S.mobileTab==='chat'?'on':''}" data-action="tab" data-v="chat">${ico('messages-square')}Chat</button><button class="${S.mobileTab==='canvas'?'on':''}" data-action="tab" data-v="canvas">${ico('layout-list')}Canvas${S.unseen&&S.mobileTab!=='canvas'?`<span class="count">${S.unseen}</span>`:''}</button></nav>`;
+  return `<div class="stage"><div class="phone">${inner}</div>
+    <div class="stage-notes"><h3>Mobile: Chat first</h3><ul>
+      <li>Tap a yellow reference in a message: the app jumps to the Canvas tab and the Assistant highlights the item.</li>
+      <li>Canvas tab is a list grouped by kind. Tap a row for details, Comments and <b>Ask the Assistant</b>.</li>
+      <li>Light edits only: tick checklist items, edit a note.</li>
+      <li>The badge on the Canvas tab counts changes made while you were in the Chat.</li></ul></div></div>`;
+}
+
+/* ---------- render ---------- */
+function render(){
+  const sc=$('#scroller')?.scrollTop, ms=$('#msgs'), msBottom=ms?ms.scrollHeight-ms.scrollTop-ms.clientHeight<40:true, msTop=ms?.scrollTop;
+  renderTop();
+  $('#app').innerHTML = isMobile()?renderMobile():renderDesktop();
+  if(sc!=null&&$('#scroller')) $('#scroller').scrollTop=sc;
+  const m2=$('#msgs'); if(m2) m2.scrollTop = msBottom||render.toBottom ? m2.scrollHeight : msTop;
+  render.toBottom=false;
+  lucide.createIcons();
+  S.justAdded=null;
+  placePop();
+  bindFreeform();
+}
+
+function placePop(){
+  const pop=document.querySelector('.pop'); if(!pop||isMobile()) return;
+  const cardEl=pop.closest('.card'), tgt=cardEl.querySelector(`[data-ref="${S.openComments}"]:not(.card)`);
+  if(!tgt) return;
+  const cr=cardEl.getBoundingClientRect(), tr=tgt.getBoundingClientRect(), k=cr.height/cardEl.offsetHeight;
+  pop.style.top=((tr.bottom-cr.top)/k+4)+'px';
+}
+/* ---------- pointing: the Assistant (or history) highlights items ---------- */
+function point(refs){
+  refs=[].concat(refs);
+  S.pointed={refs,until:Date.now()+4500};
+  S.peek=[];
+  if(isMobile()&&S.mobileTab==='chat'){S.mobileTab='canvas';S.returnToChat=true;S.unseen=0}
+  S.sheet=null;
+  render();
+  const first=document.querySelector(`[data-ref="${refs[0]}"]`);
+  if(S.arrangement==='freeform'&&!isMobile()) panTo(parentOf(refs[0]));
+  else first?.scrollIntoView({behavior:'smooth',block:'center'});
+  clearTimeout(point.h);point.h=setTimeout(()=>{document.querySelectorAll('.pointed').forEach(e=>e.classList.remove('pointed'))},4500);
+}
+function panTo(id){
+  const it=item(id), vp=$('#ff'); if(!it||!vp) return;
+  const el=document.querySelector(`[data-item="${id}"]`); const h=el?el.offsetHeight:200;
+  S.ff.x = vp.clientWidth/2-(it.pos.x+it.pos.w/2)*S.ff.z;
+  S.ff.y = vp.clientHeight/2-(it.pos.y+Math.min(h,500)/2)*S.ff.z;
+  const w=$('#ffw'); w.style.transition='transform .6s cubic-bezier(.16,1,.3,1)'; w.style.transform=`translate(${S.ff.x}px,${S.ff.y}px) scale(${S.ff.z})`;
+  setTimeout(()=>w.style.transition='',650);
+}
+
+/* ---------- scripted Assistant ---------- */
+function reply(text,ctx){
+  const t=text.toLowerCase(), has=p=>ctx.some(r=>r.startsWith(p)||parentOf(r)===p);
+  if(ctx.some(r=>['v-amer','v-gulmohar','v-kesar'].includes(r))||/venue|lawn/.test(t))
+    return {text:'For the sangeet, [[v-gulmohar|Gulmohar Marriage Garden]] has a Quote of ₹1.9L, under its [[b:sangeet-venue|₹2L share]]. [[v-amer|Amer Bagh Lawns]] would let you keep one Venue for three Functions, but Rohan’s Comment says parking at Gulmohar is tight. I’d ask both for a Quote that includes parking.',refs:['v-gulmohar','b:sangeet-venue','v-amer']};
+  if(has('b:')||has('v-phoolwala')||/budget|over|bring.*down|cheaper|cost/.test(t))
+    return {text:'Two rows are over their share: [[b:sangeet-decor|Sangeet decor]] by ₹50k and [[b:mehendi-artists|Mehendi artists]] by ₹5k. My Estimate on [[v-phoolwala|Phoolwala]] without ceiling drapes is ₹2.8L, which brings sangeet decor back under. The [[i-mirror|mirror-work stage]] Inspiration doesn’t need drapes.',refs:['b:sangeet-decor','b:mehendi-artists','v-phoolwala','i-mirror']};
+  if(/jain|menu|food|cater/.test(t)||has('v-rasoi')||has('n-jain'))
+    return {text:'[[v-rasoi|Rasoi Royale]] lists ₹950 to ₹1,400 a plate on their site. My Estimate of ₹1,050 assumes a separate Jain counter for about 40 Guests, from [[n-jain|Aditi’s note]]. Their Quote is due on [[cl-caterer|24 Oct]].',refs:['v-rasoi','n-jain','cl-caterer']};
+  if(/due|week|deadline|when/.test(t))
+    return {text:'Due soon: [[dl:venues|lock all Venues by 31 Oct]] and the [[cl-caterer|caterer Quote on 24 Oct]]. Still with no Vendor: [[cl-dj|DJ & sound]], [[cl-pandit|Pandit]] and [[cl-transport|Guest transport]].',refs:['dl:venues','cl-caterer','cl-dj','cl-pandit','cl-transport']};
+  if(/dj|music|sound/.test(t))
+    return {text:'I’d look for a DJ who can also do the sangeet stage sound. Your share for it is [[b:sangeet-dj|₹60k]]. I can search Vendors’ own sites in Jaipur and bring back Listed prices with their source and date.',refs:['b:sangeet-dj','cl-dj']};
+  if(ctx.length) return {text:`Looking at ${ctx.map(r=>`[[${r}|${labelFor(r)}]]`).join(' and ')}. In the real Assistant this answer would be about the selection and could edit it on the Canvas, with the change showing up in the edit history.`,refs:ctx};
+  return {text:'In the real product I’d answer this and update the Canvas. Try selecting an item first, or ask about the budget, Venues, food or what’s due.',refs:[]};
+}
+function send(text){
+  text=text.trim(); if(!text) return;
+  const ctx=[...S.selected];
+  S.chat.push({id:'u'+S.nextId++,who:'aditi',t:'now',text,ctx});
+  S.selected=[]; S.typing=true; render.toBottom=true; render();
+  setTimeout(()=>{
+    const r=reply(text,ctx);
+    S.typing=false; S.chat.push({id:'a'+S.nextId++,who:'ai',t:'now',text:r.text});
+    render.toBottom=true;
+    if(r.refs.length){ if(isMobile()){S.unseen+=r.refs.length;render()} else point(r.refs) } else render();
+  },1100);
+}
+
+/* ---------- add to Canvas ---------- */
+function addItem(src){
+  const it=JSON.parse(JSON.stringify(src));
+  const vp=$('#ff');
+  if(vp){it.pos={x:(vp.clientWidth/2-S.ff.x)/S.ff.z-120,y:(vp.clientHeight/2-S.ff.y)/S.ff.z-100,w:it.type==='inspiration'?210:260}}
+  else it.pos={x:1120+(S.nextId%2)*230,y:1060+Math.floor(S.nextId/2)*120,w:it.type==='inspiration'?210:260};
+  S.items.push(it); S.justAdded=it.id; S.nextId++;
+  S.history.unshift({who:'aditi',text:`added ${KIND[it.type][1]} “${it.title}”`,ref:it.id,t:'just now'});
+  if(isMobile()){S.unseen++;render();toast('Added to the Canvas');}
+  else point(it.id);
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(!a){ if(!e.target.closest('[data-stop]')&&(S.openComments||S.historyOpen)){S.openComments=null;S.historyOpen=false;render()} return }
+  const act=a.dataset.action, ref=a.dataset.ref, v=a.dataset.v;
+  if(['select','sheet'].includes(act)&&e.target.closest('[contenteditable],input,textarea')) return;
+  if(act==='select'&&e.target.closest('.card-actions,.row-cm,.check')) return;
+  e.stopPropagation();
+  switch(act){
+    case 'arr': S.arrangement=v; S.openComments=null; render(); break;
+    case 'device': S.device=v; S.sheet=null; render(); break;
+    case 'fn': S.fn=v; render(); break;
+    case 'select':
+      if(S.dragMoved) return;
+      if(e.shiftKey||e.metaKey||e.ctrlKey) S.selected=S.selected.includes(ref)?S.selected.filter(r=>r!==ref):[...S.selected,ref];
+      else S.selected=(S.selected.length===1&&S.selected[0]===ref)?[]:[ref];
+      render(); break;
+    case 'unselect': S.selected=S.selected.filter(r=>r!==ref); render(); break;
+    case 'ask':
+      if(!S.selected.includes(ref)) S.selected=[ref];
+      S.sheet=null; if(isMobile()){S.mobileTab='chat';S.returnToChat=false}
+      render.toBottom=true; render(); $('#ta')?.focus(); break;
+    case 'comments': S.openComments=S.openComments===ref?null:ref; render(); $('.pop input')?.focus(); break;
+    case 'close-comments': S.openComments=null; render(); break;
+    case 'point': S.historyOpen=false; point(ref); break;
+    case 'toggle': {const c=S.checklist.find(x=>x.id===ref);c.done=!c.done;if(c.done)c.status='Booked';S.history.unshift({who:'aditi',text:`${c.done?'ticked':'unticked'} ${c.cat}`,ref,t:'just now'});render();break}
+    case 'history': S.historyOpen=!S.historyOpen; render(); break;
+    case 'm-history': toast('Edit history would open as a sheet here (see Desktop for the full list).'); break;
+    case 'add': {const src=S.offCanvas[v]; if(src&&!item(v)) addItem(src); break}
+    case 'add-row': {const m=S.chat.find(x=>x.id===v);if(!S.checklist.some(c=>c.id===m.attach.row.id)){S.checklist.push({...m.attach.row});S.history.unshift({who:'aditi',text:'added checklist task “Jain counter”',ref:'cl-jain',t:'just now'});if(isMobile()){S.unseen++;render();toast('Added to the Vendor checklist')}else point('cl-jain')}break}
+    case 'msg-note': {const m=S.chat.find(x=>x.id===v);addItem({id:'n-'+S.nextId,type:'note',title:'From the Chat',by:m.who==='ai'?'aditi':m.who,text:m.text.replace(/\[\[[^|]+\|([^\]]+)\]\]/g,'$1')});break}
+    case 'add-note': addItem({id:'n-'+S.nextId,type:'note',title:'New note',by:'aditi',text:'Write something…'}); break;
+    case 'suggest': send(v); break;
+    case 'tab': S.mobileTab=v; if(v==='canvas')S.unseen=0; S.returnToChat=false; S.sheet=null; render.toBottom=v==='chat'; render(); break;
+    case 'sheet': if(e.target.closest('.check')) return; S.sheet=ref; render(); break;
+    case 'close-sheet': S.sheet=null; render(); break;
+    case 'zoom': zoomBy(+v>0?1.15:1/1.15); break;
+    case 'fit': fit(); break;
+    case 'stub': toast(v); break;
+  }
+});
+document.addEventListener('submit',e=>{
+  e.preventDefault();
+  const f=e.target;
+  if(f.dataset.form==='send'){send($('#ta').value)}
+  if(f.dataset.form==='comment'){const t=f.querySelector('input').value.trim();if(!t)return;(S.comments[f.dataset.ref]??=[]).push({who:'aditi',text:t,t:'now'});render();(isMobile()?document:document).querySelector('.cm-form input')?.focus()}
+});
+document.addEventListener('keydown',e=>{
+  if(e.target.id==='ta'&&e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(e.target.value)}
+  if(e.key==='Escape'){S.selected=[];S.openComments=null;S.historyOpen=false;S.sheet=null;render()}
+});
+document.addEventListener('mouseover',e=>{
+  const r=e.target.closest('.ref'); if(!r||isMobile()) return;
+  const els=document.querySelectorAll(`[data-ref="${r.dataset.ref}"]:not(.ref)`);
+  els.forEach(x=>x.classList.add('peek'));
+  r.addEventListener('mouseleave',()=>els.forEach(x=>x.classList.remove('peek')),{once:true});
+});
+
+/* ---------- freeform pan, zoom, drag ---------- */
+function applyFF(){const w=$('#ffw');if(w)w.style.transform=`translate(${S.ff.x}px,${S.ff.y}px) scale(${S.ff.z})`;const s=document.querySelector('.ff-tools span');if(s)s.textContent=Math.round(S.ff.z*100)+'%'}
+function zoomBy(k,cx,cy){const vp=$('#ff');cx??=vp.clientWidth/2;cy??=vp.clientHeight/2;const z=Math.min(1.6,Math.max(.3,S.ff.z*k));S.ff.x=cx-(cx-S.ff.x)*z/S.ff.z;S.ff.y=cy-(cy-S.ff.y)*z/S.ff.z;S.ff.z=z;applyFF()}
+function fit(){const vp=$('#ff');const xs=S.items.map(i=>i.pos.x),ys=S.items.map(i=>i.pos.y),xe=S.items.map(i=>i.pos.x+i.pos.w),ye=S.items.map(i=>i.pos.y+320);
+  const minx=Math.min(...xs),miny=Math.min(...ys),w=Math.max(...xe)-minx,h=Math.max(...ye)-miny;
+  S.ff.z=Math.min(1,Math.min((vp.clientWidth-60)/w,(vp.clientHeight-60)/h));S.ff.x=30-minx*S.ff.z;S.ff.y=30-miny*S.ff.z;applyFF()}
+function bindFreeform(){
+  const vp=$('#ff'); if(!vp) return;
+  vp.addEventListener('wheel',e=>{e.preventDefault();const b=vp.getBoundingClientRect();if(e.ctrlKey||e.metaKey)zoomBy(e.deltaY<0?1.08:1/1.08,e.clientX-b.left,e.clientY-b.top);else{S.ff.x-=e.deltaX;S.ff.y-=e.deltaY;applyFF()}},{passive:false});
+  vp.addEventListener('pointerdown',e=>{
+    if(e.target.closest('button,input,[contenteditable],.pop')) return;
+    const head=e.target.closest('[data-drag]'); S.dragMoved=false;
+    const sx=e.clientX, sy=e.clientY;
+    if(head){
+      const id=head.dataset.drag, it=item(id), el=document.querySelector(`[data-item="${id}"]`), ox=it.pos.x, oy=it.pos.y;
+      el.classList.add('dragging'); el.style.zIndex=10;
+      const mv=ev=>{const dx=(ev.clientX-sx)/S.ff.z,dy=(ev.clientY-sy)/S.ff.z;if(Math.abs(dx)+Math.abs(dy)>3)S.dragMoved=true;it.pos.x=ox+dx;it.pos.y=oy+dy;el.style.left=it.pos.x+'px';el.style.top=it.pos.y+'px'};
+      const up=()=>{el.classList.remove('dragging');removeEventListener('pointermove',mv);removeEventListener('pointerup',up);if(S.dragMoved){S.history.unshift({who:'aditi',text:`moved ${it.title}`,ref:id,t:'just now'})}setTimeout(()=>S.dragMoved=false,0)};
+      addEventListener('pointermove',mv);addEventListener('pointerup',up);
+    } else if(!e.target.closest('.card,.ff-tools,.ff-hint')){
+      const ox=S.ff.x, oy=S.ff.y; vp.classList.add('panning');
+      const mv=ev=>{S.ff.x=ox+ev.clientX-sx;S.ff.y=oy+ev.clientY-sy;applyFF()};
+      const up=()=>{vp.classList.remove('panning');removeEventListener('pointermove',mv);removeEventListener('pointerup',up)};
+      addEventListener('pointermove',mv);addEventListener('pointerup',up);
+    }
+  });
+}
+addEventListener('resize',()=>{if(innerWidth<760&&!isMobile()){S.device='mobile';render()}});
+render();
+</script>
+</body>
+</html>
