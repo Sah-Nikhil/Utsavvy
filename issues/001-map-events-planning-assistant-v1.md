@@ -1,6 +1,6 @@
 ---
 id: 1
-title: "Map: Events planning assistant v1"
+title: "Map: Utsavvy v1"
 labels: [wayfinder:map]
 status: open
 assignee:

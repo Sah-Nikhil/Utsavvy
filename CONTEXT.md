@@ -1,4 +1,4 @@
-# Events planning assistant
+# Utsavvy
 
 A GenAI planning assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas.
 

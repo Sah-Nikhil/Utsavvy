@@ -4,7 +4,7 @@ Target: PromptWars Virtual submission (code, live preview and a LinkedIn build-i
 
 ## Phase 0: Wayfinding
 
-Decide everything the build needs. Progress is tracked on the map, [Map: Events planning assistant v1](issues/001-map-events-planning-assistant-v1.md).
+Decide everything the build needs. Progress is tracked on the map, [Map: Utsavvy v1](issues/001-map-events-planning-assistant-v1.md).
 
 - [x] Destination, scope and vocabulary settled (`CONTEXT.md`, ADR 0001)
 - [ ] All map tickets closed

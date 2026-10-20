@@ -1,6 +1,6 @@
-# Events planning assistant
+# Utsavvy
 
-A GenAI planning Assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas. Built solo for PromptWars Virtual, with submission due about 2026-10-28.
+Utsavvy (utsav, "festival", + savvy) is a GenAI planning Assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas. Built solo for PromptWars Virtual, with submission due about 2026-10-28.
 
 Status: **planning**. The wayfinder map in `issues/` is being worked through. There is no app code, no tests and no locked stack yet. Don't scaffold anything before the map ticket "Which stack do we build on?" (`issues/010-stack-choice.md`) closes.
 
