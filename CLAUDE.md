@@ -12,12 +12,14 @@ Status: **planning**. The wayfinder map in `issues/` is being worked through. Th
 None yet.
 
 ## Structure
+- `AGENTS.md`: entry point for non-Claude agents; it defers to this file, so keep project instructions here.
 - `issues/`: local-markdown issue tracker. The map is `issues/001-map-events-planning-assistant-v1.md`; see `docs/agents/issue-tracker.md` for how it works.
 - `docs/adr/`: numbered ADRs for settled tradeoffs.
 - `docs/agents/`: docs for agents working in this repo.
 
 ## Conventions
 - Use the vocabulary in `CONTEXT.md` exactly. In particular: Member (plans) vs Guest (attends); Listed price vs Estimate vs Quote, never blended; Vendor with Venue as one category; never "pin" or "board".
+- `.private/` is gitignored and holds plans that must stay out of the public repo. Never copy, quote or summarize its contents into committed files, issues, PRs or commit messages.
 - Planning phase: map tickets produce decisions, not product code. Prototypes are throwaway and live on `prototype/<slug>` branches; research lives on `research/<slug>` branches. Neither is merged.
 
 ## Docs & context

@@ -20,3 +20,6 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+
+# private plans (never published)
+.private/

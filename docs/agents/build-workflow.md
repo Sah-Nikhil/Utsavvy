@@ -1,0 +1,229 @@
+# Build workflow: parallel agents on GitHub
+
+How build work moves from the spec into GitHub, how several agents build it at the same time in separate worktrees, and how their work merges into `main` without merge pain. Decided in [How do parallel agents take build work from GitHub and merge it back cleanly?](../../issues/014-parallel-agent-build-workflow.md) on 2026-10-21.
+
+This doc is planning only. Nothing in it exists on GitHub yet: the `.github/` files, CI, `.gitattributes` and the GitHub issues are created by the hand-off steps at the end. Parts that depend on the stack (Convex, Vercel, Clerk, Playwright) assume the research pick from tickets 004 and 005 and are marked **(depends on 010)**. If [Which stack do we build on?](../../issues/010-stack-choice.md) picks something else, adjust those parts and keep the rest.
+
+## Roles
+
+| Role | Who | Does |
+|---|---|---|
+| Human | Sah-Nikhil | Approves the build plan and its test seams (ticket 013), gives the one go-ahead for GitHub setup, reviews and merges the contract PR, can stop or question any merge at any time, installs Ponytail. |
+| Orchestrator | Claude Opus, high effort, the main T3 thread | Creates the GitHub setup and issues, starts build agents, owns every shared file, reviews results, posts the TLDR and verdict on each PR, merges. |
+| Build agent | Claude Opus, high effort, one per issue | Builds exactly one issue in its own worktree and opens one PR. |
+| Reviewer | Codex Sol, high effort | Independent review of every PR before merging. |
+| Check runner | Codex Luna or Claude Haiku, medium effort | Reruns known checks and collects logs when asked. Never fixes code. |
+
+## Where work lives
+
+- **GitHub Issues**: every piece of build work an agent can pick up. Blank issues are turned off; issues are created from the build issue template.
+- **GitHub Discussions, "Ideas" category**: stretch goals and everything in the map's "Not yet specified" list (browser extension, live co-editing, voice, the "Next up" brief, Guest lists and RSVPs). An idea becomes an issue only once it is specified enough to build. The issue template's chooser links to the Ideas category, as t3code's does.
+- **Planning record**: the local `issues/` folder stays the source of truth for the planning phase. Its closed tickets are also copied to GitHub as closed issues with the `planning` label (see the setup checklist), so the whole history is visible on GitHub.
+
+## Phases
+
+Each build phase is two things with the same name:
+
+- a **parent issue**, whose body holds the phase's shared context (which contract it builds on, what "done" means for the phase) and whose sub-issues are the agent-sized tasks, and
+- a **milestone** with the phase's due date from `ROADMAP.md`.
+
+Every build issue gets both: `gh issue create --parent <phase issue> --milestone "<phase name>"`. Ordering between tasks uses GitHub's native "blocked by" links (`gh issue edit <n> --add-blocked-by <m>`). The `gh` CLI on this machine (v2.97.0) supports `--parent`, `--add-blocked-by` and `--milestone`. Issue types are not used: they exist only for organization-owned repos, and this repo belongs to a personal account. Labels do that job instead.
+
+If a phase slips, move its milestone's due date. Nothing else needs to stay in sync.
+
+## Slicing and waves
+
+1. **Contract slice first, alone.** One build agent builds the contract, which every other slice builds on:
+   - the database schema and shared TypeScript types,
+   - design tokens and the app shell,
+   - the route map (every page exists, possibly as a stub),
+   - every package the build plan already knows it needs, installed once (`package.json`, `bun.lock`),
+   - `.env.example` with every variable the plan knows about,
+   - `.gitattributes`, `.editorconfig`, the CI workflow, the PR template and the issue templates,
+   - the Playwright setup with one smoke test that opens the app.
+
+   The contract PR waits for the human's explicit go before merging.
+2. **Waves of up to 3 build agents at once.** A wave is a set of issues whose `blocked_by` are all closed and whose owned paths don't overlap. The next wave starts once the current wave's PRs have merged. The orchestrator may start a ready issue early when a slot frees up and its owned paths don't overlap anything still open.
+3. **One issue, one branch, one PR.** A slice that turns out bigger than its issue gets split by the orchestrator into a new issue, not stretched.
+
+## Shared files have one owner
+
+After the contract merges, only the orchestrator changes these:
+
+- `package.json` and `bun.lock`
+- the database schema (`convex/schema.ts`, **depends on 010**)
+- the shared types and design tokens (paths fixed by the build plan in ticket 013)
+- `.env.example`
+- `.gitattributes`, `.editorconfig`, root config (`tsconfig.json`, lint and formatter config, `next.config.*`)
+- everything in `.github/`
+
+Generated code (`convex/_generated/`, **depends on 010**) is never edited by hand. It is regenerated by the Convex CLI and committed.
+
+When a build agent needs a change to one of these (a new package, a schema field, an environment variable), it stops and reports what it needs to the orchestrator. The orchestrator opens a small **contract-change** issue and PR, merges it, and the build agent updates its branch from `main` and carries on.
+
+## Branches and worktrees
+
+- Branch name: `build/<issue number>-<short-name>`, for example `build/12-canvas-comments`. Contract-change PRs use the same pattern with their own issue number.
+- The orchestrator starts each build agent with T3's `delegate_task` and `isolation: "worktree"`. The worktree starts from the orchestrator's last local commit, and uncommitted edits are not copied, so `main` must be committed and up to date before fanning out. If T3 gives the worktree branch another name, the agent renames it before pushing: `git branch -m build/<n>-<short-name>`.
+- Each worktree runs its own local Convex backend, so agents never overwrite each other's functions on a shared cloud dev deployment (**depends on 010**). Convex documents this for worktrees: `bunx convex deployment create local --select` ([Convex agent mode docs](https://docs.convex.dev/cli/agent-mode)). Known issue to check during setup: local deployments may all try to use port 3210 ([get-convex/convex-backend#288](https://github.com/get-convex/convex-backend/issues/288)). If they can't run side by side, give each worktree its own ports or fall back to running the app in only one worktree at a time.
+
+## Build issue template
+
+Every build issue uses this body. The build plan in ticket 013 fills it in; the human approves all test seams at once when 013 closes.
+
+```markdown
+## Goal
+One or two sentences: what a Member can do after this merges, in CONTEXT.md terms.
+
+## Phase
+Parent: #<phase issue>. Blocked by: #<n>, #<m>.
+
+## Owned paths
+Files and folders this issue may create or change.
+
+## Must not touch
+Shared files (see docs/agents/build-workflow.md) and other slices' owned paths.
+
+## Interfaces
+- Uses: functions, types, routes and components from the contract or earlier slices.
+- Provides: what later slices will rely on, with names and signatures.
+
+## Test seams
+The public entry points to test with /tdd, each with its expected behavior and a worked example.
+
+## Acceptance criteria
+- [ ] Concrete, checkable outcomes.
+
+## Checks
+bun run typecheck
+bun run lint
+bun run test
+bun run build
+bun run test:e2e
+
+## Done means
+Checks pass locally, the PR is open with the template filled in, and the PR URL and head commit are reported to the orchestrator.
+```
+
+## How a build agent works
+
+1. Read `CLAUDE.md`, `CONTEXT.md`, this doc and the issue. The issue is the spec; if it has a gap, report it instead of improvising.
+2. Mark the issue `in-progress`, set up the worktree (`bun install`, its own local backend) and rename the branch if needed.
+3. Build test-first with `/tdd` on the issue's listed seams, and keep the code minimal with Ponytail (see Testing).
+4. Run every command in the issue's Checks section and make them pass.
+5. Commit with conventional commit messages, push the branch and open a PR from the template, linking the issue with `Closes #<n>`.
+6. Report the PR URL and head commit to the orchestrator, then stop. Don't merge, and don't take another issue.
+
+**Permission.** Assigning a build issue to an agent is the human's explicit permission for that agent to commit to its own `build/` branch, push that branch and open a PR. It may never push to `main`, force-push, delete branches or edit another branch. Outside build issues, the global rule (no commits or pushes unless asked) still applies.
+
+## Testing
+
+- **`/tdd` on the listed seams.** For each seam: write one test, run it and see it fail, write just enough code to pass, repeat. Expected values come from the issue's acceptance criteria and worked examples, never recomputed the way the code computes them. The PR's Verification section shows the failing run before the passing one.
+- **Ponytail for the code itself.** Reuse what already exists (the codebase, the standard library, browser features, installed packages) before writing anything new, and keep the implementation as small as the task allows. Validation, error handling, security and accessibility are never cut. Where the two overlap, `/tdd` wins on the listed seams: tests come first there, not after. Ponytail's own small tests are fine for logic outside the listed seams. Its `shortcut:` comments are allowed.
+- **UI layout** without logic skips TDD and is covered by the browser smoke test. A UI slice adds or extends one smoke test for its screen.
+- **Browser smoke test (Playwright, depends on 010)** runs against the PR's own Vercel preview. Signed-in flows use Clerk's testing tokens (`@clerk/testing`).
+
+## CI gates
+
+The CI workflow runs on every PR and on every push to `main`. All five checks are required by the ruleset on `main`:
+
+| Check | Command |
+|---|---|
+| `typecheck` | `bun run typecheck` |
+| `lint` | `bun run lint` (includes formatting and line endings) |
+| `test` | `bun run test` |
+| `build` | `bun run build` |
+| `e2e` | `bun run test:e2e` against the PR's Vercel preview URL |
+
+The repo is public, so GitHub Actions minutes are free and the ruleset is enforceable on the free plan.
+
+**Fallback for `e2e` (depends on 010).** The `e2e` check needs each PR's preview to have its own backend. Whether Convex preview deployments are on the free plan is unclear: Convex's beta announcement said they need the Professional plan, while 2026 third-party pricing summaries list them as free. Check [convex.dev/pricing](https://convex.dev/pricing) during setup. If they aren't free, `e2e` is not a required PR check. Instead, the build agent runs the browser test locally in its worktree before opening the PR, CI runs it on `main` after every merge, and a red run on `main` makes the orchestrator revert that merge at once.
+
+## Review and merge
+
+1. When a build agent reports, the orchestrator sends the PR to the Codex reviewer with the issue, the acceptance criteria and the diff. The reviewer checks correctness, that the tests match the acceptance criteria and show red before green, that no shared file or other slice's path was touched, and the CONTEXT.md vocabulary.
+2. The orchestrator posts a **TLDR and verdict** as a PR comment and in its chat with the human: what changed, how it was checked, the reviewer's findings, and "merge" or "don't merge, because...".
+3. With CI green, the branch up to date with `main` and no blocking findings, the orchestrator merges without waiting for the human: `gh pr merge <n> --squash --match-head-commit <reviewed sha>`. `--match-head-commit` makes sure the commit merged is the one that was reviewed. The human can stop or question any merge at any point.
+4. **The contract PR is the exception**: it waits for the human's explicit go.
+5. A PR the orchestrator won't merge goes back to its build agent (or a new one) with the findings.
+
+**Merge settings.** Squash merge only, so each PR becomes one commit on `main` titled with its conventional commit title and PR number, for example `feat(canvas): Members can comment on items (#12)`. Branches are deleted after merging. A PR can merge only when its branch is up to date with `main` and CI passed on that updated branch. GitHub's merge queue would automate this, but it is only for organization-owned repos.
+
+**Merge order.**
+
+1. Contract, then contract-change PRs, before anything that depends on them.
+2. Within a wave, follow the `blocked_by` links. Between independent PRs, merge whichever is ready first.
+3. After each merge, the orchestrator updates the other open PRs (`gh pr update-branch <n>`). If `convex/_generated/` conflicts, regenerate it with the Convex CLI instead of resolving the conflict by hand (**depends on 010**). `bun.lock` doesn't conflict, because only the orchestrator changes it.
+4. If `main` goes red anyway, the orchestrator reverts the last merge first and diagnoses after.
+
+## Line endings
+
+This machine has `core.autocrlf=true`, and Claude and Codex agents may write either LF or CRLF. Mixed endings make whole files look changed and cause false merge conflicts. Policy: **LF everywhere**, as in t3code, whose `.gitattributes` names the same autocrlf problem. The contract slice adds:
+
+```gitattributes
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+```
+
+plus an `.editorconfig` with `end_of_line = lf`, and the formatter check in `lint` fails on wrong endings.
+
+## Labels
+
+| Group | Labels | Meaning |
+|---|---|---|
+| Type | `contract`, `slice`, `contract-change`, `bug`, `planning` | What kind of issue it is. `planning` marks copies of the closed planning tickets. |
+| Area | `canvas`, `chat`, `assistant`, `vendors`, `inspirations`, `auth`, `infra` | Which part of the product it touches. |
+| State | `ready`, `in-progress`, `blocked`, `needs-human` | `ready` means an agent may take it. `needs-human` means it waits for Sah-Nikhil. |
+| Scope | `stretch` | Beyond v1; built only if time is left. |
+
+## PR template
+
+`.github/pull_request_template.md`:
+
+```markdown
+<!-- Title: conventional commit in plain language, e.g. "feat(canvas): Members can comment on items". -->
+
+## Issue
+Closes #<n>
+
+## What changed
+What a Member can now do, and the main files touched.
+
+## Verification
+- Test-first: the failing run, then the passing run, for each listed seam.
+- Checks run and their results: typecheck, lint, test, build, e2e.
+- UI changes: before and after screenshots, uploaded to GitHub, not committed.
+- Anything not checked.
+
+## Contract changes
+Shared files this needed changed (should be none; if any, the contract-change issue).
+
+## Built by
+Agent, model and harness, e.g. "Claude Opus 5.5 (high) in T3 Code".
+```
+
+## Hand-off: GitHub setup checklist
+
+Run after the map closes, in this order. Steps 2 to 4 are the human's; the orchestrator runs the rest only after the human's one explicit go.
+
+1. **No secrets tracked.** Check `git ls-files` shows no `.env*` file other than a future `.env.example`, and that `.env.local` is gitignored.
+2. **Commit the planning docs** (human asks for it), so worktrees started from the commit can see them.
+3. **Publish** from GitHub Desktop: File > Add local repository > Publish repository, with "Keep this code private" **unticked**. Optionally push the `research/*` branches too, so links in the planning tickets work on GitHub (they are never merged).
+4. **Install Ponytail** in Claude Code (`/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail`) and in Codex (`codex plugin marketplace add DietrichGebert/ponytail`, `codex plugin add ponytail@ponytail`, then trust its two hooks under `/hooks`). Install only from `DietrichGebert/ponytail`.
+5. **Repo settings**: squash merge only, automatically delete head branches, Discussions on with an "Ideas" category, blank issues off.
+6. **Labels** from the table above (`gh label create`).
+7. **Copy the planning tickets**: each file in `issues/` becomes a closed GitHub issue labelled `planning` plus its original `wayfinder:*` label, with the file's body and comments and a link back to the file. The map becomes the parent and its children sub-issues; `blocked_by` becomes native "blocked by" links. Update `docs/agents/issue-tracker.md` to say where build work now lives.
+8. **Milestones and phase parent issues** from `ROADMAP.md`, then the build issues from `IMPLEMENTATION_PLAN.md` with `--parent`, `--milestone`, labels and "blocked by" links. Stretch goals and not-yet-specified items become Ideas discussions.
+9. **Hosting (depends on 010)**: connect the repo to Vercel (Hobby plan) for production and per-PR previews. Check Convex preview deployments on the free plan and pick the `e2e` route above. Set preview Deployment Protection so the browser test can reach previews (turn off Vercel Authentication for previews, or use the protection bypass header). Confirm Clerk development keys work on preview domains.
+10. **Contract slice**: start one build agent on the contract issue. Its PR adds the CI workflow, templates, `.gitattributes` and `.editorconfig`.
+11. **Ruleset on `main`**, once the contract PR's CI has run at least once so its check names exist: require a pull request (0 approvals), require the status checks `typecheck`, `lint`, `test`, `build` (and `e2e` if previews have their own backend) with "branches must be up to date", block force pushes and deletion, squash merge only. Confirm the `e2e` check shows up on the PR's commit before requiring it.
+12. **Merge the contract** after the human's go, then start the first wave.
+
+## Sources
+
+- t3code's setup (read 2026-10-21 with `gh api`): `.github/ISSUE_TEMPLATE/config.yml` turns blank issues off and links feature requests to [Ideas discussions](https://github.com/pingdotgg/t3code/discussions/categories/ideas); `CONTRIBUTING.md` says bugs go in issues and features in Ideas; `.github/pull_request_template.md` has Problem, Change, Scope and approval, Verification sections and ends with the agent's model and harness; `.gitattributes` uses `* text=auto eol=lf` because of autocrlf.
+- `gh` v2.97.0 help: `gh issue create --parent/--milestone/--type`, `gh issue edit --add-blocked-by`, `gh pr update-branch`, `gh pr merge --squash --match-head-commit`.
+- GitHub docs: [protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) and [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets) are on public repos with GitHub Free, private repos need Pro or higher; [issue dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies) are on all plans; [sub-issues and issue types GA](https://github.blog/changelog/2025-04-09-evolving-github-issues-and-projects/), up to 100 sub-issues per parent ([changelog](https://github.blog/changelog/2024-12-12-github-issues-projects-close-issue-as-a-duplicate-rest-api-for-sub-issues-and-more/)); issue types are organization-only ([Simon Willison, 2025-01-16](https://simonwillison.net/2025/Jan/16/evolving-github-issues/)).
+- Convex: [preview deployments](https://docs.convex.dev/production/hosting/preview-deployments) (beta; [Convex 1.5 announcement](https://news.convex.dev/announcing-convex-1-5/) said Professional plan; unverified for 2026), [agent mode and worktree local deployments](https://docs.convex.dev/cli/agent-mode), [port 3210 issue](https://github.com/get-convex/convex-backend/issues/288).
+- Ponytail: [README](https://github.com/DietrichGebert/ponytail) (MIT, read 2026-10-21); its benchmark figures are the author's own.

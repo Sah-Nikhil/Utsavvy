@@ -23,6 +23,7 @@ A build-ready spec for v1 of the Assistant (scope, stack ADRs, data model, Canva
 - **Vendors**: discovery only. Markers come from public sources, with Listed prices shown with source and date so Members can compare. No marketplace.
 - **Inspirations**: stock search, AI generation and Pinterest references, plus "remix into my theme". The theme feeds the plan.
 - **Pace**: solo, about 7 days to submission. Decide fast: spreading tickets over several sessions is fine, deliberating for days is not. When a decision stalls, take the recommendation.
+- **Hand-off**: after the map closes, the repo is published from GitHub Desktop and the build plan becomes GitHub Issues (with Discussions for ideas, as t3code does), so several agents can build in parallel worktrees and merge into `main`. The spec must be sliced for that.
 - **Planning, not doing**: no override. Tickets produce decisions, not product code. Prototypes are throwaway.
 - **Skills**: grilling tickets call `grilling` and `domain-modeling`. Research tickets have no `research` skill installed, so they go to a research subagent (Sol high, per [orchestration.md](../orchestration.md)) that commits its findings to a `research/<slug>` branch. Prototype tickets have no `prototype` skill installed, so use `impeccable` for the UI and keep the prototype on a throwaway `prototype/<slug>` branch.
 - **Tracker**: local markdown in `issues/`. See [the issue tracker doc](../docs/agents/issue-tracker.md).
@@ -31,6 +32,13 @@ A build-ready spec for v1 of the Assistant (scope, stack ADRs, data model, Canva
 ## Decisions so far
 
 <!-- one line per closed ticket: - [<title>](./NNN-slug.md): <one-line gist> -->
+
+- [Which backend gives live Chat and Canvas updates, presence and sign-in for a one-week build?](./004-realtime-backend.md): research recommends Convex + Clerk on Vercel (shared streamed replies built in); Firebase storage needs Blaze; phone share sheet works on Android and desktop, not iOS.
+- [Which LLM and agent tooling should the Assistant run on?](./005-llm-and-agent-tooling.md): research recommends `gemini-3.8-flash` on Vercel AI SDK 7 (Convex Agent if Convex wins); grounding and image generation are paid only; one Assistant run per Event at a time.
+- [Where can Vendor locations and Listed prices for Indian venues legally come from?](./002-vendor-data-sources.md): Places data can't go on a non-Google map and directories forbid reuse; research recommends ~12-20 hand-curated Jaipur Vendors on an OSM map, Listed prices from Vendors' own sites, Gemini Maps grounding only for live cited answers in the Chat.
+- [Which Inspiration sources can we use, and how can Pinterest come in?](./003-inspiration-sources.md): Pexels search, Member uploads and paid Gemini images; Pinterest only as pasted or shared URLs shown with its official widget (no search, no remixing its images); Instagram via tokenless public oEmbed.
+- [Which search and geocoding services can power live Vendor discovery?](./015-search-and-geocoding-services.md): Serper to find Vendors' own sites (URLs only), our own polite fetch to read them, Geoapify to geocode stored Markers; all independent of the LLM provider and free at demo volume; card images default to a neutral visual.
+- [How do parallel agents take build work from GitHub and merge it back cleanly?](./014-parallel-agent-build-workflow.md): build work in GitHub Issues (phase = parent issue + milestone), ideas in Discussions; contract slice first, then waves of up to 3 worktree agents with orchestrator-owned shared files; `/tdd` + Ponytail; CI typecheck, lint, test, build, preview e2e; orchestrator squash-merges when green and up to date, human approves only the contract PR. See [docs/agents/build-workflow.md](../docs/agents/build-workflow.md).
 
 ## Not yet specified
 
