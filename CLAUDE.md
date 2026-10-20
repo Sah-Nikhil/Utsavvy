@@ -2,14 +2,31 @@
 
 Utsavvy (utsav, "festival", + savvy) is a GenAI planning Assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas. Built solo for PromptWars Virtual, with submission due about 2026-10-28.
 
-Status: **planning**. The wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is being worked through on GitHub Issues. There is no app code, no tests and no locked stack yet. Don't scaffold anything before the map ticket [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) closes.
+Status: **planning**. The wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is being worked through on GitHub Issues. The stack is locked (see Stack below), but there is no app code and no tests yet. Don't scaffold anything before the build plan, [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18), closes; the contract slice does the scaffolding.
 
-## Stack (not locked yet)
+## Stack (locked: don't substitute without a new decision)
+Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) on 2026-10-21. Versions are the latest as of that date; the contract slice pins them.
 - Package manager: **bun**: `bun install`, `bun add`, `bun run <script>`, `bunx`. Never npm/npx/yarn/pnpm; translate `npx` in third-party docs to `bunx`.
-- Everything else (framework, backend and real-time layer, sign-in, LLM and agent framework, map library, hosting) is decided by [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) and recorded as ADRs in `docs/adr/`.
+- App: **Next.js 16.4** (App Router) + React 19, hosted on **Vercel Hobby** (non-commercial use only), Node 22+. See ADR 0002.
+- Backend: **Convex** for the database, live Chat and Canvas, file storage (Inspiration uploads) and presence (`@convex-dev/presence`). Each PR preview gets its own Convex preview deployment. See ADR 0002.
+- Sign-in: **Clerk** on development keys on the `*.vercel.app` URL (no owned domain), with Google and email + password. Judges use ready-made accounts in a seeded demo Event or `+clerk_test` addresses with code `424242`. See ADR 0002.
+- Assistant: **AI SDK 7** + the **Convex Agent** component (`@convex-dev/agent`). Default model `claude-sonnet-5-5`, helper model `claude-haiku-5-5`, fallback default `gemini-3.8-flash`; the model is a setting. See ADR 0003.
+- Event keys: Anthropic, Google or OpenAI keys attached to an Event, encrypted with AES-256-GCM, fixed model list, falling back to the default model on failure. Image generation (`gemini-nano-banana-2.1`, `gpt-image-2.5-flare`) exists only with a capable Event key. See ADR 0004.
+- Vendor discovery: **Serper** (find Vendors' own sites, URLs only), our own polite server-side fetch (Jina Reader as fallback for JavaScript-only sites), **Geoapify** for geocoding. Stock Inspirations: **Pexels**.
+- Map: **MapLibre GL JS** via `react-map-gl/maplibre` with **OpenFreeMap** tiles; the style URL is a single setting. See ADR 0005.
+- Tooling: TypeScript **6.0** (not 7), **ESLint** (`eslint-config-next` + `@convex-dev/eslint-plugin`) + **Prettier** (LF line endings), **Vitest** + `convex-test`, **Playwright**. See ADR 0006.
+- Styling and any Canvas layout library: not locked here; decided by [How should the Canvas look and behave on desktop and mobile?](https://github.com/Sah-Nikhil/Utsavvy/issues/11).
+- All code is written with the Ponytail skill (smallest change that fully solves the task); see `docs/agents/build-workflow.md`.
 
 ## Commands
-None yet.
+Planned; the contract slice creates these scripts in `package.json`.
+- dev: `bun run dev` (Next.js and `convex dev` side by side)
+- check before "done": `bun run typecheck && bun run lint`
+- typecheck: `bun run typecheck` (`tsc --noEmit`)
+- lint: `bun run lint` (ESLint, then `prettier --check`; fails on CRLF line endings). Fix formatting with `bun run format`.
+- test: `bun run test` (Vitest). **Never `bun test`**: that starts Bun's own runner, which can't run `convex-test`.
+- build: `bun run build` (`next build`; on Vercel the build command is `bunx convex deploy --cmd 'bun run build'`)
+- browser tests: `bun run test:e2e` (Playwright)
 
 ## Structure
 - `AGENTS.md`: entry point for non-Claude agents; it defers to this file, so keep project instructions here.

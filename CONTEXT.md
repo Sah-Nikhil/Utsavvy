@@ -16,6 +16,10 @@ _Avoid_: occasion, party, project
 One gathering within an Event, with its own date, place, guest count and share of the budget. A wedding has several (haldi, mehendi, sangeet, wedding, reception); a birthday usually has one.
 _Avoid_: sub-event, ceremony, session
 
+**Event key**:
+An AI provider key a Member attaches to one Event. While it is attached, the Assistant's replies and image generation in that Event run on it instead of the default model.
+_Avoid_: BYOK, API key, own key
+
 ## People
 
 **Member**:
@@ -46,8 +50,20 @@ _Avoid_: board, dashboard, page
 The conversation of one Event, between the people planning it and the Assistant. Additions made in the Chat land on the Canvas.
 _Avoid_: thread, room, group
 
+**Item**:
+One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Vendor, an Inspiration or a Note.
+_Avoid_: card, block, widget, element
+
+**Entry**:
+One row inside the Budget, the Timeline or the Vendor checklist, such as one budget line, one deadline or one checklist task.
+_Avoid_: line, row, task (as a general term)
+
+**Note**:
+An Item holding free text that a person wrote on the Canvas or saved from the Chat.
+_Avoid_: sticky, memo, comment
+
 **Comment**:
-A remark a person attaches to one item on the Canvas.
+A remark a person attaches to an Item, an Entry or a highlighted passage of an Item's text.
 _Avoid_: reply, note, annotation
 
 **Inspiration**:
