@@ -1,6 +1,12 @@
 # Build slices for v1
 
-Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator creates the GitHub issues from this file after Sah-Nikhil's go; until then nothing here exists on GitHub.
+Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text.
+
+| Phase | Parent issue | Build issues |
+|---|---|---|
+| Contract (milestone due 22 Oct) | [#28](https://github.com/Sah-Nikhil/Utsavvy/issues/28) | C0 #31, D1 #32, D2 #33 |
+| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53; stretch X1a #54, X1b #55, X2 #56, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X8 #63, X9 #64 |
+| Submit (milestone due 28 Oct) | [#30](https://github.com/Sah-Nikhil/Utsavvy/issues/30) | none; its body is the Phase 2 checklist |
 
 ## How to turn this into issues
 
