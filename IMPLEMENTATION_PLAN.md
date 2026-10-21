@@ -75,7 +75,7 @@ Sah-Nikhil filed live Discovery and Event keys for a later stage, and the smalle
 
 ### 1.4 After v1
 
-Already parked in the [Ideas discussions](https://github.com/Sah-Nikhil/Utsavvy/discussions/categories/ideas): capture from any website, live co-editing, voice, the "Next up" brief, Guest lists and RSVPs, Event keys with any model name, Chat web search on Gemini and OpenAI Event keys, opt-in pooling of Quotes, Remix variants in one Inspiration, emailed invites, and a public read-only link. Nothing new needed parking.
+Already parked in the [Ideas discussions](https://github.com/Sah-Nikhil/Utsavvy/discussions/categories/ideas): capture from any website, live co-editing, voice, the "Next up" brief, Guest lists and RSVPs, Event keys with any model name, Chat web search on Gemini and OpenAI Event keys, opt-in pooling of Quotes, Remix variants in one Inspiration, emailed invites, a public read-only link, and (added 2026-10-22) [a native mobile app beside the mobile website](https://github.com/Sah-Nikhil/Utsavvy/discussions/70).
 
 ### 1.5 Cut line
 
