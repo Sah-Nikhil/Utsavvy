@@ -99,8 +99,16 @@ A remark a person attaches to an Item, an Entry or a highlighted passage of an I
 _Avoid_: reply, note, annotation
 
 **Inspiration**:
-An image or reference saved to a Canvas to shape the look and feel of an Event, whether from a stock photo, an AI generation or Pinterest.
+Something saved to a Canvas to shape the look and feel of an Event: either an image (a stock photo, a Member's upload, an AI generation or a Remix) or a Reference.
 _Avoid_: pin, idea, moodboard item
+
+**Reference**:
+An Inspiration that is a link to someone else's Pinterest or Instagram post, shown through that platform's own embed. Utsavvy keeps only the link and the Member's note about what they like in it, never the picture, so a Reference can't be remixed or looked at by the Assistant.
+_Avoid_: pin, embed, link, bookmark
+
+**Remix**:
+An AI redraw of one image Inspiration in the Event's Theme, keeping its layout and changing its look. It sits beside the original as a new Inspiration, labelled as AI.
+_Avoid_: restyle, edit, variation, filter
 
 **Suggestion**:
 A personalised idea from the Assistant for an Event or one of its Functions, such as "Rajasthani folk musicians at the sangeet dinner", possibly with an Estimate. It is not part of the plan until a Member adds it, which turns it into a budget Entry and a Timeline Entry; a Member can also dismiss it.
