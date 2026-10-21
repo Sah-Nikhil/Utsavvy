@@ -76,7 +76,8 @@ export type Vendor = {
   address?: { line: string; locality: string; city: string };
   phone?: string;
   email?: string;
-  capacity?: Range;
+  /** Guests; `min` only when the site states one ("200 to 400"), not for "up to 500". */
+  capacity?: { min?: number; max: number };
   areaServed?: string;
   summary: string;
   marker?: Marker;
@@ -107,6 +108,26 @@ const DIRECTORIES = [
   "pinterest",
   "linkedin",
   "google",
+  // Listing and marketplace sites met while collecting the starter set.
+  "bookeventz",
+  "weddingz",
+  "wedding", // wedding.net
+  "mandap",
+  "venuebookingz",
+  "jaipurrental",
+  "partykaro",
+  "sloshout",
+  "zoopgo",
+  "servicebazzar",
+  "shaadidukaan",
+  "exportersindia",
+  "tradeindia",
+  "eternalweddingz",
+  "bandbaajabarat",
+  "myeventz",
+  "theweddingcompany",
+  "wedclub",
+  "quora",
 ];
 
 export const domainOf = (url: string) =>
@@ -299,7 +320,18 @@ export const toMarker = (result: GeoapifyResult): Marker => ({
   attribution: "© OpenStreetMap contributors, Geoapify",
 });
 
-/** Geoapify forward geocoding, limited to India and biased to Jaipur. */
+/** Within 50 km of central Jaipur (flat-earth distance is fine at this scale). */
+export function nearJaipur(lat: number, lng: number) {
+  const km = 111.32;
+  const dx = (lng - JAIPUR.lng) * km * Math.cos((JAIPUR.lat * Math.PI) / 180);
+  const dy = (lat - JAIPUR.lat) * km;
+  return Math.hypot(dx, dy) <= 50;
+}
+
+/**
+ * Geoapify forward geocoding, limited to India and biased to Jaipur. A match
+ * outside Jaipur is no match: the Vendor gets no Marker rather than a wrong one.
+ */
 export async function geocode(text: string, apiKey: string) {
   const query = new URLSearchParams({
     text,
@@ -315,7 +347,8 @@ export async function geocode(text: string, apiKey: string) {
   // Never put the request URL in an error or log: it carries the API key.
   if (!res.ok) throw new Error(`Geoapify geocoding failed: HTTP ${res.status}`);
   const { results } = (await res.json()) as { results?: GeoapifyResult[] };
-  return results?.[0] && toMarker(results[0]);
+  const top = results?.[0];
+  return top && nearJaipur(top.lat, top.lon) ? toMarker(top) : undefined;
 }
 
 const PAGES_PER_SITE = 4;
@@ -351,46 +384,70 @@ type PageEntry = {
   status?: number;
   fetchedAt?: string;
   text?: string;
+  /** Same-site links on the page, to choose up to 3 more pages from. */
+  links?: string[];
   skipped?: string;
 };
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** Same-site links in an HTML page, for choosing its price, menu or contact pages. */
+function sameSiteLinks(html: string, base: string) {
+  const links = new Set<string>();
+  for (const [, href] of html.matchAll(
+    /<a\b[^>]*\bhref\s*=\s*["']([^"'#]+)/gi,
+  )) {
+    try {
+      const url = new URL(href.replace(/&amp;/g, "&"), base);
+      if (
+        /^https?:$/.test(url.protocol) &&
+        domainOf(url.href) === domainOf(base)
+      )
+        links.add(url.href);
+    } catch {
+      // not a URL
+    }
+  }
+  return [...links].slice(0, 60);
+}
+
 async function fetchStep(candidatesPath: string, cacheDir: string) {
+  const cachePath = join(cacheDir, "pages.json");
+  // Runs add to the cache, so a site's first page can be read before choosing its others.
+  const pages: Record<string, PageEntry> = await readFile(cachePath, "utf8")
+    .then((text) => JSON.parse(text))
+    .catch(() => ({}));
   const sites = new Map<string, string[]>();
   for (const line of (await readFile(candidatesPath, "utf8")).split(/\r?\n/)) {
     const url = line.replace(/#.*/, "").trim();
     if (url)
       sites.set(domainOf(url), [...(sites.get(domainOf(url)) ?? []), url]);
   }
-  const pages: Record<string, PageEntry> = {};
-  const stats = {
-    sites: sites.size,
-    directorySites: 0,
-    pagesOverLimit: 0,
-    robotsDisallowed: 0,
-    pagesAttempted: 0,
-    pagesFetched: 0,
-  };
+  let directorySites = 0;
+  let pagesOverLimit = 0;
   const robots = new Map<string, (path: string) => boolean>();
 
   for (const [domain, urls] of sites) {
     if (isDirectory(domain)) {
-      stats.directorySites++;
+      directorySites++;
       continue;
     }
-    stats.pagesOverLimit += Math.max(0, urls.length - PAGES_PER_SITE);
-    for (const url of urls.slice(0, PAGES_PER_SITE)) {
+    const read = Object.values(pages).filter(
+      (p) => domainOf(p.url) === domain && p.status !== undefined,
+    );
+    const fresh = urls.filter((url) => !pages[url]);
+    const room = Math.max(0, PAGES_PER_SITE - read.length);
+    pagesOverLimit += Math.max(0, fresh.length - room);
+    for (const url of fresh.slice(0, room)) {
       const { origin, pathname, search } = new URL(url);
       if (!robots.has(origin)) robots.set(origin, await robotsFor(origin));
       if (!robots.get(origin)!(pathname + search)) {
-        stats.robotsDisallowed++;
         pages[url] = { url, skipped: "disallowed by robots.txt" };
         continue;
       }
-      stats.pagesAttempted++;
       try {
         const res = await paced(url);
-        const readable = /html|text\/plain/i.test(res.contentType);
+        const html = /html/i.test(res.contentType);
+        const readable = html || /text\/plain/i.test(res.contentType);
         const ownSite = domainOf(res.finalUrl) === domain;
         const ok = res.status >= 200 && res.status < 300 && readable && ownSite;
         pages[url] = {
@@ -399,30 +456,44 @@ async function fetchStep(candidatesPath: string, cacheDir: string) {
           status: res.status,
           fetchedAt: today(),
           text: ok
-            ? /html/i.test(res.contentType)
+            ? html
               ? htmlToText(res.text)
               : normalise(res.text)
             : undefined,
+          links: ok && html ? sameSiteLinks(res.text, res.finalUrl) : undefined,
           skipped: ok
             ? undefined
             : !ownSite
               ? "redirected off the site"
               : `HTTP ${res.status} ${res.contentType}`,
         };
-        if (ok) stats.pagesFetched++;
         // shortcut: no Jina Reader retry for JavaScript-only pages yet; add it if Phase B needs it.
         if (res.status === 403 || res.status === 429) break; // the site refused us: leave it alone
       } catch (error) {
-        pages[url] = { url, skipped: (error as Error).message };
+        pages[url] = { url, status: 0, skipped: (error as Error).message };
       }
     }
   }
   await mkdir(cacheDir, { recursive: true });
-  await writeFile(
-    join(cacheDir, "pages.json"),
-    JSON.stringify(pages, null, 2) + "\n",
+  await writeFile(cachePath, JSON.stringify(pages, null, 2) + "\n");
+  const entries = Object.values(pages);
+  const attempted = entries.filter((p) => p.status !== undefined);
+  console.log(
+    JSON.stringify(
+      {
+        directorySitesSkipped: directorySites,
+        pagesOverLimit,
+        sites: new Set(entries.map((p) => domainOf(p.url))).size,
+        robotsDisallowed: entries.filter(
+          (p) => p.skipped === "disallowed by robots.txt",
+        ).length,
+        pagesAttempted: attempted.length,
+        pagesFetched: attempted.filter((p) => p.text !== undefined).length,
+      },
+      null,
+      2,
+    ),
   );
-  console.log(JSON.stringify(stats, null, 2));
 }
 
 async function checkStep(
@@ -457,7 +528,10 @@ async function checkStep(
     if (vendor.address) {
       addresses++;
       const { line, locality, city } = vendor.address;
-      vendor.marker = await geocode(`${line}, ${locality}, ${city}`, apiKey);
+      vendor.marker = await geocode(
+        `${line}, ${locality}, ${city}, Rajasthan`,
+        apiKey,
+      );
       if (vendor.marker && !vendor.marker.approximate) exactMarkers++;
     }
     vendors.push(vendor);

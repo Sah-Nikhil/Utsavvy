@@ -7,6 +7,7 @@ import {
   hasCurrency,
   htmlToText,
   isDirectory,
+  nearJaipur,
   parseRobots,
   quoteCheck,
   sentenceHasAmount,
@@ -297,6 +298,14 @@ describe("Markers from Geoapify", () => {
     expect(toMarker(result(1, "city")).approximate).toBe(true);
     expect(toMarker(result(1, "suburb")).approximate).toBe(true);
     expect(toMarker(result(1, "postcode")).approximate).toBe(true);
+  });
+
+  it("only trusts matches within 50 km of Jaipur, since the bias alone let Chennai through", () => {
+    expect(nearJaipur(26.814, 75.5507)).toBe(true); // Bagru, on the edge of the district
+    expect(nearJaipur(27.0313, 75.8907)).toBe(true); // Kukas
+    expect(nearJaipur(13.0705, 80.1608)).toBe(false); // Chennai
+    expect(nearJaipur(27.2872, 75.8111)).toBe(true); // about 42 km north, still inside
+    expect(nearJaipur(26.4499, 74.6399)).toBe(false); // Ajmer
   });
 });
 
