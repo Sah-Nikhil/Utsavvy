@@ -19,6 +19,6 @@ A Member can attach an Event key (an Anthropic, Google or OpenAI API key) to one
 
 ## Consequences
 
-- Who may attach or remove an Event key is a permission question for [Who can do what on an Event?](https://github.com/Sah-Nikhil/Utsavvy/issues/14).
+- Who may attach or remove an Event key is a permission question for [Who can do what on an Event?](https://github.com/Sah-Nikhil/Utsavvy/issues/14). Amended 2026-10-21: only the Owner and Co-owners attach, replace or remove the key and see its full details; Members and Viewers see only the model and who attached it. See [docs/design/roles.md](../design/roles.md).
 - How Inspirations get onto the Canvas changes: AI generation and "remix into my theme" exist only with a capable Event key. See [How do Inspirations get onto the Canvas in v1?](https://github.com/Sah-Nikhil/Utsavvy/issues/17).
 - Event keys must never appear in logs, error messages, Chat messages or tool results shown to the model.

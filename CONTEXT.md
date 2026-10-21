@@ -37,14 +37,26 @@ The optional step before the first plan where a Member taps a few images to seed
 _Avoid_: moodboard, image quiz, style quiz
 
 **Event key**:
-An AI provider key a Member attaches to one Event. While it is attached, the Assistant's replies and image generation in that Event run on it instead of the default model.
+An AI provider key the Owner or a Co-owner attaches to one Event. While it is attached, the Assistant's replies and image generation in that Event run on it instead of the default model.
 _Avoid_: BYOK, API key, own key
 
 ## People
 
 **Member**:
-A person planning an Event, with access to its Canvas and Chat.
-_Avoid_: collaborator, user, planner, guest
+A person planning an Event, with access to its Canvas and Chat. The Owner and Co-owners are Members too; a Viewer is not. Member is also the name of the role with no extra powers.
+_Avoid_: collaborator, user, planner, guest, editor
+
+**Owner**:
+The one Member who holds an Event's Event-ending powers: deleting it, transferring it, and making or removing Co-owners. The person who creates an Event is its Owner. An Event may show the role as "Host" instead; it is the same role.
+_Avoid_: creator, admin, organiser, host (as a term)
+
+**Co-owner**:
+A Member who runs an Event alongside its Owner, with every power the Owner has except deleting the Event, transferring it, and making or removing Co-owners. Shown as "Co-host" where the Event uses "Host".
+_Avoid_: co-admin, moderator, manager
+
+**Viewer**:
+A person who can see an Event's Canvas, Chat and history and leave Comments, but doesn't plan: not a Member.
+_Avoid_: read-only member, spectator, watcher, guest
 
 **Guest**:
 A person attending an Event or one of its Functions. Guests are counted and invited; they don't plan.
