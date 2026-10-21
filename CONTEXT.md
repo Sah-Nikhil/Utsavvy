@@ -53,12 +53,20 @@ _Avoid_: attendee, invitee, visitor, member
 ## Vendors
 
 **Vendor**:
-A business that provides something for an Event, such as a venue, caterer, decorator or photographer. Every Vendor has one category.
+A business that provides something for an Event, such as a venue, caterer, decorator or photographer. Every Vendor has one category. A Vendor found on its own website is one shared record for every Event; one a Member typed in by hand belongs to that Event only.
 _Avoid_: listing, supplier, service provider
 
 **Venue**:
 A Vendor whose category is a place to hold a Function, such as a banquet hall or marriage garden. It may also carry a capacity and a price per plate.
 _Avoid_: hall, location, property
+
+**Shortlisted Vendor**:
+A Vendor that Members have added to their Event's Canvas, linked to one or more Vendor checklist Entries. Each link has its own status: Considering, Contacted, Quoted, Booked or Dropped.
+_Avoid_: saved vendor, favourite, selected vendor
+
+**Discovery**:
+The Assistant finding Vendors, at a Member's request, by searching the web and reading the Vendors' own websites.
+_Avoid_: scraping, crawling, vendor search
 
 ## Workspace
 
@@ -71,7 +79,7 @@ The conversation of one Event, between the people planning it and the Assistant.
 _Avoid_: thread, room, group
 
 **Item**:
-One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Vendor, an Inspiration, a Suggestion or a Note.
+One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Shortlisted Vendor, an Inspiration, a Suggestion or a Note.
 _Avoid_: card, block, widget, element
 
 **Section**:
@@ -111,13 +119,13 @@ The Timeline's Entries for the day of one Function, each with a time, such as "7
 _Avoid_: itinerary, schedule, agenda, programme
 
 **Marker**:
-A point on the map that stands for a vendor's location.
+A point on the map that stands for a Vendor's location. It is approximate when the address only matched a locality or city, until a Member drags it into place.
 _Avoid_: pin, dot, location
 
 ## Prices
 
 **Listed price**:
-A price taken from a public source, always shown with that source and the date it was seen.
+A price taken from a Vendor's own website, always shown with that page, the sentence it came from and the date it was seen. It is comparable when its unit is per plate, per person, per day or per function and its amount is clear; otherwise it is shown as text only.
 _Avoid_: rate, market price
 
 **Estimate**:
@@ -125,7 +133,7 @@ A price the Assistant generated, always labeled as such.
 _Avoid_: guess, approximate price
 
 **Quote**:
-A price a vendor actually gave the people planning, entered by them.
+A price a Vendor actually gave the Members, entered by them for one of a Shortlisted Vendor's checklist Entries.
 _Avoid_: bid, offer, final price
 
 ## Budget
