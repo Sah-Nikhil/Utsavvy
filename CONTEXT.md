@@ -107,7 +107,7 @@ A personalised idea from the Assistant for an Event or one of its Functions, suc
 _Avoid_: idea, recommendation, tip, touch
 
 **Proposal**:
-A change to the Canvas that the Assistant has prepared but not made, shown in the Chat for a Member to accept or reject. Risky changes (deletions, the Budget total, large shifts) and changes no Member asked for arrive as Proposals.
+A change to the Canvas that the Assistant has prepared but not made, shown in the Chat (or the Comment thread it was asked from) for a Member to accept or reject. Risky changes (deletions, the Budget total, large shifts) and changes no Member asked for arrive as Proposals.
 _Avoid_: suggestion, draft, pending change, approval
 
 **Nudge**:
