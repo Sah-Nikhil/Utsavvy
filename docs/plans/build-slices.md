@@ -144,12 +144,12 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 
 ---
 
-## D1. Data: the stock library (80 photos, 4 sets)
+## D1. Data: the stock library (288 photos, 4 sets)
 
 Labels: `slice`, `inspirations`, `needs-human`. Wave: 22 Oct, beside C0. Size: M.
 
 ### Goal
-The stock library exists: 80 photos hand-curated from Pexels under the Pexels License, 20 each for North Indian Hindu weddings, weddings in general, a child's birthday and Ganesh utsav, served from our own app, with 12 per set marked for the vibe pick and every photo approved by Sah-Nikhil ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
+The stock library exists: 288 photos hand-curated from Pexels under the Pexels License for North Indian Hindu weddings, weddings in general, a child's birthday and Ganesh utsav, 16 in each of 18 categories, served from our own app, with 12 per set marked for the vibe pick and every photo approved by Sah-Nikhil. Grown from 80 photos (20 per set) on 2026-10-22, when Sah-Nikhil asked for a second pass by category ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
 
 ### Phase
 Parent: Contract. Blocked by: none. The PR is rebased on `main` after C0 merges, so its test runs in CI.
@@ -162,10 +162,10 @@ Everything C0 owns.
 
 ### Interfaces
 - Uses: [inspirations.md](../design/inspirations.md) rules 2, 3 and 18 to 24, ADR 0012.
-- Provides: `seed/vibe-sets.json`, a flat list of 80 records `{ setKey: "wedding-north-indian-hindu" | "wedding-general" | "birthday-child" | "community-ganesh-utsav", pexelsId, pageUrl, photographer, photographerUrl, localPath, alt, tags: string[], palette: string[], curatedAt, vibePick: boolean }`, and the files `public/inspirations/<setKey>/<pexelsId>.webp`. `alt` is one sentence in the curator's own words. `tags` are 4 to 12 lowercase words naming the occasion or Function (`haldi`, `mehendi`, `sangeet`, `birthday`, `ganesh`), the decor (`marigold`, `mandap`, `stage`, `balloons`) and the main colours. `palette` is 3 to 5 `#rrggbb` colours worked out from the file with `node-vibrant`. S13 searches `tags`; S18 shows the `vibePick` records.
+- Provides: `seed/vibe-sets.json`, a flat list of 288 records `{ setKey: "wedding-north-indian-hindu" | "wedding-general" | "birthday-child" | "community-ganesh-utsav", category, pexelsId, pageUrl, photographer, photographerUrl, localPath, alt, tags: string[], palette: string[], curatedAt, vibePick: boolean }`, and the files `public/inspirations/<setKey>/<pexelsId>.webp`. `alt` is one sentence in the curator's own words. `tags` are 4 to 12 lowercase words naming the occasion or Function (`haldi`, `mehendi`, `sangeet`, `birthday`, `ganesh`), the decor (`marigold`, `mandap`, `stage`, `balloons`) and the main colours. `palette` is 3 to 5 `#rrggbb` colours worked out from the file with `node-vibrant`. `category` is one of the set's categories (North Indian Hindu wedding: haldi, mehendi, sangeet, engagement, wedding; general wedding: mandap, ceremony, reception, stage; child birthday: theme, characters, cake, backdrop, gifts; Ganesh utsav: pandal, home, rangoli, community). Photos showing licensed characters carry the tag `branded` and are never `vibePick`. S13 searches `tags`; S18 shows the `vibePick` records.
 
 ### Test seams
-- The seed test: 80 records, 20 per set, 12 with `vibePick` per set; no duplicate `pexelsId`; every field present and non-empty; `localPath` is `/inspirations/<setKey>/<pexelsId>.webp` and that file exists under `public/`; `pageUrl` and `photographerUrl` are on `www.pexels.com`; every tag is lowercase; every palette has 3 to 5 `#rrggbb` colours; at least 6 photos are tagged `haldi` (the demo's "find some haldi decor ideas" beat shows 6).
+- The seed test: 288 records, 16 per category, 12 with `vibePick` per set, none of them tagged `branded`; any photo whose alt text or tags name Mickey, Minnie, Spider-Man, Superman, Batman, Frozen, Elsa or Hello Kitty is tagged `branded`; no duplicate `pexelsId`; every field present and non-empty; `localPath` is `/inspirations/<setKey>/<pexelsId>.webp` and that file exists under `public/`; `pageUrl` and `photographerUrl` are on `www.pexels.com`; every tag is lowercase; every palette has 3 to 5 `#rrggbb` colours; at least 6 photos are tagged `haldi` (the demo's "find some haldi decor ideas" beat shows 6).
 - The file check: every file is WebP, about 1200 px on its long side and under 300 KB.
 
 ### Acceptance criteria
@@ -639,7 +639,7 @@ Parent: Slices. Blocked by: S1, S2, S7, D1.
 - Provides: `searchLibrary(query, { setKeys? }) => LibraryPhoto[]` in `lib/inspirations/library.ts` (at most 6; a query word matches a tag when it equals one of the tag's words, after lowercasing and dropping stop words such as "find", "some", "ideas"; photos sort by matching words, then the Event's own set, then seed order; a photo with no match is never returned), `api.inspirations.addFromLibrary({ eventId, pexelsId, functionKey? })` (looks the photo up in the seed on the server, never trusting metadata from the browser, and saves its credit, `localPath`, `alt`, `tags` and palette as the Item's `source` and `seen`, with no model call), `api.inspirations.generateUploadUrl`, `api.inspirations.addUpload`, `api.inspirations.useForTheme`, `api.inspirations.tag`, `api.inspirations.remove`, `internal.inspirations.describe` (once at save, uploads only), `internal.inspirations.purgeDeleted` (the 30-day cron), `mergeTheme(theme, update) => theme` (3 to 5 colours, 2 to 4 style words, 3 to 6 decor keywords), the tools `searchStockImages`, `updateTheme`, `tagInspiration`, and the `updateTheme` op handler in `convex/assistant/tools/images.ts` (`docId` the Event, `expectedVersion` its version).
 
 ### Test seams
-- `searchLibrary`: "find some haldi decor ideas" returns 6 photos, every one tagged `haldi`; "durga puja pandal" returns none; a query matching 2 photos returns those 2; ties put the Event's own set first.
+- `searchLibrary`: "find some haldi decor ideas" returns 6 photos, every one tagged `haldi`; "halloween pumpkin" returns none (the library has 16 `pandal` photos since 22 Oct, so a pandal query no longer fits); a query matching 2 photos returns those 2; ties put the Event's own set first.
 - `searchStockImages` with no match replies that the library has nothing for it and offers an upload; the strip never holds a photo that didn't match.
 - `addFromLibrary` saves the seed record's credit and palette, calls the helper model zero times, and refuses an unknown `pexelsId`. `addUpload` calls `describe` exactly once.
 - `mergeTheme`: never more than 5 colours, 4 style words or 6 decor keywords; new ones replace the oldest.
@@ -815,7 +815,7 @@ Parent: Slices. Blocked by: S11, S13, D1.
 - Picking 3 images produces a Theme with 3 to 5 colours and style words, shown on the Brief summary.
 
 ### Acceptance criteria
-- [ ] The set's 12 vibe pick photos appear instantly; "Show me more" shows the set's other 8 library photos. There is no live search.
+- [ ] The set's 12 vibe pick photos appear instantly; "Show me more" shows the set's other library photos that aren't tagged `branded`, 12 at a time. There is no live search.
 - [ ] With no set for the Brief, the step is skipped with one line.
 - [ ] Every image shows its Pexels credit.
 - [ ] Smoke test passes axe.
