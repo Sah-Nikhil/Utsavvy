@@ -10,13 +10,15 @@ This file does not repeat behaviour that the design docs already define. It poin
 - [docs/design/vendors.md](docs/design/vendors.md) for Vendors, Listed prices, Quotes and the map.
 - [docs/design/inspirations.md](docs/design/inspirations.md) for Inspirations, the Theme and the vibe pick.
 - [docs/design/roles.md](docs/design/roles.md) for the four roles.
-- [docs/adr/](docs/adr/) for the settled tradeoffs (0001 to 0009, plus 0010 from this ticket).
+- [docs/adr/](docs/adr/) for the settled tradeoffs (0001 to 0009, plus 0010 from this ticket, and 0011 and 0012 from the 2026-10-21 changes).
 - [docs/agents/build-workflow.md](docs/agents/build-workflow.md) for how agents build and merge.
 - [docs/plans/build-slices.md](docs/plans/build-slices.md) for every build issue, ready to create.
 
 ## 1. Scope
 
 The build runs from 22 to 27 Oct 2026, with up to 3 build agents at a time. That is about 22 slice-units of work, and the MUST tier below fills all of it. There is no slack, so the order of the cut line in 1.5 matters.
+
+**Changed on 2026-10-21, after the issues were created.** Sah-Nikhil made three decisions: stock photos come from a local, hand-curated library instead of the Pexels API ([ADR 0012](docs/adr/0012-stock-photos-from-a-local-hand-curated-library.md)); a Google places sheet built on Google's Places UI Kit is a new MUST slice, S20 ([ADR 0011](docs/adr/0011-google-places-only-through-the-places-ui-kit.md)); and Instagram-only Vendors may fill gaps in the starter set ([vendors.md](docs/design/vendors.md), "The starter set"). Capacity after the change: S13 shrinks from L to M without the API and its cache, D1 grows from S to M (80 photos with local files and tags), and S20 adds an M on 24 Oct. To make room, Sah-Nikhil accepted that the first two cut-line items (1.5) move to SHOULD from the start, which shrinks S6 and S8 from M to S. The slice days stay 22 to 27 Oct and 28 Oct stays the buffer.
 
 ### 1.1 MUST: the v1 demo path
 
@@ -25,21 +27,21 @@ Every item here is built in v1. Slice ids refer to [docs/plans/build-slices.md](
 | Slice | What a Member can do | Size |
 |---|---|---|
 | C0 | (Contract) Sign in. Every page exists. Schema, shared types, design tokens, role checks, versioned writes, CI and the browser smoke test are in place. | L |
-| D1 | (Data) The 4 curated vibe pick sets exist as seed data, approved by Sah-Nikhil. | S |
-| D2 | (Data) The 16 hand-checked Jaipur Vendors exist as seed data, and the reference table is checked against their Listed prices. | M |
+| D1 | (Data) The stock library exists: 80 photos hand-curated from Pexels in 4 sets of 20, served from our app, 12 per set marked for the vibe pick, approved by Sah-Nikhil. | M |
+| D2 | (Data) The 16 hand-checked Jaipur Vendors exist as seed data (own sites first; Instagram-only Vendors only to fill a category gap), and the reference table is checked against their Listed prices. | M |
 | S1 | Create an Event, share the Member and Viewer links, join by link, see the people list, switch Member and Viewer, remove, block and unblock people, pick the Owner or Host label. | M |
 | S2 | Use the freeform Canvas: four starting Sections plus custom ones, Items placed in free space, live positions, presence, selection, the Function filter, and the Assistant's pointing. | L |
 | S3 | (Engine) Get Estimates from the reference table, priced by City tier, with the Budget check bands, Contingency, rounding and Timeline dates. | M |
 | S4 | Work with the Budget, Timeline (including run sheets) and Vendor checklist Items and their Entries, Notes and Suggestions ("Add to plan", "Not for us"). | L |
 | S5 | Chat with the Assistant: streamed replies every Member sees, the run queue, Stop, and the per-message "Don't reply" toggle. | L |
-| S6 | See the edit history grouped per Assistant reply, Restore any earlier value, and Undo all of one reply. | M |
+| S6 | See the edit history grouped per Assistant reply and Restore any earlier value. (Undo all moved to SHOULD, X11.) | S |
 | S7 | Ask the Assistant to change the Canvas: version-checked, idempotent tools, pointing back, Chat web search on Claude, outside content handled as data, replies in the asker's language. | L |
-| S8 | Comment on Items, Entries and highlighted passages, with threads and resolve. | M |
+| S8 | Comment on Items and Entries, with threads and resolve. (Comments on highlighted passages moved to SHOULD, X10.) | S |
 | S9 | See the seeded Jaipur Vendors as cards, shortlist them onto the Canvas, link them to checklist Entries with statuses. | M |
 | S10 | Accept or reject Proposals: out of date, 24-hour expiry, replace, all or nothing. | M |
 | S11 | Give a first Brief: free text, chip questions, Assumptions, the editable Brief summary and the Budget check with its three fixes. | L |
 | S12 | Record Quotes (form, file, or a pasted WhatsApp message that becomes a Proposal) and compare Estimate, Listed price and Quote side by side. | M |
-| S13 | Add Inspirations from Pexels (panel and Chat strip) and uploads, use one for the Theme, and get Theme-driven decor Suggestions. | L |
+| S13 | Add Inspirations from the stock library (panel and Chat strip) and uploads, use one for the Theme, and get Theme-driven decor Suggestions. | M |
 | S14 | Tap "Make my plan" and watch the first plan stream onto the Canvas; change an essential later through a Proposal. | L |
 | S15 | See Vendors on the map, filter them, and drag an approximate Marker into place. | M |
 | S16 | Use Compact mode on desktop and the Chat-first phone layout with a Canvas tab. | M |
@@ -47,6 +49,7 @@ Every item here is built in v1. Slice ids refer to [docs/plans/build-slices.md](
 | S18 | Do the vibe pick during the Brief. | S |
 | S19a | Open the seeded demo Event with a judge account, and have it reset nightly or on demand. | S |
 | S19b | Walk the whole demo script on the seeded Event in a browser test, and rehearse it on production. | S |
+| S20 | Browse Google places in a full-screen sheet built on Google's Places UI Kit, save one to the Canvas as a Google place (place ID and own note only), and reopen it in the sheet or in Google Maps. | M |
 
 Sizes: S is about half a slice, M one slice, L about one and a half.
 
@@ -66,7 +69,7 @@ Sah-Nikhil filed live Discovery and Event keys for a later stage, and the smalle
 1. **Live Discovery** (later stage; 2 slices, X1a and X1b): Serper search, the polite fetch with its SSRF guard, the own-site check, quote-checked extraction, Geoapify geocoding, Vendor cards streaming into the Chat, the 10-a-day cap, "Paste a website URL", the refresh button, automatic pooling of Listed prices into the reference table, and the flagged AI Estimate for free-label categories.
 2. **Pinterest and Instagram References** (SHOULD; X2, half a slice).
 3. **Event keys with Generate and Remix** (later stage; 2 slices, X3a and X3b), including the second seeded Event (Aarav's 6th birthday) carrying Sah-Nikhil's Google key from a Convex environment variable, while the wedding demo Event stays on `claude-sonnet-5-5`.
-4. **The rest of SHOULD**: the sticky "Keep Don't reply on" setting and the Member-mention rule (X4), email invites (X5), ownership transfer, deleting an Event and Owner succession (X6), hand-typed Vendors (X7), the Android share sheet with the device check (X8), and the other 9 vibe pick sets (X9).
+4. **The rest of SHOULD**: the sticky "Keep Don't reply on" setting and the Member-mention rule (X4), email invites (X5), ownership transfer, deleting an Event and Owner succession (X6), hand-typed Vendors (X7), the Android share sheet with the device check (X8), the other 9 vibe pick sets (X9), and the two cut-line items moved on 2026-10-21: Comments on highlighted passages (X10) and grouped "Undo all" (X11).
 
 ### 1.4 After v1
 
@@ -76,8 +79,8 @@ Already parked in the [Ideas discussions](https://github.com/Sah-Nikhil/Utsavvy/
 
 If a build day slips, these sub-features move to SHOULD first, in this order. None of them is in the demo script.
 
-1. Comments on highlighted passages (Comments on Items and Entries stay), from S8.
-2. Grouped "Undo all" (per-change Restore stays), from S6.
+1. Comments on highlighted passages (Comments on Items and Entries stay), from S8. **Moved to SHOULD on 2026-10-21** (X10), to make room for S20.
+2. Grouped "Undo all" (per-change Restore stays), from S6. **Moved to SHOULD on 2026-10-21** (X11), to make room for S20.
 3. The three previewed fixes in the Budget check (the flag, "raise the budget" and "Plan at my budget anyway" stay), from S11.
 4. Presence avatars on Items (the header dots stay), from S2.
 5. The Function filter, from S2.
@@ -91,7 +94,9 @@ These are consequences of the scope above, not new decisions. Short "Amended by"
 - **The starter set is collected without the Discovery pipeline.** [vendors.md](docs/design/vendors.md) planned to collect it by running Discovery. Since Discovery is later, the D2 agent finds each Vendor's own site, reads it under the same polite fetch rules (our User-Agent, `robots.txt`, one request a second per host, at most 4 pages per site) and the same SSRF guard, timeout, size and redirect limits as Discovery (section 4.9), through the shared `politeFetch` helper D2 builds in `lib/fetch/`, and records every fact with the exact sentence and page it came from. A script checks that each sentence is on the page and that each price's amount and currency are in its sentence. Sah-Nikhil then checks every card by hand.
 - **No Generate tab in v1.** With no way to attach an Event key, the greyed-out Generate tab and the "Remix this" and "Make one like this" buttons from [inspirations.md](docs/design/inspirations.md) would point at a setting that doesn't exist yet, so they are not shown until X3.
 - **No References in v1.** The Add Inspiration panel has Search and Upload only until X2 adds "Paste a link".
-- **The vibe pick ships 4 curated sets** (North Indian Hindu wedding, general wedding, child birthday, Ganesh utsav), 48 images. Every other wedding Tradition shows the general wedding set. Adult and parent or grandparent birthdays, Durga puja and other community events have no curated set, so their grid fills from a live Pexels search on the Brief's words; if Pexels is down, the vibe pick is skipped with one line.
+- **The vibe pick ships 4 curated sets** (North Indian Hindu wedding, general wedding, child birthday, Ganesh utsav), 12 photos each from the stock library. Every other wedding Tradition shows the general wedding set. Adult and parent or grandparent birthdays, Durga puja and other community events have no curated set, so their vibe pick is skipped with one line. "Show me more" shows the other 8 photos of the set. There is no live stock search anywhere ([ADR 0012](docs/adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
+- **No Remix from a screenshot of a Reference** (inspirations.md rule 14, corrected 2026-10-21). This first matters with X3b.
+- **Google places are the way to look beyond the starter set in v1** (S20). They stay Google's: the Canvas keeps only the place ID and the Member's note, and nothing from them reaches a Vendor, a Marker, the Chat or the Assistant ([ADR 0011](docs/adr/0011-google-places-only-through-the-places-ui-kit.md)).
 - **The model label** always shows `claude-sonnet-5-5` (or the fallback setting) until Event keys exist.
 
 ## 3. Conflicts between the design docs, resolved
@@ -105,7 +110,7 @@ These are consequences of the scope above, not new decisions. Short "Amended by"
 2. **Chat lookups.** [first-brief.md](docs/design/first-brief.md) answers price questions through Gemini grounding. [vendors.md](docs/design/vendors.md) replaced that with Claude's web search tool, used only when the Event runs on Claude. The build follows vendors.md: answers are cited, stay in the Chat, can be saved as a Note with their citations, and are never stored as Listed prices or used to change Estimates. Gemini and OpenAI search is an Idea ([discussion](https://github.com/Sah-Nikhil/Utsavvy/discussions/22)).
 3. **The reference table.** [first-brief.md](docs/design/first-brief.md) treats it as fixed; [vendors.md](docs/design/vendors.md) adds guarded automatic pooling of Listed prices. In v1 the table is a code module, hand-checked in D2 against the starter set's Listed prices and cited in its Source column. The table freezes at the end of 22 Oct: Sah-Nikhil approves or rejects each adjustment D2 proposes, and the approved table gets the version `2026-10-22`. S3 starts on 23 Oct from the frozen table, and nothing changes it during v1. Automatic pooling needs Listed prices from many Vendors, which only Discovery produces, so it ships with X1 behind the guardrails in vendors.md. Tests always pin the hand-checked table with pooling off.
 4. **A pasted Quote is a Proposal.** vendors.md says the Member confirms before a pasted Quote is saved; assistant-behavior.md says numbers read from outside content arrive as a Proposal. They agree: the Quote form filled from a paste is a Proposal card with Accept and Reject.
-5. **Fictional content in a public demo.** The demo Event's people, Quotes and Comments are made up, but its Vendors are real Jaipur businesses. So the demo Event shows a banner: "Demo Event: the people, Quotes and Comments here are made up. Vendor facts come from each Vendor's own website."
+5. **Fictional content in a public demo.** The demo Event's people, Quotes and Comments are made up, but its Vendors are real Jaipur businesses. So the demo Event shows a banner: "Demo Event: the people, Quotes and Comments here are made up. Vendor facts come from each Vendor's own website, or for a few, its public Instagram profile, checked by hand."
 
 ## 4. Architecture
 
@@ -127,7 +132,7 @@ These are consequences of the scope above, not new decisions. Short "Amended by"
 | `/join/[token]` | Invite link: sign in, then join with the link's role, or the full, removed or already-in messages from roles.md | S1 |
 | `/settings` | Personal settings (mobile pointing default; the sticky Don't reply setting arrives with X4) | S16 |
 
-The people list, history, Event settings and Add Inspiration open as panels or sheets inside the workspace, not as separate routes.
+The people list, history, Event settings, Add Inspiration and the Google places sheet open as panels or sheets inside the workspace, not as separate routes.
 
 ### 4.3 Access checks
 
@@ -150,7 +155,7 @@ All writes go through `convex/lib/write.ts` (contract):
 - `memberWrite(ctx, {table, id, patch, actor})`: last write wins. It bumps the document's `version`, writes the change to `changes` with before and after values, and returns the new version.
 - `assistantWrite(ctx, {table, id, expectedVersion, patch, runId, toolCallId, forMembershipId})`: refused with `VersionConflict` (returning the current value and version) when `expectedVersion` doesn't match. It is idempotent: the key `runId:toolCallId` is stored in `toolCalls` with its result, and a repeat returns the stored result without writing again.
 - Inserts and soft deletes (`deletedAt`) go through the same two helpers, so Restore can bring back a deleted Item, Entry or Section.
-- Every change row records who acted ("Utsavvy for Meera", or "Utsavvy for Rohan, accepted by Aditi"), the run or Proposal it belongs to, and whether the request came from a Comment. S6 builds the history panel, Restore and Undo all on top of these rows. A write to a shared `vendors` row (a Marker drag) puts its change row in the Event of the acting membership.
+- Every change row records who acted ("Utsavvy for Meera", or "Utsavvy for Rohan, accepted by Aditi"), the run or Proposal it belongs to, and whether the request came from a Comment. S6 builds the history panel and Restore on top of these rows; X11 adds Undo all. A write to a shared `vendors` row (a Marker drag) puts its change row in the Event of the acting membership.
 - **Post-write hooks.** After writing the change row, every helper calls each hook in `convex/lib/hooks.ts` (contract) inside the same mutation, with a `WriteEvent` (`eventId`, `table`, `docId`, `op`, `before`, `after`, `actor`). The contract registers two hooks, each imported from a stub that its slice fills in its own file: `passagesAfterWrite` in `convex/comments.ts` (S8; marks Comment passages "text changed") and `nudgesAfterWrite` in `convex/nudges.ts` (S17; schedules the Nudge check). Because the hooks sit in the helpers, every writer (S4, S6, S7, S10, S12, S13, S14) triggers them without calling them.
 - **Two exceptions.** `viewPrefs` (section 5.1) is personal view state, not Canvas content, so it is written directly and leaves no history. The demo reset (S19a) writes its seed rows, including the seeded `changes` rows, with `seedInsert` in `convex/demo.ts`: plain `ctx.db.insert` calls that write no extra history and run no post-write hooks, so a reset posts no Nudge and marks no passage. `seedInsert` is a plain function, not a Convex function, called only from `internal.demo.reset`, and it refuses any row whose `eventId` isn't the Event found by the demo's `demoKey`.
 
@@ -212,7 +217,7 @@ AES-256-GCM with Node's `crypto` in a Node action, a random 12-byte IV per key, 
 | `ANTHROPIC_API_KEY` | Convex | Default model, helper model, web search |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Convex | Fallback model |
 | `DEFAULT_MODEL`, `HELPER_MODEL` | Convex | `claude-sonnet-5-5`, `claude-haiku-5-5` |
-| `PEXELS_API_KEY` | Convex (and D1's script) | Stock search and the vibe pick |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Next.js (browser) | The Google places sheet (S20). A browser key restricted by HTTP referrer to the production URL, the Vercel preview URLs and `localhost:3000`, and by API to Maps JavaScript and Places; a daily request cap in the Cloud console keeps it inside the free tier. The Cloud project needs a billing account even at $0. |
 | `GEOAPIFY_API_KEY` | Convex (and D2's script) | Geocoding an Event's city, and the starter set |
 | `NEXT_PUBLIC_MAP_STYLE_URL` | Next.js | OpenFreeMap style, `https://tiles.openfreemap.org/styles/liberty` by default |
 | `NEXT_PUBLIC_REPORT_EMAIL` | Next.js | The "Report content" address in the footer |
@@ -220,7 +225,11 @@ AES-256-GCM with Node's `crypto` in a Node action, a random 12-byte IV per key, 
 | `E2E_CLERK_USER_EMAIL`, `E2E_CLERK_USER_PASSWORD`, `PLAYWRIGHT_BASE_URL`, `VERCEL_AUTOMATION_BYPASS_SECRET` | CI | The browser test |
 | Later: `SERPER_API_KEY`, `EVENT_KEY_SECRET`, `DEMO_GOOGLE_EVENT_KEY` | Convex | X1 and X3 |
 
-### 4.12 Packages
+### 4.12 Content Security Policy
+
+The contract sets one enforcing `Content-Security-Policy` header for every route in `next.config.ts`, built from a single list so a later source is a one-line contract change. It allows `'self'`, the inline scripts Next.js needs (`'unsafe-inline'`; nonces are out of scope for v1), Clerk (the hosts in [Clerk's CSP guide](https://clerk.com/docs/security/clerk-csp)), Convex (`https://*.convex.cloud` and `wss://*.convex.cloud`), OpenFreeMap tiles (`https://tiles.openfreemap.org`) and MapLibre's `blob:` workers, Vercel's preview toolbar on previews, and the allowlist in [Google's Maps JavaScript CSP guide](https://developers.google.com/maps/documentation/javascript/content-security-policy) for the Google places sheet. Stock library photos are served from our own origin, so images need no stock host. The contract's smoke test runs with the policy on; S20's spike confirms the Google entries in a deployed preview and reports any missing one to the orchestrator. X2 adds Pinterest's and Instagram's embed hosts when it ships.
+
+### 4.13 Packages
 
 The contract installs these once, at the versions current on 2026-10-21 (npm registry), plus the UI packages in section 7. Later packages are added by contract-change PRs.
 
@@ -250,7 +259,7 @@ Convex tables, defined once in `convex/schema.ts` by the contract. Field names h
 | Table | Fields | Indexes | Notes |
 |---|---|---|---|
 | `sections` | `eventId`, `kind` (`"money"`, `"vendors"`, `"inspirations"`, `"notes"`, `"custom"`), `name`, `frame` (x, y, w, h), `order`, `deletedAt` | `by_event` | Versioned. Deleting a custom Section sends its Items to their starting Section. |
-| `items` | `eventId`, `sectionId`, `kind` (`"budget"`, `"timeline"`, `"checklist"`, `"shortlistedVendor"`, `"inspiration"`, `"suggestion"`, `"note"`), `position`, `size`, `functionKey` (null means Event-wide), `data` (a union by kind, below), `createdBy`, `deletedAt` | `by_event`, `by_event_kind`, `by_section` | Versioned. One Budget, one Timeline and one Vendor checklist Item per Event. |
+| `items` | `eventId`, `sectionId`, `kind` (`"budget"`, `"timeline"`, `"checklist"`, `"shortlistedVendor"`, `"googlePlace"`, `"inspiration"`, `"suggestion"`, `"note"`), `position`, `size`, `functionKey` (null means Event-wide), `data` (a union by kind, below), `createdBy`, `deletedAt` | `by_event`, `by_event_kind`, `by_section` | Versioned. One Budget, one Timeline and one Vendor checklist Item per Event. |
 | `entries` | `eventId`, `itemId`, `kind` (`"budget"`, `"timeline"`, `"checklist"`), `order`, `functionKey`, `fields` (a union by kind, below), `assumed`, `createdBy`, `deletedAt` | `by_item`, `by_event_kind` | Versioned. |
 | `comments` | `eventId`, `target` (an Item; an Entry; or a passage with `field`, `start`, `end`, the quoted original and `textChanged`), `rootId` (null for the first in a thread), `authorMembershipId` or `byAssistant` (run and the Member it answered), `body`, `resolved`, `createdAt`, `editedAt` | `by_event`, `by_item`, `by_root` | |
 | `highlights` | `eventId`, `runId`, `forMembershipId`, `targets`, `expiresAt` | `by_event` | The Assistant's pointing. Everyone sees the highlight; only the asker's view pans. Expires after 30 seconds. |
@@ -259,7 +268,8 @@ Item `data` by kind:
 
 - `budget`, `timeline`, `checklist`: the Budget note (shows the current Theme words on decor lines) and nothing else; their rows are Entries.
 - `shortlistedVendor`: `vendorId` (a shared Vendor; `privateVendorId` arrives with X7).
-- `inspiration`: `source` as in [inspirations.md](docs/design/inspirations.md) (`pexels` and `upload` in v1; `reference`, `generated` and `remix` later), `addedBy`, `memberNote`, `seen` (description, palette, decorKeywords).
+- `inspiration`: `source` as in [inspirations.md](docs/design/inspirations.md) (in v1, `pexels`, a stock library photo with `pexelsId`, `localPath`, photographer and links, `alt` and `tags`, and `upload`; `reference`, `generated` and `remix` later), `addedBy`, `memberNote`, `seen` (description, palette, decorKeywords; for a library photo these are its alt text, seed palette and tags, with no model call).
+- `googlePlace`: `placeId` (Google's place ID) and `note` (the Member's own words, required, up to 280 characters). Nothing else from Google. Who saved it and when are the Item's `createdBy` and its `changes` row.
 - `suggestion`: `title`, `body`, `costCategory`, `quantity`, `estimate`, `status` (`"open"`, `"added"`, `"dismissed"`).
 - `note`: `text`, `citations` (for a saved web search answer).
 
@@ -275,7 +285,7 @@ Shared, app-wide ([ADR 0008](docs/adr/0008-vendors-are-one-shared-record.md)):
 
 | Table | Fields | Indexes | Notes |
 |---|---|---|---|
-| `vendors` | `domain` (unique key), `name`, `category` (one of the eight) or `freeLabel`, `website`, `address` (line, locality, city), `phone`, `email`, `capacity` (min, max), `areaServed`, `summary` (the Assistant's own words), `marker` (lat, lng, confidence, matchType, approximate, provider, attribution), `provenance` (page URL and date seen per field), `factsSeenAt`, `source` (`"starterSet"`, later `"discovery"` or `"pastedUrl"`) | `by_domain`, `by_city_category` | Versioned. A Marker drag is `api.map.moveMarker({ eventId, vendorId, lat, lng })`: it needs Member access to that Event and a Vendor in its city or shortlisted by it, and writes the shared Marker and that Event's history row in the same mutation. The demo reset never rewrites these rows (section 9.2). |
+| `vendors` | `domain` (unique key: the own site's domain, or `instagram.com/<handle>` for an Instagram-only Vendor), `name`, `category` (`"venue"`, `"caterer"`, `"decorator"` or `"photographer"` in v1; the other four fixed categories and `freeLabel` arrive with X1 and X7), `website` (null for an Instagram-only Vendor), `profileUrl` (the Instagram profile, for those only), `address` (line, locality, city), `phone`, `email`, `capacity` (min, max), `areaServed`, `summary` (the Assistant's own words), `marker` (lat, lng, confidence, matchType, approximate, provider, attribution), `provenance` (one entry per field: `field`, `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence` (the exact sentence from the page, quote-checked; null for `instagramProfileHumanChecked`), `seenAt` (the date seen or checked), `confirmedBy` (`"Sah-Nikhil"` for `instagramProfileHumanChecked`, otherwise null)), `factsSeenAt`, `source` (`"starterSet"`, later `"discovery"` or `"pastedUrl"`) | `by_domain`, `by_city_category` | Versioned. A Marker drag is `api.map.moveMarker({ eventId, vendorId, lat, lng })`: it needs Member access to that Event and a Vendor in its city or shortlisted by it, and writes the shared Marker and that Event's history row in the same mutation. The demo reset never rewrites these rows (section 9.2). |
 | `listedPrices` | `vendorId`, `sourceUrl`, `sentence`, `seenAt`, `comparable`, `amount` (min, max), `unit` (`per_plate`, `per_person`, `per_day`, `per_function`), `qualifier` (`exact`, `approx`, `starting`), `diet`, `guestRange`, `inclusionsNote`, `text`, `supersededAt` | `by_vendor` | Never overwritten; a refresh adds rows. |
 
 Private to one Event:
@@ -301,7 +311,7 @@ No query that returns a shared Vendor may join another Event's links, Quotes or 
 
 ### 5.5 Caches and later tables
 
-- `pexelsCache` (`query`, `page`, `results`, `fetchedAt`; `by_query`): 24-hour cache, as Pexels asks.
+- No stock cache: the stock library is a seed file plus static files ([ADR 0012](docs/adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
 - Later, added by contract-change PRs: `privateVendors` (X7), `eventKeys` (X3a), `generatedEstimates` (X1b, or X7 if it comes first), and `discoveryRuns` and `serperCache` (X1a).
   - `eventKeys`: `eventId`, `provider`, `model`, `attachedByMembershipId`, `attachedByUserId`, `last4`, `ciphertext`, `iv`, `authTag`, `createdAt`; indexes `by_event` (at most one key per Event, enforced in the attach mutation) and `by_attacher` (`attachedByUserId`). Queries return only `provider`, `model`, the attacher and `last4`, and only to the roles roles.md allows. The leave-time "Remove my Event key too" choice is applied when the person leaves and isn't stored. A removed or blocked attacher can still call `api.eventKeys.removeMine({ eventId })`, which checks `attachedByUserId` and only deletes that key (section 4.3). They find it through `api.eventKeys.listMineRevocable()`, which the `/events` page shows as "Your Event keys in Events you're no longer in", each row with the Event name, the model and "Remove my Event key from this Event".
   - `generatedEstimates`: `categoryLabel`, `cityTier`, `estimate` (a `GeneratedEstimate`), `model`, `createdAt`; index `by_label_tier`, one row per category label and City tier.
@@ -332,7 +342,7 @@ Final names. Every write tool takes `expectedVersion` for anything it changes, g
 | `findVendors` | category, `functionKey`, `minCapacity`, `maxPrice` (per its unit) | Read: shared Vendors in the Event's city, shown as Vendor cards in the reply | S9 |
 | `shortlistVendor` | `vendorId`, `checklistEntryId` | Direct when asked | S9 |
 | `setVendorStatus` | `linkId`, `expectedVersion`, status | Direct when asked | S9 |
-| `searchStockImages` | `query`, `functionKey` | Read: about 6 Pexels results as a strip; nothing is added until a Member taps | S13 |
+| `searchStockImages` | `query`, `functionKey` | Read: up to 6 stock library photos whose curator tags match, as a strip (fewer when fewer match; none, with an upload offer, when nothing matches); nothing is added until a Member taps | S13 |
 | `updateTheme` | `ThemeUpdate` | Direct when asked; through `propose` when it is the Assistant's own idea | S13 |
 | `tagInspiration` | `itemId`, `functionKey` or null | Direct when asked | S13 |
 | `discoverVendors` | category, city, locality | Later (X1): starts Discovery | X1b |
@@ -431,14 +441,14 @@ Chosen by Sah-Nikhil: seams, scripted cases and axe on every slice, plus a CI ru
   - The Timeline cases from first-brief.md: late bookings pulled to P1, P2 and P3 dates, a month-only date assumed as the 15th.
   - Vendors: the Parampara price range, the Vinayak starting price, the not-comparable "₹500 per hand", the WhatsApp Quote.
 - **Roles.** One table-driven test runs every row of the permissions table for all four roles, plus "removed and blocked people are refused" and "a Viewer's Comment never starts a run".
-- **Assistant rules in code** (no model needed): the Proposal thresholds, version conflicts and the one retry, idempotent repeats, the member-stated amount check, Undo all skipping later Member edits, Proposals going out of date.
-- **Scripted Assistant cases.** About 25 cases run against the real model with `bun run eval`, against a dedicated Convex dev deployment: the seven assistant-behavior examples (simple request, risky request, collision, two asks, side conversation, Nudge, the hidden-instruction Vendor page), the inspirations examples that apply in v1 (Pexels from the Chat, rights setting off, pointing), the three first Briefs and the ₹15L variant, the WhatsApp Quote, Hinglish, English and Devanagari Hindi replies, a Pune per-plate web search with citations, and an attempt to write an amount nobody gave. Agents run the cases their slice touches before opening the PR. They are not a required CI check, because they spend API credits and replies vary. On 27 Oct the orchestrator runs the full set in CI through a manual workflow and turns failures into `bug` issues.
+- **Assistant rules in code** (no model needed): the Proposal thresholds, version conflicts and the one retry, idempotent repeats, the member-stated amount check, Undo all skipping later Member edits (with X11), Proposals going out of date.
+- **Scripted Assistant cases.** About 25 cases run against the real model with `bun run eval`, against a dedicated Convex dev deployment: the seven assistant-behavior examples (simple request, risky request, collision, two asks, side conversation, Nudge, the hidden-instruction Vendor page), the inspirations examples that apply in v1 (stock photos from the Chat, nothing in the library, rights setting off, pointing), the three first Briefs and the ₹15L variant, the WhatsApp Quote, Hinglish, English and Devanagari Hindi replies, a Pune per-plate web search with citations, and an attempt to write an amount nobody gave. Agents run the cases their slice touches before opening the PR. They are not a required CI check, because they spend API credits and replies vary. On 27 Oct the orchestrator runs the full set in CI through a manual workflow and turns failures into `bug` issues.
 - **Browser tests.** Playwright against the PR's Vercel preview, signed in with `@clerk/testing`. One smoke test per screen, plus one demo-path test that walks the demo script on the seeded Event.
 - **Accessibility.**
   - `@axe-core/playwright` runs inside every smoke test and fails on any serious or critical violation.
   - Every control works by keyboard, with visible focus.
   - Text and controls meet WCAG AA contrast.
-  - Every image has alt text (Pexels alt text, the saved description for uploads).
+  - Every image has alt text (the curator's alt text for stock library photos, the saved description for uploads).
   - Motion respects `prefers-reduced-motion`.
   - Compact mode is the keyboard and screen-reader route to everything on the Canvas.
   - Chat replies are announced through a polite live region; Proposal cards and Nudges are reachable by keyboard.
@@ -454,7 +464,7 @@ The S19a reset builds everything below from seed files with no model calls, usin
 - **One change from the worked example, for the demo's Budget beat.** The family confirmed 300 Guests at the sangeet (the Assumption said 225), and Rohan set the sangeet catering line to ₹2,45,000. The Contingency absorbs the difference so the Event total stays exactly ₹25,00,000. Pasting the WhatsApp Quote (₹950 × 300 = ₹2,85,000) and using it as the line's amount therefore puts the Budget exactly ₹40,000 over.
 - **People.** judge-owner (Owner, shown as Host), judge-member (Member), judge-viewer (Viewer), Meera (Co-owner, shown as Co-host), Rohan (Member), Papa (Viewer, Meera's dad), Aditi (left), Kabir (removed and blocked). Meera, Rohan, Papa, Aditi and Kabir are seed personas that can't sign in.
 - **Vendors.** The 16 starter Vendors are on the map; 5 are shortlisted with mixed statuses: two Venues (Considering, Contacted), a caterer (Contacted, for the sangeet and the wedding), a decorator (Quoted, with one Quote) and a photographer (Booked).
-- **Inspirations.** The three vibe pick images and two haldi photos from Pexels, with credits and descriptions.
+- **Inspirations.** The three vibe pick photos and two haldi photos from the stock library, with their Pexels credits.
 - **Comments and history.** Papa's "Is this hall big enough for our relatives from Kota?" on a Venue card, two more Comments in a thread, Aditi's Note marked "(left)", history groups such as "Utsavvy for Meera: Plan the sangeet (8 changes)" and one accepted Proposal ("Utsavvy for Rohan, accepted by Meera").
 - **The banner** from section 3, item 5.
 
@@ -478,10 +488,10 @@ Chosen by Sah-Nikhil: a Ganesh utsav Brief first, then the seeded wedding. Recor
 | 0:35 | judge-member, "Meera weds Rohan" | Pan across the Budget (₹25L, "Estimates sit near the low end"), the Timeline with late bookings pulled into this week, the wedding's run sheet, and the Vendors on the map. |
 | 0:50 | Same | Paste "Veg 950/plate for 300 pax, live counters extra". A Proposal card offers a ₹950 per plate Quote for 300 Guests at the sangeet; Accept. The caterer's line shows Estimate, Listed price and Quote side by side. Mark the caterer Booked; "Use the ₹2.85L Quote as this line's amount?"; Yes. The Budget is ₹40,000 over and a Nudge offers "Suggest cuts". |
 | 1:05 | Same, plus judge-viewer in a second window | Tap "Suggest cuts". The cuts arrive as a Proposal. The Viewer window shows it live with no Accept button; the Viewer leaves a Comment. judge-member taps Accept, and history shows "Utsavvy for judge-member". |
-| 1:30 | judge-member | "Find some haldi decor ideas" shows 6 Pexels photos. Tap two, then "Use for Theme" on one. The Theme gains its colours and a new decor Suggestion appears with an Estimate. |
+| 1:30 | judge-member | "Find some haldi decor ideas" shows 6 stock library photos. Tap two, then "Use for Theme" on one. The Theme gains its colours and a new decor Suggestion appears with an Estimate. |
 | 1:45 | Phone | The same Event on a phone: the Chat first, the Canvas tab in Compact mode. End on the repo link. |
 
-Fallbacks for demo day: if Pexels is down, the vibe pick shows only curated images and the haldi beat uses the seeded haldi photos; if the Anthropic credits run out, `DEFAULT_MODEL` switches to `gemini-3.8-flash` and the web search beat is skipped. The video is recorded on 28 Oct from the production URL after a reset.
+Fallbacks for demo day: if the Anthropic credits run out, `DEFAULT_MODEL` switches to `gemini-3.8-flash` and the web search beat is skipped. The video is recorded on 28 Oct from the production URL after a reset.
 
 ## 10. Build schedule
 
@@ -501,8 +511,10 @@ The days, waves and exit criteria are in [ROADMAP.md](ROADMAP.md), and every iss
 
 | When | Task | Time |
 |---|---|---|
-| 21 Oct | Give the go for GitHub setup and the build issues; connect Vercel; create the Clerk development instance and its Convex JWT template; put `ANTHROPIC_API_KEY`, `PEXELS_API_KEY` and `GEOAPIFY_API_KEY` in the Convex dashboard | 30 min |
-| 22 Oct | Approve the 4 vibe pick sets on D1's contact sheet | 15 min |
+| 21 Oct | Give the go for GitHub setup and the build issues; connect Vercel; create the Clerk development instance and its Convex JWT template; put `ANTHROPIC_API_KEY` and `GEOAPIFY_API_KEY` in the Convex dashboard | 30 min |
+| 22 Oct | Hand-curate and approve the 80 stock library photos (4 sets of 20, 12 per set for the vibe pick) and their tags with D1 | 2 h |
+| 22 Oct | Fill any starter-set category gap with an Instagram-only Vendor, checked by hand on its public profile (D2) | 20 min, if needed |
+| By 23 Oct | Create the Google Cloud project with a billing account, enable Maps JavaScript and the Places UI Kit, make the browser key with referrer and API restrictions and a daily cap, set a $1 budget alert, and put `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` and the Vercel dashboard (S20 starts on 24 Oct) | 30 min |
 | 22 Oct | Check the 16 starter Vendor cards against their sites, and approve or reject D2's reference-table adjustments by the end of the day (this freezes the table) | 50 min |
 | 22 Oct | Review the contract PR, pick the look (B or D, section 7.3) on the real components, and give the go to merge | 45 min |
 | 26 Oct, morning | Create the three judge accounts in Clerk and put their IDs in Convex, before S19a merges | 10 min |
@@ -515,6 +527,6 @@ Chosen by Sah-Nikhil: product hook first, the build process as proof.
 - **Opening:** a 20-second screen recording of the Pune Ganesh utsav Brief turning into a plan, with captions.
 - **First line:** "I built an AI planner for Indian weddings, birthdays and festivals in a week."
 - **Three points on why it can be trusted:** it never makes up prices (every amount is labelled as an Estimate, a Listed price with its source, or a Quote, and they are never added together); risky changes wait for a family member's Accept; the whole family plans together, live, with roles for the elders who only want to look.
-- **How it was built:** every decision planned in public GitHub issues (14 planning tickets under one map, and 10 ADRs), built by up to 3 AI agents in parallel worktrees, every PR reviewed by a second AI model before merging. Name the tools and models used.
+- **How it was built:** every decision planned in public GitHub issues (14 planning tickets under one map, and 12 ADRs), built by up to 3 AI agents in parallel worktrees, every PR reviewed by a second AI model before merging. Name the tools and models used.
 - **Close:** the live link, the repo link, #PromptWars and #BuildInPublic.
 - Write it in Sah-Nikhil's own voice, run it through `unslop`, add alt text to the video, and post on 28 Oct before submitting.

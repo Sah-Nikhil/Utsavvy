@@ -1,16 +1,16 @@
 # Build slices for v1
 
-Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text.
+Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text. On 2026-10-21 Sah-Nikhil changed three things after the issues existed (the local stock library, the Google places sheet as S20, Instagram-only Vendors in D2; see IMPLEMENTATION_PLAN.md section 1), and the changed issues were edited to match this file.
 
 | Phase | Parent issue | Build issues |
 |---|---|---|
 | Contract (milestone due 22 Oct) | [#28](https://github.com/Sah-Nikhil/Utsavvy/issues/28) | C0 #31, D1 #32, D2 #33 |
-| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53; stretch X1a #54, X1b #55, X2 #56, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X8 #63, X9 #64 |
+| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53, S20 #66; stretch X1a #54, X1b #55, X2 #56, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X8 #63, X9 #64, X10 #67, X11 #68 |
 | Submit (milestone due 28 Oct) | [#30](https://github.com/Sah-Nikhil/Utsavvy/issues/30) | none; its body is the Phase 2 checklist |
 
 ## How to turn this into issues
 
-- **Phases.** Three parent issues, each with a milestone of the same name: "Contract" (due 2026-10-22), "Slices" (due 2026-10-27) and "Submit" (due 2026-10-28). C0, D1 and D2 go under Contract; S1 to S18, S19a, S19b and the X issues under Slices. Submit holds no build issues; its body is the Phase 2 checklist from [ROADMAP.md](../../ROADMAP.md).
+- **Phases.** Three parent issues, each with a milestone of the same name: "Contract" (due 2026-10-22), "Slices" (due 2026-10-27) and "Submit" (due 2026-10-28). C0, D1 and D2 go under Contract; S1 to S18, S19a, S19b, S20 and the X issues under Slices. Submit holds no build issues; its body is the Phase 2 checklist from [ROADMAP.md](../../ROADMAP.md).
 - **Bodies.** Each issue below is a full body except the last two sections, which are the same for every issue. Append them as written:
 
 ```markdown
@@ -45,14 +45,16 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | `components/items/registry.tsx` | Item kind to component | Shared |
 | `components/items/<kind>/` | One folder per Item kind | The slice for that kind |
 | `components/chat/cards/registry.tsx` | Chat card kind to component | Shared |
-| `components/<area>/` | `people`, `canvas`, `chat`, `history`, `comments`, `vendors`, `quotes`, `proposals`, `brief`, `inspirations`, `map`, `compact`, `demo` | One slice each |
+| `components/<area>/` | `people`, `canvas`, `chat`, `history`, `comments`, `vendors`, `quotes`, `proposals`, `brief`, `inspirations`, `map`, `compact`, `demo`, `google-places` | One slice each |
 | `convex/schema.ts`, `convex/lib/`, `convex/crons.ts`, `convex/convex.config.ts` | Schema, access, writes, post-write hooks, Proposal op registry, idempotency, time, models, settings | Shared |
 | `convex/assistant/tools/index.ts` | Tool registry | Shared |
 | `convex/<module>.ts`, `convex/assistant/tools/<group>.ts` | One module per slice | One slice each |
 | `lib/types/`, `lib/access/`, `lib/format.ts` | Shared types, the permissions table, ₹ formatting | Shared |
 | `lib/pricing/`, `lib/brief/`, `lib/canvas/` | Pure logic | S3, S11, S2 |
 | `lib/fetch/` | `politeFetch`, the polite fetch with its SSRF guard | D2 (X1 reuses it) |
+| `lib/inspirations/` | `searchLibrary`, the stock library search | S13 |
 | `seed/` | Seed data | D1, D2, S19a |
+| `public/inspirations/` | The stock library's WebP files | D1 |
 | `evals/` | Scripted Assistant cases | S7 for the harness, each slice for its own case file |
 | `e2e/` | Playwright tests | C0 for setup and the smoke test, each slice for its own spec |
 
@@ -60,14 +62,14 @@ The contract creates this layout, with stubs where a later slice fills in the co
 
 | Day | Wave | Issues | Size |
 |---|---|---|---|
-| Thu 22 Oct | Contract | C0 (alone in code), D1 and D2 (data only); the reference table freezes at the end of the day | L + S + M |
+| Thu 22 Oct | Contract | C0 (alone in code), D1 and D2 (data only); the reference table freezes at the end of the day | L + M + M |
 | Fri 23 Oct | 1 | S1, S2, S5, then S3 when a slot frees | M + L + L + M |
-| Sat 24 Oct | 2 | S4, S6, S7, S8 | L + M + L + M |
-| Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + L + L |
+| Sat 24 Oct | 2 | S4, S6, S7, S8, S20 (spike first) | L + S + L + S + M |
+| Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + L + M |
 | Mon 26 Oct | 4 | S12, S14, S15, S16, S19a; then a rehearsal on production of the beats that exist | M + L + M + M + S |
 | Tue 27 Oct | 5 | S17, S18, then S19b, then the scripted-case CI run, fixes and the production rehearsal | M + S + S |
 
-At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
+S6 and S8 are S because cut-line items 1 and 2 moved to SHOULD on 2026-10-21 (X10, X11) to make room for S20; S13 is M without the Pexels API. At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
 
 Cut decisions are dated, with a fallback table per late slice (IMPLEMENTATION_PLAN.md section 10): at 18:00 IST on 26 Oct the orchestrator decides and posts it; a wave 4 slice still open keeps going on 27 Oct ahead of S17, S19b and S18; at 12:00 IST on 27 Oct, one still unmerged drops or replaces its demo beat as the table says and S19b starts on whatever has merged; at 14:00 IST, if S17 is still open, the rest of the cut line moves to SHOULD. The scripted-case CI run and the rehearsal are never cut.
 
@@ -84,15 +86,15 @@ A person can sign in and reach every page, possibly as a stub, and every later s
 Parent: Contract. Blocked by: none.
 
 ### Owned paths
-Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsconfig.json`, ESLint and Prettier config, `next.config.ts`, `vitest.config.ts`, `playwright.config.ts`), `.gitattributes`, `.editorconfig`, `.gitignore`, `.env.example`, `.github/workflows/ci.yml`, `app/` (layout, route stubs, `proxy.ts`), `components/ui/`, `components/shell/`, the three registries with stubs, `app/globals.css` and tokens, `convex/schema.ts`, `convex/convex.config.ts`, `convex/crons.ts`, `convex/lib/`, `convex/assistant/tools/index.ts`, `lib/types/`, `lib/access/`, `lib/format.ts`, `e2e/` setup and `e2e/smoke.spec.ts`, and stub files for every slice module so imports resolve.
+Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsconfig.json`, ESLint and Prettier config, `next.config.ts` with the Content Security Policy, `vitest.config.ts`, `playwright.config.ts`), `.gitattributes`, `.editorconfig`, `.gitignore`, `.env.example`, `.github/workflows/ci.yml`, `app/` (layout, route stubs, `proxy.ts`), `components/ui/`, `components/shell/`, the three registries with stubs, `app/globals.css` and tokens, `convex/schema.ts`, `convex/convex.config.ts`, `convex/crons.ts`, `convex/lib/`, `convex/assistant/tools/index.ts`, `lib/types/`, `lib/access/`, `lib/format.ts`, `e2e/` setup and `e2e/smoke.spec.ts`, and stub files for every slice module so imports resolve.
 
 ### Must not touch
-`seed/` (D1, D2), `docs/`, `issues/`, `CLAUDE.md`, `AGENTS.md`, `orchestration.md`.
+`seed/` (D1, D2), `public/inspirations/` (D1), `docs/`, `issues/`, `CLAUDE.md`, `AGENTS.md`, `orchestration.md`.
 
 ### Interfaces
 - Uses: the stack in `CLAUDE.md`; IMPLEMENTATION_PLAN.md sections 4, 5, 6 and 7.
 - Provides:
-  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index.
+  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index, the `googlePlace` Item kind (data `placeId` and `note`, nothing else), the stock library `pexels` Inspiration source (`localPath`, no image URL), and `vendors.provenance` entries with `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence`, `seenAt` and `confirmedBy`. No `pexelsCache`.
   - `lib/types/`: `BriefExtraction`, `FirstPlanDraft`, `PricedEstimate`, `BudgetCheck`, `ThemeUpdate`, `ItemKind`, `ItemData`, `EntryFields`, `CommentTarget`, `Selection` (an Item, an Entry or a passage, or null), `Actor`, `WriteEvent`, `ProposedChange` (the op union with `guards`, section 6), `ProposalOpHandler`, `Role`, `Action`, with Convex validators from the same definitions.
   - `lib/access/permissions.ts`: `can(role: Role, action: Action): boolean` and the table it reads, one row per line of the roles.md permissions table.
   - `convex/lib/access.ts`: `requireAccess(ctx, eventId, action) => { membership, user }`, throwing `AccessDenied`; `requireIdentity(ctx) => user` for the narrow exceptions in IMPLEMENTATION_PLAN.md section 4.3.
@@ -100,13 +102,14 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
   - `convex/lib/hooks.ts`: `afterWrite(ctx, event: WriteEvent)`, called by every write helper in the same mutation, running the registered hooks `passagesAfterWrite` (stub in `convex/comments.ts`, S8 fills) and `nudgesAfterWrite` (stub in `convex/nudges.ts`, S17 fills).
   - `convex/lib/proposalOps.ts`: the registry from op to `ProposalOpHandler`, each imported from a stub in its owner's file (section 6): `convex/assistant/tools/propose.ts` (S10), `convex/assistant/tools/quotes.ts` (S12), `convex/assistant/tools/images.ts` (S13), `convex/plan.ts` (S14). Stubs throw `NotBuiltYet`.
   - `components/shell/selection.tsx`: `SelectionProvider` around the workspace, `useSelection(): Selection` for readers (Chat, Comments, history, Compact mode) and `useSetSelection()` for the Canvas (S2).
-  - Stubs that later slices fill in their own files, so earlier slices can render them: `components/history/UndoAllButton.tsx` (renders nothing until S6), `components/map/VendorMap.tsx` (S15), `components/demo/DemoBanner.tsx` (S19a), and `proposeEssentialChange` in `convex/plan.ts` (refuses until S14).
+  - Stubs that later slices fill in their own files, so earlier slices can render them: `components/history/UndoAllButton.tsx` (renders nothing until X11), `components/google-places/GooglePlacesSheet.tsx` exporting `GooglePlacesProvider` (passes its children through), `GooglePlacesSheet` (renders nothing), `GooglePlacesButton` (renders nothing) and `useGooglePlacesSheet()` (returns `{ open(opts?: { placeId?: string }) }`, a no-op) until S20, `components/map/VendorMap.tsx` (S15), `components/demo/DemoBanner.tsx` (S19a), and `proposeEssentialChange` in `convex/plan.ts` (refuses until S14).
   - `convex/lib/idempotency.ts`: `once(ctx, key, fn)`.
   - `convex/lib/time.ts`: `istDay(timestamp)`, `istNow()`.
   - `convex/lib/models.ts` and `convex/lib/settings.ts`: model names and the thresholds (10%, 5, 24 hours, 30 seconds, 20 a day, 10 a day, 30 days, 0.8).
   - `lib/format.ts`: `formatINR(240000) === "₹2,40,000"`, `formatLakh(2500000) === "₹25L"`.
   - Registries: `components/items/registry.tsx` (`ItemKind` to component), `components/chat/cards/registry.tsx` (card kind to component), `convex/assistant/tools/index.ts` (tool name to definition), each pre-filled with stubs that later slices replace in their own files.
-  - The workspace shell at `/events/[eventId]` with mount points for the Canvas, Chat, people panel, history panel, Event settings, Add Inspiration and a banner slot (the demo banner).
+  - The workspace shell at `/events/[eventId]` with mount points for the Canvas, Chat, people panel, history panel, Event settings, Add Inspiration, the Google places sheet (`GooglePlacesProvider` around the workspace, `GooglePlacesSheet` at the top level, `GooglePlacesButton` in the header) and a banner slot (the demo banner).
+  - The Content Security Policy from IMPLEMENTATION_PLAN.md section 4.12, set in `next.config.ts` from one list.
   - `convex/crons.ts` with the three daily crons from section 4.7, pointing at no-op internal stubs.
   - Scripts: `dev` (Next.js and `convex dev` side by side), `typecheck`, `lint` (ESLint, then `prettier --check`), `format`, `test` (Vitest), `test:e2e` (Playwright), `build` (`next build`), `eval` (Vitest on `evals/`, outside CI).
   - CI with five jobs named `typecheck`, `lint`, `test`, `build`, `e2e`, the last against the PR's Vercel preview.
@@ -123,13 +126,14 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 - `formatINR`: ₹2,40,000; ₹25,00,000; ₹1,210.
 
 ### Acceptance criteria
-- [ ] `bun install` from a clean clone works; `bun.lock` committed; versions match IMPLEMENTATION_PLAN.md section 4.12 or the PR explains each difference.
+- [ ] `bun install` from a clean clone works; `bun.lock` committed; versions match IMPLEMENTATION_PLAN.md section 4.13 or the PR explains each difference.
 - [ ] Signing in with Google or email + password reaches `/events`; signed-out visits to `/events/*` redirect to sign-in.
 - [ ] Every route in section 4.2 renders (stubs allowed) and the shell shows the mount points.
 - [ ] `convex/schema.ts` deploys to a fresh Convex deployment; `convex/_generated/` committed.
 - [ ] `.gitattributes` (`* text=auto eol=lf`, `*.cmd` and `*.bat` as CRLF) and `.editorconfig` (`end_of_line = lf`) committed; `bun run lint` fails on a CRLF file.
 - [ ] CI runs the five jobs on the PR; the smoke test signs in with `@clerk/testing`, opens `/events` and passes the axe check.
-- [ ] `.env.example` lists every variable in section 4.11 with a comment each and no values.
+- [ ] `.env.example` lists every variable in section 4.11 with a comment each and no values, including `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and not `PEXELS_API_KEY`.
+- [ ] Every route sends the Content Security Policy from section 4.12, and the smoke test passes with it on a preview with no CSP violation in the browser console.
 - [ ] Utsavvy's own component set is built with the `impeccable` skill from the references in IMPLEMENTATION_PLAN.md section 7.4 (Material Design 3 surfaces, state layers, shape scale and easing; the Gemini-style Assistant gradient built from the Theme palette); no control is left in stock shadcn styling.
 - [ ] Both candidate token sets from section 7.3 (B, Ivory ledger, and D, Contemporary rangoli, with `--function-1` to `--function-8`) work behind a development-only switch, with `<SectionOrnament>` swapping B's line motif and D's corner pieces. Sah-Nikhil picks during the review (default: B with D's Function colours), and the PR keeps only the chosen set before merging.
 - [ ] Components use semantic tokens only; lint flags hex colours outside `app/globals.css`.
@@ -138,34 +142,35 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 
 ---
 
-## D1. Data: curate the 4 vibe pick sets
+## D1. Data: the stock library (80 photos, 4 sets)
 
-Labels: `slice`, `inspirations`, `needs-human`. Wave: 22 Oct, beside C0. Size: S.
+Labels: `slice`, `inspirations`, `needs-human`. Wave: 22 Oct, beside C0. Size: M.
 
 ### Goal
-The vibe pick has 12 approved Pexels images each for North Indian Hindu weddings, weddings in general, a child's birthday and Ganesh utsav.
+The stock library exists: 80 photos hand-curated from Pexels under the Pexels License, 20 each for North Indian Hindu weddings, weddings in general, a child's birthday and Ganesh utsav, served from our own app, with 12 per set marked for the vibe pick and every photo approved by Sah-Nikhil ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
 
 ### Phase
 Parent: Contract. Blocked by: none. The PR is rebased on `main` after C0 merges, so its test runs in CI.
 
 ### Owned paths
-`seed/vibe-sets.json`, `seed/vibe-sets.test.ts`, `scripts/curate-vibe-sets.ts`.
+`seed/vibe-sets.json`, `seed/vibe-sets.test.ts`, `scripts/curate-vibe-sets.ts`, `public/inspirations/`.
 
 ### Must not touch
 Everything C0 owns.
 
 ### Interfaces
-- Uses: the Pexels API (`PEXELS_API_KEY`), [inspirations.md](../design/inspirations.md) rules 21 to 23.
-- Provides: `seed/vibe-sets.json`: `{ setKey: "wedding-north-indian-hindu" | "wedding-general" | "birthday-child" | "community-ganesh-utsav", images: { pexelsId, imageUrl, photographer, photographerUrl, pageUrl, alt }[12] }[4]`.
+- Uses: [inspirations.md](../design/inspirations.md) rules 2, 3 and 18 to 24, ADR 0012.
+- Provides: `seed/vibe-sets.json`, a flat list of 80 records `{ setKey: "wedding-north-indian-hindu" | "wedding-general" | "birthday-child" | "community-ganesh-utsav", pexelsId, pageUrl, photographer, photographerUrl, localPath, alt, tags: string[], palette: string[], curatedAt, vibePick: boolean }`, and the files `public/inspirations/<setKey>/<pexelsId>.webp`. `alt` is one sentence in the curator's own words. `tags` are 4 to 12 lowercase words naming the occasion or Function (`haldi`, `mehendi`, `sangeet`, `birthday`, `ganesh`), the decor (`marigold`, `mandap`, `stage`, `balloons`) and the main colours. `palette` is 3 to 5 `#rrggbb` colours worked out from the file with `node-vibrant`. S13 searches `tags`; S18 shows the `vibePick` records.
 
 ### Test seams
-- The seed test: 4 sets, 12 images each, no duplicate `pexelsId` across sets, every field present, every URL on `images.pexels.com` or `www.pexels.com`.
+- The seed test: 80 records, 20 per set, 12 with `vibePick` per set; no duplicate `pexelsId`; every field present and non-empty; `localPath` is `/inspirations/<setKey>/<pexelsId>.webp` and that file exists under `public/`; `pageUrl` and `photographerUrl` are on `www.pexels.com`; every tag is lowercase; every palette has 3 to 5 `#rrggbb` colours; at least 6 photos are tagged `haldi` (the demo's "find some haldi decor ideas" beat shows 6).
+- The file check: every file is WebP, about 1200 px on its long side and under 300 KB.
 
 ### Acceptance criteria
-- [ ] The script shortlists about 25 candidates per set through the Pexels search API (queries such as "indian wedding mandap marigold", "haldi ceremony", "kids birthday party decorations", "ganesh chaturthi pandal"), and writes a contact-sheet HTML page outside the repo for Sah-Nikhil.
-- [ ] Sah-Nikhil approves 12 per set; only approved images go in the seed file.
-- [ ] A check confirms every seeded image URL returns 200.
-- [ ] No images are downloaded into the repo.
+- [ ] Sah-Nikhil approves every photo, its alt text and its tags; only approved photos are in the seed file and in `public/inspirations/`.
+- [ ] Every record credits its photographer and links the photo's Pexels page, so S13 can show "Photo by <photographer> on Pexels" with both linked.
+- [ ] Nothing uses the Pexels API: no `PEXELS_API_KEY`, and no `images.pexels.com` URL in the seed file or the app code.
+- [ ] `public/inspirations/` is under 25 MB in total.
 
 ---
 
@@ -174,7 +179,7 @@ Everything C0 owns.
 Labels: `slice`, `vendors`, `needs-human`. Wave: 22 Oct, beside C0. Size: M.
 
 ### Goal
-The app ships with 16 hand-checked Jaipur Vendors (6 Venues, 4 caterers, 3 decorators, 3 photographers), each with facts and Listed prices traceable to a sentence on the Vendor's own site, and the reference table's seed ranges are checked against those prices.
+The app ships with 16 hand-checked Jaipur Vendors (6 Venues, 4 caterers, 3 decorators, 3 photographers), each with facts and Listed prices traceable to a sentence on the Vendor's own site, and the reference table's seed ranges are checked against those prices. When a category can't be filled from own sites, an Instagram-only Vendor checked by hand fills the gap ([vendors.md](../design/vendors.md), "The starter set").
 
 ### Phase
 Parent: Contract. Blocked by: none. Rebased after C0 merges.
@@ -187,21 +192,22 @@ Everything C0 owns, `lib/pricing/` (S3 owns the table code and takes the check f
 
 ### Interfaces
 - Uses: [vendors.md](../design/vendors.md) (categories, Listed price fields, polite fetch rules, the quote check), Geoapify geocoding (`GEOAPIFY_API_KEY`), IMPLEMENTATION_PLAN.md section 2.
-- Provides: `seed/jaipur-vendors.json` in the shape of the `vendors` and `listedPrices` tables (without IDs); `seed/reference-table-check.md` listing, per reference-table row, the starter set's comparable Listed prices and a proposed low and high, then Sah-Nikhil's approve or reject for each, the frozen table version `2026-10-22`, and any worked-example number from IMPLEMENTATION_PLAN.md section 8 that the approved values change (worked through by hand from first-brief.md's pricing rules); and `politeFetch(url, { userAgent, lookup? }) => { finalUrl, status, contentType, text }` in `lib/fetch/politeFetch.ts`, which X1 reuses. It uses only Node built-ins (`node:dns`, `node:net` `BlockList`, `node:http` and `node:https`).
+- Provides: `seed/jaipur-vendors.json` in the shape of the `vendors` and `listedPrices` tables (without IDs): `category` is `"venue"`, `"caterer"`, `"decorator"` or `"photographer"`, and every `provenance` entry has `field`, `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence` (the exact sentence for `ownSite`, null otherwise), `seenAt` and `confirmedBy` (`"Sah-Nikhil"` for `instagramProfileHumanChecked`, otherwise null), as in IMPLEMENTATION_PLAN.md section 5.3; `seed/reference-table-check.md` listing, per reference-table row, the starter set's comparable Listed prices and a proposed low and high, then Sah-Nikhil's approve or reject for each, the frozen table version `2026-10-22`, and any worked-example number from IMPLEMENTATION_PLAN.md section 8 that the approved values change (worked through by hand from first-brief.md's pricing rules); and `politeFetch(url, { userAgent, lookup? }) => { finalUrl, status, contentType, text }` in `lib/fetch/politeFetch.ts`, which X1 reuses. It uses only Node built-ins (`node:dns`, `node:net` `BlockList`, `node:http` and `node:https`).
 
 ### Test seams
-- The seed test: 16 Vendors with the category counts above; every Listed price's `sentence` contains its amount and a currency marker (₹, Rs or INR); every comparable price has one of the four units; every Vendor has `provenance` for each field it fills; no domain is on the directory blocklist from vendors.md.
+- The seed test: 16 Vendors with the category counts above; every Listed price's `sentence` contains its amount and a currency marker (₹, Rs or INR); every comparable price has one of the four units; every Vendor has `provenance` for each field it fills; every `ownSite` entry has a non-empty `sentence`; every `instagramProfileHumanChecked` entry has `confirmedBy` `"Sah-Nikhil"`, a `url` on `www.instagram.com` and a null `sentence`; a Vendor with any `instagramProfileHumanChecked` entry has no Listed prices, a null `website` and a `profileUrl`; no domain is on the directory blocklist from vendors.md.
 - `politeFetch` (DNS and the server stubbed through `lookup`): refuses `127.0.0.1`, `10.0.0.5`, `192.168.1.1`, `100.64.0.1`, `169.254.169.254`, `[::1]` and `[fe80::1]`; refuses a public hostname that resolves to a private address; refuses a redirect from a public host to a private one, checked at that hop; refuses a fourth redirect, port 8080 and any scheme but `http` and `https`; stops at about 8 seconds and at 2 MB; connects to the address it checked, not a second lookup.
 
 ### Acceptance criteria
 - [ ] Candidates found by the agent's own web search; only each business's own website is read, never a directory, Google Places or a search snippet.
+- [ ] Own-site Vendors come first. Only when a category can't be filled from own sites does Sah-Nikhil add an Instagram-only Vendor: he reads its public business profile himself and supplies the name, category, area or address, public business phone, profile URL and the date he checked it. It gets no Listed prices, and its Marker comes from Geoapify geocoding the address he typed. The agent and the script never open Instagram or Facebook.
 - [ ] The script fetches only through `politeFetch`, with the User-Agent `UtsavvyBot/1.0`, obeys `robots.txt`, waits about a second between requests to a host and reads at most 4 pages per site.
 - [ ] `politeFetch` applies the SSRF guard from IMPLEMENTATION_PLAN.md section 4.9 to every request and every redirect hop: it resolves the host and refuses loopback, private, link-local, CGNAT and cloud-metadata addresses, connects only to the address it checked, allows only `http` and `https` on ports 80 and 443, follows at most 3 redirects, and stops at about 8 seconds and 2 MB.
 - [ ] By the end of 22 Oct, Sah-Nikhil has approved or rejected every proposed reference-table adjustment in `seed/reference-table-check.md`, which freezes the table at version `2026-10-22`.
 - [ ] The script checks each recorded sentence against the fetched page text after whitespace normalisation and drops any fact that fails.
 - [ ] Addresses geocoded with Geoapify, filtered to India and biased to Jaipur; matches below 0.8 confidence or at city level are marked approximate.
 - [ ] Each Vendor's `summary` is one line in our own words.
-- [ ] `seed/README.md` records the own-site hit rate, fetch success rate, address match rate and how many facts the check dropped.
+- [ ] `seed/README.md` records the own-site hit rate, fetch success rate, address match rate, how many facts the check dropped and how many Instagram-only Vendors filled gaps (and in which categories).
 - [ ] Sah-Nikhil checks every card (name, address, Marker, every Listed price and its unit) and ticks it in `seed/README.md`.
 - [ ] No Vendor photos are stored or linked.
 
@@ -379,12 +385,12 @@ Parent: Slices. Blocked by: C0.
 
 ---
 
-## S6. Edit history, Restore and Undo all
+## S6. Edit history and Restore
 
-Labels: `slice`, `canvas`. Wave: 24 Oct. Size: M.
+Labels: `slice`, `canvas`. Wave: 24 Oct. Size: S.
 
 ### Goal
-Everyone sees who changed what, grouped per Assistant reply ("Utsavvy for Meera: Plan the sangeet (8 changes)"); Members can Restore any earlier value and Undo all of one reply.
+Everyone sees who changed what, grouped per Assistant reply ("Utsavvy for Meera: Plan the sangeet (8 changes)"); Members can Restore any earlier value. Grouped "Undo all" moved to SHOULD on 2026-10-21 (X11), so the contract's `<UndoAllButton>` stays a stub.
 
 ### Phase
 Parent: Slices. Blocked by: S2.
@@ -394,13 +400,12 @@ Parent: Slices. Blocked by: S2.
 
 ### Interfaces
 - Uses: `changes`, `memberWrite`, `memberSoftDelete`, the shell's history mount point, `useSetSelection()` to highlight on click.
-- Provides: `api.history.list({ eventId, cursor })`, `api.history.restore({ changeId })`, `api.history.undoGroup({ groupKey })`, and fills the contract's `<UndoAllButton groupKey>` stub in `components/history/UndoAllButton.tsx`, which S5's Chat already renders under each Assistant reply.
+- Provides: `api.history.list({ eventId, cursor })`, `api.history.restore({ changeId })`. Leaves `components/history/UndoAllButton.tsx` as the contract's stub (X11 fills it).
 
 ### Test seams
 - `restore` puts back the `before` value as a new change, including a soft-deleted Item.
-- `undoGroup` on 8 changes where Rohan later edited one restores 7 and returns "Undid 7 of 8; Rohan has since edited Sangeet DJ".
 - Labels: Assistant changes show "Utsavvy for <Member>", accepted Proposals "Utsavvy for Rohan, accepted by Meera", Comment-origin groups add "(from a Comment)".
-- Viewers can list but `restore` and `undoGroup` are refused.
+- Viewers can list but `restore` is refused.
 
 ### Acceptance criteria
 - [ ] Clicking a history row highlights its Item on the Canvas.
@@ -445,10 +450,10 @@ Parent: Slices. Blocked by: S1, S3, S5.
 
 ## S8. Comments
 
-Labels: `slice`, `canvas`. Wave: 24 Oct. Size: M.
+Labels: `slice`, `canvas`. Wave: 24 Oct. Size: S.
 
 ### Goal
-Everyone, Viewers included, can Comment on an Item, an Entry or a highlighted passage, reply in threads and resolve their own Comments.
+Everyone, Viewers included, can Comment on an Item or an Entry, reply in threads and resolve their own Comments. Comments on highlighted passages moved to SHOULD on 2026-10-21 (X10), so the contract's `passagesAfterWrite` hook stays a no-op stub.
 
 ### Phase
 Parent: Slices. Blocked by: S2.
@@ -458,16 +463,15 @@ Parent: Slices. Blocked by: S2.
 
 ### Interfaces
 - Uses: `useSelection()`, `<ItemFrame>`'s Comment count slot, `requireAccess`.
-- Provides: `api.comments.add({ target, body, rootId })`, `api.comments.edit`, `api.comments.resolve`, `api.comments.listForItem`, `<CommentThread rootId>` (S17 adds @Utsavvy replies to it), and fills the contract's `passagesAfterWrite(ctx, event)` hook in `convex/comments.ts`, which marks passages "text changed" whenever an Item's or Entry's text field changes through any write helper.
+- Provides: `api.comments.add({ target, body, rootId })` (an Item or Entry target; a passage target is refused until X10), `api.comments.edit`, `api.comments.resolve`, `api.comments.listForItem`, `<CommentThread rootId>` (S17 adds @Utsavvy replies to it). Leaves the contract's `passagesAfterWrite` stub in `convex/comments.ts` as it is (X10 fills it).
 
 ### Test seams
 - A Viewer can add, edit and resolve their own Comment, and can't edit someone else's.
-- Editing a commented passage away keeps the Comment on the Item, quoting the original wording, marked "text changed", whether the edit came through `memberWrite` (a Member) or `assistantWrite` (the Assistant).
+- `add` with a passage target is refused.
 - A Comment by someone who left shows "(left)".
 
 ### Acceptance criteria
 - [ ] Comment counts show on Items and Entries; threads open beside the Item.
-- [ ] Selecting text in a Note or an Entry label and choosing "Comment" anchors to the passage.
 - [ ] Smoke test passes axe.
 
 ---
@@ -604,39 +608,44 @@ Parent: Slices. Blocked by: S9, S10.
 
 ---
 
-## S13. Inspirations: Pexels, uploads and the Theme
+## S13. Inspirations: the stock library, uploads and the Theme
 
-Labels: `slice`, `inspirations`. Wave: 25 Oct. Size: L.
+Labels: `slice`, `inspirations`. Wave: 25 Oct. Size: M.
 
 ### Goal
-Members add Inspirations from a Pexels search (in the Add Inspiration panel or as a tappable strip in the Chat) and from uploads, use any image for the Theme, and get 1 to 3 decor Suggestions priced from the reference table after a Theme change.
+Members add Inspirations from the stock library (the Search tab of the Add Inspiration panel, or a tappable strip in the Chat) and from uploads, use any image for the Theme, and get 1 to 3 decor Suggestions priced from the reference table after a Theme change. There is no Pexels API ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
 
 ### Phase
-Parent: Slices. Blocked by: S1, S2, S7.
+Parent: Slices. Blocked by: S1, S2, S7, D1.
 
 ### Owned paths
-`components/inspirations/`, `components/items/inspiration/`, `components/chat/cards/stock-strip/`, `convex/inspirations.ts`, `convex/pexels.ts`, `convex/assistant/tools/images.ts`, `evals/inspirations.eval.ts`, `e2e/inspirations.spec.ts`.
+`components/inspirations/`, `components/items/inspiration/`, `components/chat/cards/stock-strip/`, `lib/inspirations/`, `convex/inspirations.ts`, `convex/assistant/tools/images.ts`, `evals/inspirations.eval.ts`, `e2e/inspirations.spec.ts`.
 
 ### Interfaces
-- Uses: `PEXELS_API_KEY`, `pexelsCache`, Convex file storage, `node-vibrant`, the helper model for descriptions, `placeInFreeSpace`, `priceEntry`, `exceedsProposalThresholds` (S7), the Event's `uploadRightsOn` (S1), the contract's Proposal op registry. S13 supplies the `updateTheme` op handler there; S10, built in the same wave, applies it on Accept, so S13 doesn't call S10's code.
-- Provides: `api.pexels.search({ query, page })` (24-hour cache), `api.inspirations.addFromPexels`, `api.inspirations.generateUploadUrl`, `api.inspirations.addUpload`, `api.inspirations.useForTheme`, `api.inspirations.tag`, `api.inspirations.remove`, `internal.inspirations.describe` (once at save), `internal.inspirations.purgeDeleted` (the 30-day cron), `mergeTheme(theme, update) => theme` (3 to 5 colours, 2 to 4 style words, 3 to 6 decor keywords), the tools `searchStockImages`, `updateTheme`, `tagInspiration`, and the `updateTheme` op handler in `convex/assistant/tools/images.ts` (`docId` the Event, `expectedVersion` its version).
+- Uses: `seed/vibe-sets.json` and `public/inspirations/` (D1), Convex file storage, `node-vibrant` (uploads), the helper model for upload descriptions, `placeInFreeSpace`, `priceEntry`, `exceedsProposalThresholds` (S7), the Event's `uploadRightsOn` (S1), the contract's Proposal op registry. S13 supplies the `updateTheme` op handler there; S10, built in the same wave, applies it on Accept, so S13 doesn't call S10's code.
+- Provides: `searchLibrary(query, { setKeys? }) => LibraryPhoto[]` in `lib/inspirations/library.ts` (at most 6; a query word matches a tag when it equals one of the tag's words, after lowercasing and dropping stop words such as "find", "some", "ideas"; photos sort by matching words, then the Event's own set, then seed order; a photo with no match is never returned), `api.inspirations.addFromLibrary({ eventId, pexelsId, functionKey? })` (looks the photo up in the seed on the server, never trusting metadata from the browser, and saves its credit, `localPath`, `alt`, `tags` and palette as the Item's `source` and `seen`, with no model call), `api.inspirations.generateUploadUrl`, `api.inspirations.addUpload`, `api.inspirations.useForTheme`, `api.inspirations.tag`, `api.inspirations.remove`, `internal.inspirations.describe` (once at save, uploads only), `internal.inspirations.purgeDeleted` (the 30-day cron), `mergeTheme(theme, update) => theme` (3 to 5 colours, 2 to 4 style words, 3 to 6 decor keywords), the tools `searchStockImages`, `updateTheme`, `tagInspiration`, and the `updateTheme` op handler in `convex/assistant/tools/images.ts` (`docId` the Event, `expectedVersion` its version).
 
 ### Test seams
+- `searchLibrary`: "find some haldi decor ideas" returns 6 photos, every one tagged `haldi`; "durga puja pandal" returns none; a query matching 2 photos returns those 2; ties put the Event's own set first.
+- `searchStockImages` with no match replies that the library has nothing for it and offers an upload; the strip never holds a photo that didn't match.
+- `addFromLibrary` saves the seed record's credit and palette, calls the helper model zero times, and refuses an unknown `pexelsId`. `addUpload` calls `describe` exactly once.
 - `mergeTheme`: never more than 5 colours, 4 style words or 6 decor keywords; new ones replace the oldest.
-- "Use for Theme" from a Member applies at once with the Chat line "Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'".
+- "Use for Theme" from a Member applies at once with the Chat line "Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'"; on a library photo it uses the seed palette and tags.
 - An Assistant-initiated Theme change can't apply directly: the `updateTheme` tool with no Member request is refused with the message telling the model to use `propose`. Merge gate for that Proposal path: the `updateTheme` op handler, called with a stale Event version, refuses; with the current version, it applies the `ThemeUpdate` through `assistantWrite`.
 - `tagInspiration` is refused, writing nothing, unless the run answers a Member message that names a Function ("find mehendi decor" tags; "find some decor" doesn't), and in any `"nudge"` or `"brief"` run; `propose` with a `tagInspiration` change fails validation.
 - A Theme change never edits existing Entries; it offers 1 to 3 decor Suggestions, each with an Estimate from the table.
 - Upload rules: JPEG, PNG and WebP only, up to 10 MB, 10 at a time; with the Event's upload rights setting off, each batch needs the tick.
-- `purgeDeleted` removes stored files 30 days after deletion and leaves Pexels links alone.
+- `purgeDeleted` removes stored files 30 days after deletion and leaves library photos alone (they have no stored file).
+- Pointing at a library photo gives the model its `alt` and `tags`, not the picture; pointing at an upload gives the picture.
 
 ### Acceptance criteria
 - [ ] Every Inspiration shows its credit ("Photo by Anil Sharma on Pexels", both linked; "Uploaded by Meera").
+- [ ] Library photos load from `/inspirations/...` on our own origin; no request goes to Pexels.
 - [ ] Paste from the clipboard and drag and drop both upload; the browser shrinks images to 2048 px first.
-- [ ] Asking "find some haldi decor ideas" shows about 6 results; only tapped ones land, tagged haldi.
-- [ ] The panel has Search and Upload tabs only (Paste a link arrives with X2, Generate with X3).
+- [ ] Asking "find some haldi decor ideas" shows 6 library photos; only tapped ones land, tagged haldi.
+- [ ] The panel has Search and Upload tabs only (Paste a link arrives with X2, Generate with X3); an empty Search shows the Event's own set.
 - [ ] The footer has the "Report content" address.
-- [ ] Scripted cases: Pexels from the Chat, rights setting off, pointing at an image ("would this stage work for 300 Guests?").
+- [ ] Scripted cases: stock photos from the Chat, nothing in the library, rights setting off, pointing at an image ("would this stage work for 300 Guests?").
 - [ ] Smoke test passes axe, including alt text on every image.
 
 ---
@@ -729,6 +738,7 @@ Parent: Slices. Blocked by: S1, S2, S4, S8.
 ### Acceptance criteria
 - [ ] Phone edits from the Canvas ticket work: tick Entries, edit Entry values, write Notes, Comment, highlight passages, add and delete Items; moving Items between Sections is desktop-only.
 - [ ] Compact mode is fully keyboard and screen-reader usable and is linked as "Canvas as a list" from the freeform view.
+- [ ] The responsive shell keeps the contract's Google places mount points (`GooglePlacesProvider`, `GooglePlacesSheet`, and `GooglePlacesButton` in the header on desktop and phone).
 - [ ] Playwright runs the smoke test at 390 × 844 and passes axe.
 
 ---
@@ -751,7 +761,7 @@ Parent: Slices. Blocked by: S8, S10, S12, S13. The S12 link is waived if S12 is 
 - Provides: `internal.nudges.check({ eventId })`, `internal.nudges.dueSoonSweep` (the daily cron), `api.nudges.act({ nudgeId })`, `api.commentAsks.ask({ commentId })`, and fills the contract's `nudgesAfterWrite(ctx, event)` hook in `convex/nudges.ts`: for a write to a budget Entry, the Event's `budgetTotal`, a Timeline Entry, or an insert of an `inspiration` Item, it schedules `internal.nudges.check` for that Event with `ctx.scheduler.runAfter(0, ...)`; for any other write it does nothing. Because the hook runs inside the contract's write helpers, S17 edits no other slice's file to catch these writes.
 
 ### Test seams
-- Each write path schedules the check and the `nudges` index keeps it to one Nudge: `api.entries.update` on a budget Entry (S4), `api.quotes.useAsAmount` (S12), a Proposal Accept that changes a budget Entry (S10), `api.entries.update` and `api.entries.tick` on a Timeline Entry (S4), `api.inspirations.addFromPexels` and `api.inspirations.addUpload` (S13). A Note edit schedules nothing.
+- Each write path schedules the check and the `nudges` index keeps it to one Nudge: `api.entries.update` on a budget Entry (S4), `api.quotes.useAsAmount` (S12), a Proposal Accept that changes a budget Entry (S10), `api.entries.update` and `api.entries.tick` on a Timeline Entry (S4), `api.inspirations.addFromLibrary` and `api.inspirations.addUpload` (S13). A Note edit schedules nothing.
 - The Budget going over posts "The Budget is now ₹40,000 over. Want me to suggest cuts?" once that day; a second over-budget write the same IST day posts nothing.
 - An unticked Entry due within 3 days posts "Book decorator is due Friday and still open."
 - A new Inspiration posts "Meera added a pastel lehenga photo. Want me to update the Theme to match?"
@@ -780,16 +790,16 @@ Parent: Slices. Blocked by: S11, S13, D1.
 `components/brief/vibe-pick/`, `lib/brief/vibeSets.ts`, `e2e/vibe-pick.spec.ts`.
 
 ### Interfaces
-- Uses: `seed/vibe-sets.json`, `api.pexels.search`, `api.inspirations.addFromPexels`, `mergeTheme`, S11's vibe-pick mount point.
+- Uses: `seed/vibe-sets.json` (its `vibePick` records), `api.inspirations.addFromLibrary`, `mergeTheme`, S11's vibe-pick mount point.
 - Provides: `setForBrief(extraction) => setKey | null` (the mapping in IMPLEMENTATION_PLAN.md section 2).
 
 ### Test seams
-- `setForBrief`: North Indian Hindu wedding → its set; Punjabi wedding → general wedding; child birthday → child set; adult birthday → null (live search); Ganesh utsav → its set; Durga puja → null.
+- `setForBrief`: North Indian Hindu wedding → its set; Punjabi wedding → general wedding; child birthday → child set; adult birthday → null (step skipped); Ganesh utsav → its set; Durga puja → null.
 - Picking 3 images produces a Theme with 3 to 5 colours and style words, shown on the Brief summary.
 
 ### Acceptance criteria
-- [ ] The curated grid appears instantly; "Show me more" runs a live Pexels search from the Brief's words.
-- [ ] If Pexels is down, only the curated set shows; with no curated set and no Pexels, the step is skipped with one line.
+- [ ] The set's 12 vibe pick photos appear instantly; "Show me more" shows the set's other 8 library photos. There is no live search.
+- [ ] With no set for the Brief, the step is skipped with one line.
 - [ ] Every image shows its Pexels credit.
 - [ ] Smoke test passes axe.
 
@@ -854,6 +864,42 @@ Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice 
 
 ---
 
+## S20. The Google places sheet
+
+Labels: `slice`, `vendors`. Wave: 24 Oct. Size: M.
+
+### Goal
+A Member browses Google Maps places in a full-screen sheet built from Google's Places UI Kit ("mehendi artists near Malviya Nagar, Jaipur"), saves one to the Event as a Google place holding only its place ID and the Member's own note, and anyone in the Event can reopen it in the sheet or in Google Maps. Nothing from Google is stored or shown outside Google's own components ([ADR 0011](../adr/0011-google-places-only-through-the-places-ui-kit.md), vendors.md "Google places").
+
+### Phase
+Parent: Slices. Blocked by: C0, S1, S2.
+
+### Owned paths
+`components/google-places/`, `components/items/google-place/`, `convex/googlePlaces.ts`, `e2e/google-places.spec.ts`.
+
+### Interfaces
+- Uses: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, the Maps JavaScript API loaded in the browser with Google's inline bootstrap loader and `importLibrary("places")` (no new package; a local type declaration for the `gmp-*` elements), the Places UI Kit Essentials components `gmp-place-search` (text search) and `gmp-place-details-compact`, the `gmp-select` event, the `--gmp-mat-*` CSS custom properties, the contract's `GooglePlacesSheet.tsx` stubs and shell mount points, the `googlePlace` Item kind and its validator, `<ItemFrame>`, `placeInFreeSpace`, `memberInsert`, `memberWrite`, `memberSoftDelete`, `requireAccess`, the Event's `city` (name and centre).
+- Provides: fills `GooglePlacesProvider`, `GooglePlacesSheet`, `GooglePlacesButton` and `useGooglePlacesSheet()` in `components/google-places/GooglePlacesSheet.tsx`; `api.googlePlaces.save({ eventId, placeId, note }) => { itemId, alreadySaved }`, `api.googlePlaces.updateNote({ itemId, note })`, `api.googlePlaces.remove({ itemId })`; `googleMapsUrl(placeId, cityName) => string`; the Google place Item component in `components/items/google-place/`.
+
+### Test seams
+- `save`: a Member saves place ID `ChIJexample` with the note "Riya's mehendi artist" and gets one `googlePlace` Item in the Vendors Section, placed in free space, whose `data` is exactly `{ placeId, note }`, plus one `changes` row. Saving the same place ID again in that Event returns the existing Item with `alreadySaved: true` and writes nothing; another Event saves its own.
+- `save` is refused for a Viewer and for a removed person; it is refused for an empty or whitespace note, a note over 280 characters, and a place ID that isn't 1 to 300 characters of letters, digits, `_` or `-`. The `googlePlace` validator rejects any extra field, such as `name` or `address`.
+- `googleMapsUrl("ChIJexample", "Jaipur")` is `https://www.google.com/maps/search/?api=1&query=Jaipur&query_place_id=ChIJexample`; "Navi Mumbai" is encoded as `Navi%20Mumbai`.
+- `remove` soft-deletes the Item and writes a `changes` row, so S6's Restore can bring it back; a Viewer's `remove` and `updateNote` are refused.
+
+### Acceptance criteria
+- [ ] First, a spike, reported in the PR before the rest is built: on a deployed preview with the real key and the contract's CSP, `gmp-place-search` returns results for "mehendi artists near Malviya Nagar, Jaipur", `gmp-select` gives a place ID, `gmp-place-details-compact` loads by that ID, the `--gmp-mat-*` properties take our colours and fonts, and it works at 390 × 844. Missing CSP entries are reported to the orchestrator for a contract change. If the components don't load or `gmp-select` doesn't fire, stop and report; the fallback (a Maps Embed API search viewer with no Save) needs Sah-Nikhil's call.
+- [ ] The sheet covers the whole workspace, opaque, with our own header (title "Google places", the query box, Close). Escape and Close return focus to where it was. The workspace behind is `inert`, so the Vendor map can't be seen or reached while it is open.
+- [ ] The query box has the placeholder "e.g. mehendi artists near Malviya Nagar, Jaipur" and the search is biased to the Event's city centre when it is known.
+- [ ] Google's list and details sit in their own bounded region with Google's attribution visible; nothing of ours covers them. Colours and fonts reach them only through `--gmp-mat-*` properties set from our semantic tokens.
+- [ ] After a Member picks a place, "Save to this Event" asks for a note ("What is this place for you?") and saves; the new Item lands highlighted in the Vendors Section. Viewers don't see the "Google places" button or Save, but can open a saved Google place.
+- [ ] The card shows a neutral illustration, "Google place", the note, "Saved by Meera · 21 Oct 2026", "View Google place" (opens the sheet on that place's details) and "Open in Google Maps" (new tab, `rel="noopener noreferrer"`). It shows nothing from Google.
+- [ ] No Google name, address, phone, rating, photo or coordinates is written to Convex, the Chat or any tool result; our server never calls Google.
+- [ ] Without `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, or when the script fails to load, the sheet says "Google places can't load right now." and nothing else breaks.
+- [ ] Smoke test with a stubbed loader and a fake `gmp-select`: save a place, see the card, open "View Google place"; it passes axe on our parts of the sheet and the card.
+
+---
+
 ## Later stage and SHOULD
 
 These are `stretch` issues: built only when a slot frees up, in this order. Each follows the same template; the design docs already specify them, so the bodies below are short. The orchestrator fills in owned paths from the folder map when it creates them, and each needs a contract-change PR first for its tables and packages.
@@ -868,7 +914,7 @@ Goal: "Find Vendors" and Chat requests stream Vendor cards with "Reading 3 of 5 
 
 ### X2. Pinterest and Instagram References (SHOULD, first)
 Labels: `slice`, `inspirations`, `stretch`. Size: S. Blocked by: S13.
-Goal: "Paste a link" accepts Pin, board, `pin.it`, Instagram post and Reel URLs, stores only the URL and the Member's "What do you like in this?" note, and shows them through `pinit.js` and Instagram oEmbed (inspirations.md rules 6, 7 and 14). Seams: host and path checks; the server never fetches the link; "Use for Theme" on a Reference adds words only.
+Goal: "Paste a link" accepts Pin, board, `pin.it`, Instagram post and Reel URLs, stores only the URL and the Member's "What do you like in this?" note, and shows them through `pinit.js` and Instagram oEmbed (inspirations.md rules 6, 7 and 14). A public board, including one Utsavvy curates, is only ever one Reference shown by the board widget: no Pinterest API or RSS reading, no stored Pin data, thumbnails or Pin text, no picking single images out of the widget, and never a source for the vibe pick or `searchStockImages` ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)). `pinit.js` loads only when a Reference is on screen, with a plain link until it has; its hosts and Instagram's embed hosts join the Content Security Policy through a contract change, checked in a deployed browser. The Reference card's "Add a screenshot" makes an ordinary upload that is never a Remix source (rule 14). Seams: host and path checks; the server never fetches the link; "Use for Theme" on a Reference adds words only.
 
 ### X3a. Event keys (later stage)
 Labels: `slice`, `assistant`, `auth`, `stretch`. Size: M. Blocked by: S7.
@@ -876,7 +922,7 @@ Goal: the Owner and Co-owners attach an Anthropic, Google or OpenAI key to an Ev
 
 ### X3b. Generate, Remix and the second demo Event (later stage)
 Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X3a, S13, S19a.
-Goal: the Generate tab, "Remix this", "Make one like this" and "Use instead" behind a capable Event key with 20 a day per Event (inspirations.md rules 10 to 14), and the seeded "Aarav's 6th birthday" Event carrying Sah-Nikhil's Google key from `DEMO_GOOGLE_EVENT_KEY`. Tools: `generateImage`, `remixImage`.
+Goal: the Generate tab, Remix, "Make one like this" and "Use instead" behind a capable Event key with 20 a day per Event (inspirations.md rules 10 to 14), and the seeded "Aarav's 6th birthday" Event carrying Sah-Nikhil's Google key from `DEMO_GOOGLE_EVENT_KEY`. Remix works on library photos, generated images, Remixes and uploads whose uploader ticked "I took this photo or have the rights to change it"; an upload that came from a Reference is never remixed (rule 14, corrected 2026-10-21). Seams add: an upload with `fromReference` set offers no Remix, and `remixImage` refuses it; an upload without the tick asks for it first. Tools: `generateImage`, `remixImage`.
 
 ### X4. Sticky Don't reply and the mention rule (SHOULD)
 Labels: `slice`, `chat`, `stretch`. Size: S. Blocked by: S5.
@@ -901,3 +947,11 @@ Goal: the PWA's Web Share Target with the Event picker (inspirations.md rule 9),
 ### X9. The other 9 vibe pick sets (SHOULD)
 Labels: `slice`, `inspirations`, `stretch`, `needs-human`. Size: S. Blocked by: S18.
 Goal: curate and approve the remaining sets from inspirations.md rule 21, the same way as D1.
+
+### X10. Comments on highlighted passages (SHOULD, moved from S8 on 2026-10-21)
+Labels: `slice`, `canvas`, `stretch`. Size: S. Blocked by: S8.
+Goal: selecting text in a Note or an Entry label and choosing "Comment" anchors the Comment to that passage, and fills the contract's `passagesAfterWrite(ctx, event)` hook in `convex/comments.ts`, which marks passages "text changed" whenever an Item's or Entry's text field changes through any write helper. Seam: editing a commented passage away keeps the Comment on the Item, quoting the original wording, marked "text changed", whether the edit came through `memberWrite` (a Member) or `assistantWrite` (the Assistant). May change `components/comments/` and `convex/comments.ts` (S8, merged).
+
+### X11. Grouped "Undo all" (SHOULD, moved from S6 on 2026-10-21)
+Labels: `slice`, `canvas`, `stretch`. Size: S. Blocked by: S6.
+Goal: `api.history.undoGroup({ groupKey })` and the contract's `<UndoAllButton groupKey>` in `components/history/UndoAllButton.tsx`, which S5's Chat already renders under each Assistant reply. Seams: `undoGroup` on 8 changes where Rohan later edited one restores 7 and returns "Undid 7 of 8; Rohan has since edited Sangeet DJ"; Viewers are refused. May change `components/history/` and `convex/history.ts` (S6, merged).

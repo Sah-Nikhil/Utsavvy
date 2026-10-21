@@ -65,7 +65,7 @@ _Avoid_: attendee, invitee, visitor, member
 ## Vendors
 
 **Vendor**:
-A business that provides something for an Event, such as a venue, caterer, decorator or photographer. Every Vendor has one category. A Vendor found on its own website is one shared record for every Event; one a Member typed in by hand belongs to that Event only.
+A business that provides something for an Event, such as a venue, caterer, decorator or photographer. Every Vendor has one category. A Vendor from the starter set or found on its own website is one shared record for every Event; one a Member typed in by hand belongs to that Event only.
 _Avoid_: listing, supplier, service provider
 
 **Venue**:
@@ -75,6 +75,10 @@ _Avoid_: hall, location, property
 **Shortlisted Vendor**:
 A Vendor that Members have added to their Event's Canvas, linked to one or more Vendor checklist Entries. Each link has its own status: Considering, Contacted, Quoted, Booked or Dropped.
 _Avoid_: saved vendor, favourite, selected vendor
+
+**Google place**:
+A place on Google Maps that a Member saved to an Event's Canvas from the Google places sheet. Utsavvy keeps only Google's place ID and the Member's own note about it; its name, address, rating and photos are shown only inside Google's own components. It is not a Vendor: it has no Listed price, no Marker and no checklist links.
+_Avoid_: Google Vendor, saved Vendor, place bookmark, listing, pin
 
 **Discovery**:
 The Assistant finding Vendors, at a Member's request, by searching the web and reading the Vendors' own websites.
@@ -91,7 +95,7 @@ The conversation of one Event, between the people planning it and the Assistant.
 _Avoid_: thread, room, group
 
 **Item**:
-One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Shortlisted Vendor, an Inspiration, a Suggestion or a Note.
+One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Shortlisted Vendor, a Google place, an Inspiration, a Suggestion or a Note.
 _Avoid_: card, block, widget, element
 
 **Section**:
@@ -111,7 +115,7 @@ A remark a person attaches to an Item, an Entry or a highlighted passage of an I
 _Avoid_: reply, note, annotation
 
 **Inspiration**:
-Something saved to a Canvas to shape the look and feel of an Event: either an image (a stock photo, a Member's upload, an AI generation or a Remix) or a Reference.
+Something saved to a Canvas to shape the look and feel of an Event: either an image (a photo from Utsavvy's stock library, a Member's upload, an AI generation or a Remix) or a Reference.
 _Avoid_: pin, idea, moodboard item
 
 **Reference**:

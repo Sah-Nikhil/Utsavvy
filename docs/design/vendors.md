@@ -18,6 +18,8 @@ Inputs: [Where can Vendor locations and Listed prices for Indian venues legally 
 10. **The Budget shows Estimate, Listed price and Quote side by side, never mixed.** A Member decides when a Quote replaces a budget Entry's amount.
 11. **Chat web search uses Claude's web search tool only,** for Events running on Claude. Its answers stay in the Chat.
 12. **Listed prices also tune the reference table,** by hand at build time and automatically in the app, behind guardrails (see "Pooling Listed prices into the reference table").
+13. **Instagram-only Vendors may fill starter-set gaps** (added 2026-10-21). See "The starter set".
+14. **Google places are browsed and saved only through Google's own components** (added 2026-10-21). See "Google places". A Google place is never a Vendor.
 
 ## Categories
 
@@ -55,7 +57,7 @@ Discovery never runs on its own, and never without a Member's request.
 6. **Extract and check** (see "Extraction").
 7. **Geocode** the address with Geoapify (see "Markers").
 8. **Save and stream.** Each new Vendor is saved as a shared record and streamed into the Chat as a Vendor card as soon as it is ready. The Chat shows a status line while it works ("Reading 3 of 5 sites"). Expect about 10 to 20 seconds; the whole run stops at 30 seconds and keeps what it has.
-9. **Instagram and other social hits** are listed at the end of the reply as plain links ("Also on Instagram: @example_decor"). They are not saved as Vendors.
+9. **Instagram and other social hits** are listed at the end of the reply as plain links ("Also on Instagram: @example_decor"). They are not saved as Vendors. Our server never opens Instagram or Facebook pages.
 
 ### Polite fetch rules
 
@@ -105,7 +107,7 @@ The daily cap protects Serper's 2,500 free searches. Refresh doesn't count again
 | Estimate | Shown when no comparable Listed price exists (see below) | Its basis string |
 | Link-out | "Compare on WedMeGood": the WedMeGood listing page for that city and category, not a deep link to a specific listing | None needed |
 
-Every stored fact keeps the URL of the page it came from and the date it was seen. The card shows one short provenance line per section and the full detail on hover or tap.
+Every stored fact keeps the URL of the page it came from and the date it was seen. The card shows one short provenance line per section and the full detail on hover or tap. An Instagram-only starter Vendor reads "from its Instagram profile · checked 22 Oct 2026 by Sah-Nikhil" instead, and has no sentence to show.
 
 **Image:** a neutral illustration per category (one generic illustration for free-label categories). A Vendor's own photos are their copyright, and a preview-image URL is not a licence, so we never show or store them. Search-engine thumbnails are never used.
 
@@ -189,7 +191,7 @@ A Quote that names Functions is compared against those Functions' budget Entries
 - **What's on it:** Markers for the Event's Shortlisted Vendors, coloured by status, plus other shared Vendors in the Event's city as faint Markers.
 - **Filters:** category, plus picking a Function fills in its needs: capacity at least that Function's Guest count (Venues), and a comparable Listed price within its budget Entry.
 - **Cities:** any Indian city. The Event's city is geocoded once and centres the map. Only Jaipur has the starter set.
-- **Geocoding:** Geoapify forward geocoding of the address from the Vendor's own site, filtered to India and biased to the Event's city. Store the coordinates, the confidence and match type, the provider and its attribution. Show Geoapify and OpenStreetMap attribution near the map.
+- **Geocoding:** Geoapify forward geocoding of the address from the Vendor's own site (or, for an Instagram-only starter Vendor, the address Sah-Nikhil typed from its public profile), filtered to India and biased to the Event's city. Those two, and a Marker a Member drops from their own knowledge, are the only sources of a Marker. Never Google: not a Places location, and not a geocoded address that Google returned. Store the coordinates, the confidence and match type, the provider and its attribution. Show Geoapify and OpenStreetMap attribution near the map.
 - **Approximate Markers:** a city- or locality-level match, or a low-confidence one (the build sets the threshold; start at 0.8), shows as a hollow Marker labelled "approximate". Any Member can drag it to the right spot, which updates the shared record and is kept in the edit history.
 - **Vendors without an address** (a caterer with only an area served) have no Marker. They are listed beside the map.
 - **Hand-typed Vendors** have a Marker only if a Member drops one.
@@ -200,16 +202,31 @@ A Quote that names Functions is compared against those Functions' budget Entries
 - Citations are always shown with the answer.
 - Answers stay in the Chat. A Member can save one as a Note, with its citations. Its prices never become Listed prices, never change Estimates and are never pooled. A Member who wants a number on the Canvas records a Quote after talking to the Vendor.
 - Anthropic's service does the fetching. Our server never opens directory pages itself.
+- An answer may cite Instagram profiles and directory pages as live links. They stay links in that answer: never saved as Vendors, facts or Listed prices.
 - This replaces the first-brief design's mention of Gemini Search or Maps grounding for Chat lookups; the rule that answers are shown with sources and never stored is unchanged.
 
 ## The starter set
 
 - About 16 Jaipur Vendors: 6 Venues, 4 caterers, 3 decorators, 3 photographers.
+- **Own sites first.** A Vendor comes from its own website whenever one can be found.
+- **Instagram-only Vendors fill gaps** (decided 2026-10-21). When a category can't be filled from own sites, Sah-Nikhil may add a Vendor whose only presence is a public Instagram business profile. He reads the profile himself and types its facts: name, category, area or address, public business phone, the profile URL and the date he checked it. The record's provenance says `instagramProfileHumanChecked` and that Sah-Nikhil confirmed it. It has **no Listed prices**, so its card says "No price on their website", shows the Estimate and invites a Quote. Its Marker comes from Geoapify geocoding the address he typed. No captions, photos, reviews or prices are copied. Automated reading of Instagram or Facebook, directories, Google Places data and search snippets stay excluded.
 - Collected by running the Discovery pipeline itself on Jaipur queries, then hand-checking every card against the Vendor's site (name, address, Marker position, every Listed price and its unit).
   > Amended by [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 2: Discovery comes after v1, so an agent collects the starter set under the same polite fetch rules and quote check, and Sah-Nikhil hand-checks every card.
 - Stored as seed data in the repo and loaded by the demo Event's reset script.
 - The collection run is also the pre-launch quality check the search research asked for. Record the own-site hit rate, fetch success rate, address match rate and extraction accuracy in the seed notes.
 - Its Listed prices feed the hand check of the reference table.
+
+## Google places
+
+Decided with Sah-Nikhil on 2026-10-21 ([ADR 0011](../adr/0011-google-places-only-through-the-places-ui-kit.md)).
+
+- **The Google places sheet.** A full-screen sheet built from Google's Places UI Kit (Essentials: `gmp-place-search` and `gmp-place-details-compact`), themed with the `--gmp-mat-*` CSS properties to match our look. A Member types a query such as "mehendi artists near Malviya Nagar, Jaipur", sees Google's list, opens one for Google's details, with Google's attribution always visible. The Vendor map is hidden while the sheet is open.
+- **Saving.** Picking a place shows "Save to this Event" with a required note in the Member's own words ("Riya's mehendi artist, ask about the sangeet"). Saving makes a **Google place** Item in the Vendors Section holding only the place ID and that note, plus who saved it and when. Utsavvy stores no Google name, address, phone, rating, photo or coordinates anywhere: not in the database, a Vendor record, the card or a Marker.
+- **The card** shows a neutral illustration, "Google place", the Member's note and "Saved by Meera · 21 Oct 2026", with two buttons: "View Google place" (reopens the sheet with Google's details for that place ID) and "Open in Google Maps" (`https://www.google.com/maps/search/?api=1&query=<the Event's city>&query_place_id=<place ID>`).
+- **Not a Vendor.** A Google place has no Listed price, Marker, checklist link, status or Quote, and never feeds the reference table. Nothing from the sheet goes into the Chat, and the Assistant sees only the Member's note.
+- **Who.** Any Member can browse, save and delete Google places (deleting goes to history, like any Item). Viewers see the cards and can open them, but don't browse or save.
+
+**Considered and rejected:** Places results in the Chat, with shortlisting putting them on our map. Google's terms forbid Places content with or near a non-Google map and storing anything but place IDs, so neither the result list in our Chat nor a Marker drawn from Places (its location, or Geoapify geocoding a Places address) is allowed.
 
 ## Worked examples
 
