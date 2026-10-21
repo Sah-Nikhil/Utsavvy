@@ -4,7 +4,7 @@ Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTA
 
 ## How to turn this into issues
 
-- **Phases.** Three parent issues, each with a milestone of the same name: "Contract" (due 2026-10-22), "Slices" (due 2026-10-27) and "Submit" (due 2026-10-28). C0, D1 and D2 go under Contract; S1 to S19 and the X issues under Slices. Submit holds no build issues; its body is the Phase 2 checklist from [ROADMAP.md](../../ROADMAP.md).
+- **Phases.** Three parent issues, each with a milestone of the same name: "Contract" (due 2026-10-22), "Slices" (due 2026-10-27) and "Submit" (due 2026-10-28). C0, D1 and D2 go under Contract; S1 to S18, S19a, S19b and the X issues under Slices. Submit holds no build issues; its body is the Phase 2 checklist from [ROADMAP.md](../../ROADMAP.md).
 - **Bodies.** Each issue below is a full body except the last two sections, which are the same for every issue. Append them as written:
 
 ```markdown
@@ -21,7 +21,7 @@ Checks pass locally, the PR is open with the template filled in, and the PR URL 
 
 - **Phase line.** Replace each issue's `Blocked by` slice ids with the real issue numbers once they exist, and add the links with `gh issue edit <n> --add-blocked-by <m>`.
 - **Labels.** As listed per issue. Give `ready` to issues whose blockers are all closed and `blocked` to the rest; the orchestrator moves them to `ready` as blockers close.
-- **Must not touch** always includes the shared files from build-workflow.md (`package.json`, `bun.lock`, `convex/schema.ts`, `lib/types/`, `app/globals.css` and the token files, `components/ui/`, the three registries, `convex/lib/`, `convex/crons.ts`, `convex/convex.config.ts`, `.env.example`, root config, `.github/`) and every other open issue's owned paths. Issues only list extra exclusions.
+- **Must not touch** always includes the shared files from build-workflow.md (`package.json`, `bun.lock`, `convex/schema.ts`, `lib/types/`, `app/globals.css` and the token files, `components/ui/`, `components/shell/selection.tsx`, the three UI and tool registries, `convex/lib/` (including the hook and Proposal op registries), `convex/crons.ts`, `convex/convex.config.ts`, `.env.example`, root config, `.github/`) and every other open issue's owned paths. Issues only list extra exclusions.
 - **Seams** are tested with `/tdd`: test first, see it fail, then the code. Expected values come from the design docs' worked examples, never recomputed the way the code computes them.
 - **UI slices** add or extend one Playwright smoke test for their screen, with the axe check from the contract.
 - **Scripted Assistant cases.** A slice that changes the Assistant's behaviour adds its cases to `evals/` and runs `bun run eval` for those cases before opening the PR. The result goes in the PR's Verification section; it is not a CI check.
@@ -35,16 +35,18 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | `app/` | Routes. `app/events/[eventId]/` is the workspace shell. | C0, then the slice named per route |
 | `components/ui/` | The restyled primitives | Shared (orchestrator) |
 | `components/shell/` | Workspace header, panels host, desktop layout | C0, then S16 |
+| `components/shell/selection.tsx` | `SelectionProvider`, `useSelection()`, `useSetSelection()` | Shared |
 | `components/items/registry.tsx` | Item kind to component | Shared |
 | `components/items/<kind>/` | One folder per Item kind | The slice for that kind |
 | `components/chat/cards/registry.tsx` | Chat card kind to component | Shared |
-| `components/<area>/` | `people`, `canvas`, `chat`, `history`, `comments`, `vendors`, `quotes`, `proposals`, `brief`, `inspirations`, `map`, `compact` | One slice each |
-| `convex/schema.ts`, `convex/lib/`, `convex/crons.ts`, `convex/convex.config.ts` | Schema, access, writes, idempotency, time, models, settings | Shared |
+| `components/<area>/` | `people`, `canvas`, `chat`, `history`, `comments`, `vendors`, `quotes`, `proposals`, `brief`, `inspirations`, `map`, `compact`, `demo` | One slice each |
+| `convex/schema.ts`, `convex/lib/`, `convex/crons.ts`, `convex/convex.config.ts` | Schema, access, writes, post-write hooks, Proposal op registry, idempotency, time, models, settings | Shared |
 | `convex/assistant/tools/index.ts` | Tool registry | Shared |
 | `convex/<module>.ts`, `convex/assistant/tools/<group>.ts` | One module per slice | One slice each |
 | `lib/types/`, `lib/access/`, `lib/format.ts` | Shared types, the permissions table, ₹ formatting | Shared |
 | `lib/pricing/`, `lib/brief/`, `lib/canvas/` | Pure logic | S3, S11, S2 |
-| `seed/` | Seed data | D1, D2, S19 |
+| `lib/fetch/` | `politeFetch`, the polite fetch with its SSRF guard | D2 (X1 reuses it) |
+| `seed/` | Seed data | D1, D2, S19a |
 | `evals/` | Scripted Assistant cases | S7 for the harness, each slice for its own case file |
 | `e2e/` | Playwright tests | C0 for setup and the smoke test, each slice for its own spec |
 
@@ -52,14 +54,16 @@ The contract creates this layout, with stubs where a later slice fills in the co
 
 | Day | Wave | Issues | Size |
 |---|---|---|---|
-| Wed 22 Oct | Contract | C0 (alone in code), D1 and D2 (data only) | L + S + M |
-| Thu 23 Oct | 1 | S1, S2, S5, then S3 when a slot frees | M + L + L + M |
-| Fri 24 Oct | 2 | S4, S6, S7, S8 | L + M + L + M |
-| Sat 25 Oct | 3 | S9, S10, S11, S13 | M + M + L + L |
-| Sun 26 Oct | 4 | S12, S14, S15, S16 | M + L + M + M |
-| Mon 27 Oct | 5 | S17, S18, S19, then the scripted-case CI run, fixes and the production rehearsal | M + S + M |
+| Thu 22 Oct | Contract | C0 (alone in code), D1 and D2 (data only); the reference table freezes at the end of the day | L + S + M |
+| Fri 23 Oct | 1 | S1, S2, S5, then S3 when a slot frees | M + L + L + M |
+| Sat 24 Oct | 2 | S4, S6, S7, S8 | L + M + L + M |
+| Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + L + L |
+| Mon 26 Oct | 4 | S12, S14, S15, S16, S19a; then a rehearsal on production of the beats that exist | M + L + M + M + S |
+| Tue 27 Oct | 5 | S17, S18, then S19b, then the scripted-case CI run, fixes and the production rehearsal | M + S + S |
 
-At most three issues are in progress at once. The orchestrator may start the fourth issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
+At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
+
+Cut decisions are dated (IMPLEMENTATION_PLAN.md section 10): at 18:00 IST on 26 Oct, if any of S12, S14, S15, S16 or S19a is still open, cut-line items move to SHOULD in the order of section 1.5, starting with the ones in still-open slices; at 14:00 IST on 27 Oct, if S17 or S18 is still open, the rest of the cut line follows and S19b starts on whatever has merged. The scripted-case CI run and the rehearsal are never cut.
 
 ---
 
@@ -82,17 +86,21 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 ### Interfaces
 - Uses: the stack in `CLAUDE.md`; IMPLEMENTATION_PLAN.md sections 4, 5, 6 and 7.
 - Provides:
-  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones).
-  - `lib/types/`: `BriefExtraction`, `FirstPlanDraft`, `PricedEstimate`, `BudgetCheck`, `ThemeUpdate`, `ItemKind`, `ItemData`, `EntryFields`, `Actor`, `ProposedChange`, `Role`, `Action`.
+  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index.
+  - `lib/types/`: `BriefExtraction`, `FirstPlanDraft`, `PricedEstimate`, `BudgetCheck`, `ThemeUpdate`, `ItemKind`, `ItemData`, `EntryFields`, `CommentTarget`, `Selection` (an Item, an Entry or a passage, or null), `Actor`, `WriteEvent`, `ProposedChange` (the op union with `guards`, section 6), `ProposalOpHandler`, `Role`, `Action`, with Convex validators from the same definitions.
   - `lib/access/permissions.ts`: `can(role: Role, action: Action): boolean` and the table it reads, one row per line of the roles.md permissions table.
-  - `convex/lib/access.ts`: `requireAccess(ctx, eventId, action) => { membership, user }`, throwing `AccessDenied`.
-  - `convex/lib/write.ts`: `memberWrite`, `memberInsert`, `memberSoftDelete`, `assistantWrite`, `assistantInsert`, `assistantSoftDelete` (section 4.4), all writing `changes` rows; `VersionConflict` error with the current value and version.
+  - `convex/lib/access.ts`: `requireAccess(ctx, eventId, action) => { membership, user }`, throwing `AccessDenied`; `requireIdentity(ctx) => user` for the narrow exceptions in IMPLEMENTATION_PLAN.md section 4.3.
+  - `convex/lib/write.ts`: `memberWrite`, `memberInsert`, `memberSoftDelete`, `assistantWrite`, `assistantInsert`, `assistantSoftDelete` (section 4.4), all writing `changes` rows and then running the post-write hooks; `VersionConflict` error with the current value and version.
+  - `convex/lib/hooks.ts`: `afterWrite(ctx, event: WriteEvent)`, called by every write helper in the same mutation, running the registered hooks `passagesAfterWrite` (stub in `convex/comments.ts`, S8 fills) and `nudgesAfterWrite` (stub in `convex/nudges.ts`, S17 fills).
+  - `convex/lib/proposalOps.ts`: the registry from op to `ProposalOpHandler`, each imported from a stub in its owner's file (section 6): `convex/assistant/tools/propose.ts` (S10), `convex/assistant/tools/quotes.ts` (S12), `convex/assistant/tools/images.ts` (S13), `convex/plan.ts` (S14). Stubs throw `NotBuiltYet`.
+  - `components/shell/selection.tsx`: `SelectionProvider` around the workspace, `useSelection(): Selection` for readers (Chat, Comments, history, Compact mode) and `useSetSelection()` for the Canvas (S2).
+  - Stubs that later slices fill in their own files, so earlier slices can render them: `components/history/UndoAllButton.tsx` (renders nothing until S6), `components/map/VendorMap.tsx` (S15), `components/demo/DemoBanner.tsx` (S19a), and `proposeEssentialChange` in `convex/plan.ts` (refuses until S14).
   - `convex/lib/idempotency.ts`: `once(ctx, key, fn)`.
   - `convex/lib/time.ts`: `istDay(timestamp)`, `istNow()`.
   - `convex/lib/models.ts` and `convex/lib/settings.ts`: model names and the thresholds (10%, 5, 24 hours, 30 seconds, 20 a day, 10 a day, 30 days, 0.8).
   - `lib/format.ts`: `formatINR(240000) === "₹2,40,000"`, `formatLakh(2500000) === "₹25L"`.
   - Registries: `components/items/registry.tsx` (`ItemKind` to component), `components/chat/cards/registry.tsx` (card kind to component), `convex/assistant/tools/index.ts` (tool name to definition), each pre-filled with stubs that later slices replace in their own files.
-  - The workspace shell at `/events/[eventId]` with mount points for the Canvas, Chat, people panel, history panel, Event settings and Add Inspiration.
+  - The workspace shell at `/events/[eventId]` with mount points for the Canvas, Chat, people panel, history panel, Event settings, Add Inspiration and a banner slot (the demo banner).
   - `convex/crons.ts` with the three daily crons from section 4.7, pointing at no-op internal stubs.
   - Scripts: `dev` (Next.js and `convex dev` side by side), `typecheck`, `lint` (ESLint, then `prettier --check`), `format`, `test` (Vitest), `test:e2e` (Playwright), `build` (`next build`), `eval` (Vitest on `evals/`, outside CI).
   - CI with five jobs named `typecheck`, `lint`, `test`, `build`, `e2e`, the last against the PR's Vercel preview.
@@ -101,7 +109,8 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 
 ### Test seams
 - `can(role, action)`: table-driven over every row of the roles.md permissions table for all four roles. Example: `can("viewer", "comment.add")` is true, `can("viewer", "chat.post")` is false, `can("coOwner", "coOwner.make")` is false, `can("owner", "event.delete")` is true.
-- `requireAccess`: a member who left, a removed member and a blocked member are all refused; an active Viewer passes for `canvas.view` and fails for `canvas.edit`.
+- `requireAccess`: a member who left, a removed member and a blocked member are all refused; an active Viewer passes for `canvas.view` and fails for `canvas.edit`. `requireIdentity` refuses a signed-out caller.
+- Post-write hooks: each of the six write helpers runs every registered hook exactly once per call, inside the same mutation, with the `WriteEvent` of that write; a hook that throws rolls the write back.
 - `assistantWrite`: with the right `expectedVersion` it bumps the version and writes one `changes` row with before and after; with a stale one it throws `VersionConflict` carrying the current value; repeating the same `runId:toolCallId` returns the first result and writes nothing.
 - `memberWrite`: two writes in a row both succeed (last write wins) and the history has both.
 - `istDay`: 2026-10-21T19:00:00Z is IST day 2026-10-22.
@@ -165,21 +174,24 @@ The app ships with 16 hand-checked Jaipur Vendors (6 Venues, 4 caterers, 3 decor
 Parent: Contract. Blocked by: none. Rebased after C0 merges.
 
 ### Owned paths
-`seed/jaipur-vendors.json`, `seed/jaipur-vendors.test.ts`, `seed/README.md`, `scripts/collect-starter-set.ts`, `seed/reference-table-check.md`.
+`seed/jaipur-vendors.json`, `seed/jaipur-vendors.test.ts`, `seed/README.md`, `scripts/collect-starter-set.ts`, `seed/reference-table-check.md`, `lib/fetch/politeFetch.ts`, `lib/fetch/politeFetch.test.ts`.
 
 ### Must not touch
 Everything C0 owns, `lib/pricing/` (S3 owns the table code and takes the check from `seed/reference-table-check.md`).
 
 ### Interfaces
 - Uses: [vendors.md](../design/vendors.md) (categories, Listed price fields, polite fetch rules, the quote check), Geoapify geocoding (`GEOAPIFY_API_KEY`), IMPLEMENTATION_PLAN.md section 2.
-- Provides: `seed/jaipur-vendors.json` in the shape of the `vendors` and `listedPrices` tables (without IDs), and `seed/reference-table-check.md` listing, per reference-table row, the starter set's comparable Listed prices and a proposed low and high.
+- Provides: `seed/jaipur-vendors.json` in the shape of the `vendors` and `listedPrices` tables (without IDs); `seed/reference-table-check.md` listing, per reference-table row, the starter set's comparable Listed prices and a proposed low and high, then Sah-Nikhil's approve or reject for each, the frozen table version `2026-10-22`, and any worked-example number from IMPLEMENTATION_PLAN.md section 8 that the approved values change (worked through by hand from first-brief.md's pricing rules); and `politeFetch(url, { userAgent, lookup? }) => { finalUrl, status, contentType, text }` in `lib/fetch/politeFetch.ts`, which X1 reuses. It uses only Node built-ins (`node:dns`, `node:net` `BlockList`, `node:http` and `node:https`).
 
 ### Test seams
 - The seed test: 16 Vendors with the category counts above; every Listed price's `sentence` contains its amount and a currency marker (₹, Rs or INR); every comparable price has one of the four units; every Vendor has `provenance` for each field it fills; no domain is on the directory blocklist from vendors.md.
+- `politeFetch` (DNS and the server stubbed through `lookup`): refuses `127.0.0.1`, `10.0.0.5`, `192.168.1.1`, `100.64.0.1`, `169.254.169.254`, `[::1]` and `[fe80::1]`; refuses a public hostname that resolves to a private address; refuses a redirect from a public host to a private one, checked at that hop; refuses a fourth redirect, port 8080 and any scheme but `http` and `https`; stops at about 8 seconds and at 2 MB; connects to the address it checked, not a second lookup.
 
 ### Acceptance criteria
 - [ ] Candidates found by the agent's own web search; only each business's own website is read, never a directory, Google Places or a search snippet.
-- [ ] The script fetches with the User-Agent `UtsavvyBot/1.0`, obeys `robots.txt`, waits about a second between requests to a host and reads at most 4 pages per site.
+- [ ] The script fetches only through `politeFetch`, with the User-Agent `UtsavvyBot/1.0`, obeys `robots.txt`, waits about a second between requests to a host and reads at most 4 pages per site.
+- [ ] `politeFetch` applies the SSRF guard from IMPLEMENTATION_PLAN.md section 4.9 to every request and every redirect hop: it resolves the host and refuses loopback, private, link-local, CGNAT and cloud-metadata addresses, connects only to the address it checked, allows only `http` and `https` on ports 80 and 443, follows at most 3 redirects, and stops at about 8 seconds and 2 MB.
+- [ ] By the end of 22 Oct, Sah-Nikhil has approved or rejected every proposed reference-table adjustment in `seed/reference-table-check.md`, which freezes the table at version `2026-10-22`.
 - [ ] The script checks each recorded sentence against the fetched page text after whitespace normalisation and drops any fact that fails.
 - [ ] Addresses geocoded with Geoapify, filtered to India and biased to Jaipur; matches below 0.8 confidence or at city level are marked approximate.
 - [ ] Each Vendor's `summary` is one line in our own words.
@@ -203,19 +215,22 @@ Parent: Slices. Blocked by: C0.
 `app/page.tsx`, `app/events/page.tsx`, `app/join/`, `components/people/`, `convex/events.ts`, `convex/people.ts`, `e2e/people.spec.ts`.
 
 ### Interfaces
-- Uses: `requireAccess`, `can`, `memberWrite`, the shell's people-panel mount point.
-- Provides: `api.events.create({ name, eventType })` (creates the Event, its Owner membership, the four starting Sections and empty Budget, Timeline and Vendor checklist Items at their starting positions, the two link tokens and the Agent thread), `api.events.listMine()`, `api.events.get({ eventId })`, `api.people.join({ token })`, `api.people.list({ eventId })`, `api.people.setRole`, `api.people.remove`, `api.people.unblock`, `api.people.resetLink`, `api.people.leave`, `api.events.setOwnerLabel`, `useMembership(eventId)` for the UI.
+- Uses: `requireAccess`, `requireIdentity`, `can`, `memberWrite`, the shell's people-panel and Event settings mount points.
+- Provides: `api.events.create({ name, eventType, ownerLabel?, uploadRightsOn? })` (defaults `"owner"` and `false`; creates the Event, its Owner membership, the four starting Sections and empty Budget, Timeline and Vendor checklist Items at their starting positions, the two link tokens and the Agent thread), `api.events.listMine()`, `api.events.get({ eventId })`, `api.people.join({ token })`, `api.people.list({ eventId })`, `api.people.setRole`, `api.people.remove`, `api.people.unblock`, `api.people.resetLink`, `api.people.leave`, `api.events.setOwnerLabel`, `api.events.setUploadRights({ eventId, on })`, `api.events.setDefaults({ eventId, compactGrouping?, mobilePointing? })`, `useMembership(eventId)` for the UI. `create`, `listMine` and `join` are the access exceptions in IMPLEMENTATION_PLAN.md section 4.3 and use `requireIdentity`; everything else uses `requireAccess`.
 
 ### Test seams
 - `join`: a Member link makes a Member, a Viewer link a Viewer; someone already in keeps their role; a removed person gets "You were removed from this Event."; a full Event (25 people) gets "This Event is full. Ask the Owner to make room."
 - `resetLink`: the old token stops working at once.
 - `setRole`: a Co-owner can switch Member and Viewer but not make a Co-owner; nobody can change the Owner.
-- `remove`: the person's access ends at once, their status is `removed` and `blocked` is true; `unblock` lets them rejoin by link.
+- `remove`: the person's access ends at once, their status is `removed` and `blocked` is true, and their queued runs become `cancelled` in the same mutation; `unblock` lets them rejoin by link.
+- Access exceptions: signed out, `create`, `listMine` and `join` are refused; `create` makes the caller Owner in the same mutation; `listMine` returns only Events where the caller is active; `join` with a reset token, as a blocked person or into a full Event creates no membership and returns no Event data.
+- `setUploadRights` and `setDefaults`: the Owner and a Co-owner succeed and write history; a Member and a Viewer are refused. A new Event has upload rights off unless `create` was given `uploadRightsOn: true`.
 - `leave`: the Owner is refused until ownership moves; anyone else leaves and shows as "(left)".
 - Worked example: the wedding in roles.md (Meera creates and picks Host, Rohan and Aditi join as Members, Papa as Viewer, Meera makes Rohan Co-owner, Rohan removes Aditi, Meera unblocks her).
 
 ### Acceptance criteria
-- [ ] Creating an Event takes a name and an Event type and opens its workspace; the Brief flow starts from there (S11).
+- [ ] Creating an Event takes a name, an Event type, the Owner or Host label and the upload rights choice (inspirations.md rule 5, worded as there), and opens its workspace; the Brief flow starts from there (S11).
+- [ ] Event settings let the Owner and Co-owners change the upload rights and the Event defaults (Compact view grouping, mobile pointing default).
 - [ ] The people panel lists people by role with the Owner or Host label, "(left)" tags, a Blocked section for Owners and Co-owners, and the links with copy and reset buttons only for them.
 - [ ] Every change here writes a `changes` row with `op: "people"`.
 - [ ] The landing page explains Utsavvy in two lines and has sign in and "Open the demo Event".
@@ -237,8 +252,8 @@ Parent: Slices. Blocked by: C0.
 `components/canvas/`, `lib/canvas/`, `convex/canvas.ts`, `e2e/canvas.spec.ts`.
 
 ### Interfaces
-- Uses: the Canvas library from IMPLEMENTATION_PLAN.md section 7, the Item registry, `memberWrite`, presence, `highlights`.
-- Provides: `<Canvas eventId>` for the shell; `placeInFreeSpace(section, items, size) => position` in `lib/canvas/placement.ts`; `api.canvas.moveItem`, `api.canvas.createSection`, `api.canvas.renameSection`, `api.canvas.deleteSection`; `useSelection()` returning the selected Item, Entry or passage for Chat and Comments; `useFunctionFilter()`; `<ItemFrame>` that every Item component renders inside (title bar, kind badge, Comment count slot, presence avatar slot, highlight ring).
+- Uses: the Canvas library from IMPLEMENTATION_PLAN.md section 7, the Item registry, `memberWrite`, presence, `highlights`, `useSetSelection()` from the contract, the `<VendorMap>` stub (rendered inside the Vendors Section frame; S15 fills it).
+- Provides: `<Canvas eventId>` for the shell; `placeInFreeSpace(section, items, size) => position` in `lib/canvas/placement.ts`; `api.canvas.moveItem`, `api.canvas.createSection`, `api.canvas.renameSection`, `api.canvas.deleteSection`; the selected Item, Entry or passage, set through the contract's `useSetSelection()` so Chat and Comments read it with `useSelection()`; `useFunctionFilter()`; `<ItemFrame>` that every Item component renders inside (title bar, kind badge, Comment count slot, presence avatar slot, highlight ring).
 
 ### Test seams
 - `placeInFreeSpace`: never overlaps an existing Item in the Section; fills left to right then down; grows the Section frame when it is full. Example: a Section with Items at (0,0) and (320,0), width 640, new 300 × 200 Item goes to (0, 220) with a 20 px gap.
@@ -263,20 +278,21 @@ Parent: Slices. Blocked by: C0.
 Labels: `slice`, `assistant`. Wave: 23 Oct. Size: M.
 
 ### Goal
-Every Estimate in the product comes from one pure pricing engine over the reference table, by City tier, with the Budget check bands, Contingency, rounding and Timeline dates from first-brief.md.
+Every table-backed Estimate in the product comes from one pure pricing engine over the reference table, by City tier, with the Budget check bands, Contingency, rounding and Timeline dates from first-brief.md. The flagged Assistant-generated Estimate for free-label categories (IMPLEMENTATION_PLAN.md section 3, item 1) is not part of this engine; it arrives with X1b or X7 as its own `GeneratedEstimate` type.
 
 ### Phase
-Parent: Slices. Blocked by: C0. Reads D2's `seed/reference-table-check.md` if merged; otherwise uses the first-brief seed values and the orchestrator opens a follow-up for the check.
+Parent: Slices. Blocked by: C0, D2. Builds on the reference table frozen at the end of 22 Oct from D2's approved `seed/reference-table-check.md` (version `2026-10-22`).
 
 ### Owned paths
 `lib/pricing/`, `lib/pricing/*.test.ts`.
 
 ### Interfaces
 - Uses: `FirstPlanDraft`, `PricedEstimate`, `BudgetCheck` from `lib/types/`.
-- Provides: `referenceTable` (rows keyed by category, with unit, low and high for tier Y, the Source note and which Vendor categories and units feed the row), `cityTier(cityName) => "X" | "Y" | "Z"`, `priceEntry(category, quantity, tier) => { low, high }`, `pricePlan(draft, { tier, budget, contingencyShare }) => { entries: PricedEstimate[], budgetCheck: BudgetCheck, note }`, `budgetCheckFixes(draft, ...)` (the three fixes with their new minimums), `deadlineDate(leadKey, functionDate, today) => { date, late, priority }`, `perHousehold(total, households)`.
+- Provides: `REFERENCE_TABLE_VERSION` (`"2026-10-22"`), `referenceTable` (rows keyed by category, with unit, low and high for tier Y, the Source note and which Vendor categories and units feed the row), `cityTier(cityName) => "X" | "Y" | "Z"`, `priceEntry(category, quantity, tier) => { low, high }`, `pricePlan(draft, { tier, budget, contingencyShare }) => { entries: PricedEstimate[], budgetCheck: BudgetCheck, note }`, `budgetCheckFixes(draft, ...)` (the three fixes with their new minimums), `deadlineDate(leadKey, functionDate, today) => { date, late, priority }`, `perHousehold(total, households)`.
 
 ### Test seams
-- The three worked examples in first-brief.md, exactly as listed in IMPLEMENTATION_PLAN.md section 8, with the table pinned.
+- Rule tests that hold for any table: the bands, the fraction f, the roll-up and rounding into the Contingency (the cases below).
+- Worked-example snapshots: the three worked examples in first-brief.md, exactly as listed in IMPLEMENTATION_PLAN.md section 8 (with any number `seed/reference-table-check.md` replaced at the freeze), each asserting `REFERENCE_TABLE_VERSION === "2026-10-22"` so a table change fails them by name.
 - The ₹15L variant: flagged about ₹4.6L short; the fixes' new minimums (drop the reception about ₹14.2L; 200 and 150 Guests about ₹15.5L; raise to ₹19.6L); "plan anyway" scales Entries to about 76% of their lows.
 - Above high: every Entry at its high, Contingency 10% of them, the rest Unallocated.
 - Rounding: Entries to the nearest ₹1,000, per-plate prices to ₹10, differences into the Contingency, so the total always equals the budget.
@@ -338,8 +354,8 @@ Parent: Slices. Blocked by: C0.
 `components/chat/` (except `cards/registry.tsx`), `convex/chat.ts`, `convex/runs.ts`, `convex/assistant/agent.ts`, `e2e/chat.spec.ts`.
 
 ### Interfaces
-- Uses: `@convex-dev/agent`, `requireAccess`, `chatAnnotations`, the card registry, the tool registry (stubs until S7), `convex/lib/models.ts`.
-- Provides: `api.chat.send({ eventId, text, dontReply, pointing })`, `api.chat.list`, `api.runs.cancelQueued`, `api.runs.stop`, `internal.runs.startNext`, `internal.chat.postSystem({ eventId, card })` for Nudges, Proposal cards and notices, `<ChatPanel eventId>`, the "Utsavvy is replying to Rohan" indicator, and the composer that attaches `useSelection()` as pointing.
+- Uses: `@convex-dev/agent`, `requireAccess`, `chatAnnotations`, the card registry, the tool registry (stubs until S7), `convex/lib/models.ts`, the contract's `useSelection()`, the `<UndoAllButton groupKey>` stub (rendered under each Assistant reply; S6 fills it).
+- Provides: `api.chat.send({ eventId, text, dontReply, pointing })`, `api.chat.list`, `api.runs.cancelQueued`, `api.runs.stop`, `internal.runs.startNext` (never starts a run whose asker is no longer active), `internal.chat.postSystem({ eventId, card })` for Nudges, Proposal cards and notices, `<ChatPanel eventId>`, the "Utsavvy is replying to Rohan" indicator, and the composer that attaches `useSelection()` as pointing.
 
 ### Test seams
 - Two messages sent in the same second run in order; the second shows "Queued: Utsavvy answers this next" and starts after the first ends.
@@ -371,8 +387,8 @@ Parent: Slices. Blocked by: S2.
 `components/history/`, `convex/history.ts`, `e2e/history.spec.ts`.
 
 ### Interfaces
-- Uses: `changes`, `memberWrite`, `memberSoftDelete`, the shell's history mount point, `useSelection()` to highlight on click.
-- Provides: `api.history.list({ eventId, cursor })`, `api.history.restore({ changeId })`, `api.history.undoGroup({ groupKey })`, `<UndoAllButton groupKey>` for the Chat reply (S7 places it).
+- Uses: `changes`, `memberWrite`, `memberSoftDelete`, the shell's history mount point, `useSetSelection()` to highlight on click.
+- Provides: `api.history.list({ eventId, cursor })`, `api.history.restore({ changeId })`, `api.history.undoGroup({ groupKey })`, and fills the contract's `<UndoAllButton groupKey>` stub in `components/history/UndoAllButton.tsx`, which S5's Chat already renders under each Assistant reply.
 
 ### Test seams
 - `restore` puts back the `before` value as a new change, including a soft-deleted Item.
@@ -395,13 +411,13 @@ Labels: `slice`, `assistant`. Wave: 24 Oct. Size: L.
 A Member asks the Assistant to change the Canvas and it does, safely: small asked-for changes apply at once through version-checked, idempotent tools; it points at what it changed; it answers price questions with cited web search on Claude; outside content stays data; it replies in the asker's language.
 
 ### Phase
-Parent: Slices. Blocked by: S5, S3.
+Parent: Slices. Blocked by: S1, S3, S5.
 
 ### Owned paths
 `convex/assistant/instructions.ts`, `convex/assistant/outside.ts`, `convex/assistant/amounts.ts`, `convex/assistant/tools/core.ts`, `components/chat/cards/citations/`, `evals/harness.ts`, `evals/core.eval.ts`, `e2e/assistant.spec.ts`.
 
 ### Interfaces
-- Uses: `assistantWrite`, `assistantInsert`, `requireAccess`, `priceEntry`, `highlights`, the tool registry, `<UndoAllButton>` (S6; placed on each reply once S6 merges).
+- Uses: `assistantWrite`, `assistantInsert`, `requireAccess`, `priceEntry`, `highlights`, the tool registry, the contract's `EntryFields` and `CommentTarget` validators. `addEntry` and `addComment` write through `assistantInsert` with those validators; they don't call S4's `api.entries.add` or S8's `api.comments.add`, which are built in the same wave. Role checks, history and the Comment passage rule all live in the contract (`requireAccess`, the write helpers and their post-write hooks), so the tools and the Member mutations follow the same rules.
 - Provides: the tools `readCanvas`, `readChat`, `addEntry`, `updateEntry`, `addItem`, `updateItem`, `moveItem`, `createSection`, `addComment`, `pointAt` and the `webSearch` provider tool, registered in the tool registry; `wrapOutside(content, { source, addedBy })`; `checkMemberStatedAmount(amount, messageText) => boolean`; `exceedsProposalThresholds(changes, budgetTotal) => string | null`; the eval harness (`runCase({ seed, messages, expect })`).
 
 ### Test seams
@@ -410,13 +426,14 @@ Parent: Slices. Blocked by: S5, S3.
 - A tool write with a stale version re-reads and retries once; if the Member's new value contradicts the request, the tool result tells the model to ask ("Aditi just changed the Caterer line to ₹2,40,000. Still want ₹2,10,000?").
 - Repeating a tool call with the same `runId:toolCallId` writes nothing new.
 - `webSearch` is not offered when the run's model is not Claude.
-- A run for a removed Member stops writing at the next tool call.
+- The asker is removed mid-reply (IMPLEMENTATION_PLAN.md section 4.3): the reply's text finishes streaming and ends with "Rohan no longer has access to this Event, so I stopped changing it."; every tool call after the removal, `readCanvas` and `readChat` included, is refused with `AccessDenied` and writes nothing; their queued run is `cancelled` and never starts.
 
 ### Acceptance criteria
 - [ ] Scripted cases pass with `bun run eval`: simple request, collision, two asks, side conversation, the hidden-instruction Vendor page (adds facts, books nothing, adds "That page contained instructions aimed at me; I ignored them."), Hinglish, English and Devanagari replies, a Pune per-plate web search with citations, and an attempt to write an amount nobody gave.
 - [ ] Replies are short, warm and practical, with ₹ in lakh grouping and no Estimate called a Listed price or a Quote.
 - [ ] Web search answers show their citations and a "Save as Note" action that keeps them.
 - [ ] Tool results never include another Event's data or any secret.
+- [ ] Removing the asker mid-reply follows the rule in IMPLEMENTATION_PLAN.md section 4.3, as the seam above tests: the text ends with the notice, and nothing is read or written for them after the removal.
 
 ---
 
@@ -435,11 +452,11 @@ Parent: Slices. Blocked by: S2.
 
 ### Interfaces
 - Uses: `useSelection()`, `<ItemFrame>`'s Comment count slot, `requireAccess`.
-- Provides: `api.comments.add({ target, body, rootId })`, `api.comments.edit`, `api.comments.resolve`, `api.comments.listForItem`, `<CommentThread rootId>` (S17 adds @Utsavvy replies to it), `markPassagesChanged(itemId, field, newText)` called when Item text changes.
+- Provides: `api.comments.add({ target, body, rootId })`, `api.comments.edit`, `api.comments.resolve`, `api.comments.listForItem`, `<CommentThread rootId>` (S17 adds @Utsavvy replies to it), and fills the contract's `passagesAfterWrite(ctx, event)` hook in `convex/comments.ts`, which marks passages "text changed" whenever an Item's or Entry's text field changes through any write helper.
 
 ### Test seams
 - A Viewer can add, edit and resolve their own Comment, and can't edit someone else's.
-- Editing a commented passage away keeps the Comment on the Item, quoting the original wording, marked "text changed".
+- Editing a commented passage away keeps the Comment on the Item, quoting the original wording, marked "text changed", whether the edit came through `memberWrite` (a Member) or `assistantWrite` (the Assistant).
 - A Comment by someone who left shows "(left)".
 
 ### Acceptance criteria
@@ -464,7 +481,7 @@ Parent: Slices. Blocked by: S4, S7, D2.
 
 ### Interfaces
 - Uses: `seed/jaipur-vendors.json`, `priceEntry` (Estimate on cards without a comparable Listed price), `assistantWrite`, `memberWrite`.
-- Provides: `internal.vendors.loadStarterSet` (idempotent, by domain), `api.vendors.findKnown({ eventId, category, functionKey })`, `api.vendors.shortlist({ eventId, vendorId, checklistEntryId })`, `api.vendors.setLinkStatus`, `api.vendors.forEvent` (the Event's Shortlisted Vendors with their private layer), the tools `findVendors`, `shortlistVendor`, `setVendorStatus`, `<VendorCard vendor eventLayer>`, `comparableForFunction(listedPrice, guests) => { low, high, label }`.
+- Provides: `internal.vendors.loadStarterSet` (idempotent, by domain: inserts a missing starter Vendor and its Listed prices, never rewrites an existing row, so a moved Marker stays moved), `api.vendors.findKnown({ eventId, category, functionKey })`, `api.vendors.shortlist({ eventId, vendorId, checklistEntryId })`, `api.vendors.setLinkStatus`, `api.vendors.forEvent` (the Event's Shortlisted Vendors with their private layer), the tools `findVendors`, `shortlistVendor`, `setVendorStatus`, `<VendorCard vendor eventLayer>`, `comparableForFunction(listedPrice, guests) => { low, high, label }`.
 
 ### Test seams
 - Two Events shortlist the same Vendor; each sees only its own links, statuses and Quotes.
@@ -495,12 +512,13 @@ Parent: Slices. Blocked by: S7.
 `components/proposals/`, `components/chat/cards/proposal/`, `convex/proposals.ts`, `convex/assistant/tools/propose.ts`, `evals/proposals.eval.ts`, `e2e/proposals.spec.ts`.
 
 ### Interfaces
-- Uses: `assistantWrite` (applies changes on Accept), `exceedsProposalThresholds`, `ctx.scheduler.runAt`, `internal.chat.postSystem`.
-- Provides: the `propose` tool, `api.proposals.accept`, `api.proposals.reject`, `api.proposals.askAgain`, `internal.proposals.expire`, `<ProposalCard proposalId>` (also used in Comment threads by S17), and the op handlers `deleteEntry`, `deleteItem`, `setBudgetTotal`, `addQuote` (S12 supplies its handler), `updateTheme` (S13), `changeEssential` (S14).
+- Uses: `assistantWrite` and `assistantInsert` (applied on Accept), `exceedsProposalThresholds`, `ctx.scheduler.runAt`, `internal.chat.postSystem`, the contract's `ProposedChange` union and Proposal op registry (IMPLEMENTATION_PLAN.md section 6).
+- Provides: the `propose` tool, `createProposal(ctx, { eventId, runId, requestedBy, origin, summary, changes })` (also used by S12's paste, S14's Brief edits and S17's Comment threads), `applyProposal(ctx, proposalId, actor)`, `api.proposals.accept`, `api.proposals.reject`, `api.proposals.askAgain`, `internal.proposals.expire`, `<ProposalCard proposalId>` (also used in Comment threads by S17), and the op handlers in `convex/assistant/tools/propose.ts` for every op except `addQuote` (S12), `updateTheme` (S13) and `changeEssential` (S14).
 
 ### Test seams
 - Accept applies every change in one mutation and history shows "Utsavvy for Rohan, accepted by Aditi (3 changes)".
-- If any touched document's version changed, Accept is refused and the card shows "Out of date: Meera changed this since" with "Ask again".
+- If any change's `expectedVersion` or any guard's version changed, Accept is refused, nothing is applied, and the card shows "Out of date: Meera changed this since" with "Ask again".
+- All or nothing: a Proposal whose third change's handler refuses in `validate` applies none of the first two.
 - A new Proposal from a reply ("keep the drone shoot") replaces the old one, which shows "Replaced".
 - 24 hours after posting, the card closes as expired.
 - Viewers see the card without Accept or Reject; their calls are refused.
@@ -513,7 +531,7 @@ Parent: Slices. Blocked by: S7.
 
 ---
 
-## S11. The first Brief: intake, chips, Brief summary and the Budget check
+## S11. The first Brief: chips, Brief summary and the Budget check
 
 Labels: `slice`, `assistant`, `chat`. Wave: 25 Oct. Size: L.
 
@@ -528,7 +546,7 @@ Parent: Slices. Blocked by: S3, S5.
 
 ### Interfaces
 - Uses: structured output for `BriefExtraction`, `cityTier`, `pricePlan`, `budgetCheckFixes`, `internal.chat.postSystem`, Geoapify (city centre).
-- Provides: `nextQuestion(extraction) => ChipQuestion | null` (first-brief order, seven at most), `festivalDates(kind, year)` with Drik Panchang sources, `defaultFunctions(tradition)`, `assumeFunctionDetails(...)` (dates relative to the wedding day, Guest shares 20%, 40%, 75%, 100%), `api.brief.submitText`, `api.brief.answerChip`, `api.brief.editField`, `api.brief.summary`, and the "Make my plan" hook S14 fills in, plus the vibe-pick mount point S18 fills in.
+- Provides: `nextQuestion(extraction) => ChipQuestion | null` (first-brief order, seven at most), `festivalDates(kind, year)` with Drik Panchang sources, `defaultFunctions(tradition)`, `assumeFunctionDetails(...)` (dates relative to the wedding day, Guest shares 20%, 40%, 75%, 100%), `api.brief.submitText`, `api.brief.answerChip`, `api.brief.editField` (with the server rule in IMPLEMENTATION_PLAN.md section 4.6, step 5: direct before the plan, through the contract stub `proposeEssentialChange` from `convex/plan.ts` for an essential after it), `api.brief.summary`, and the "Make my plan" hook S14 fills in, plus the vibe-pick mount point S18 fills in.
 
 ### Test seams
 - Extraction cases (scripted, with the model): the three first-brief Briefs produce the extractions listed there; unknown fields are null.
@@ -537,11 +555,12 @@ Parent: Slices. Blocked by: S3, S5.
 - `assumeFunctionDetails` for the Jaipur wedding gives the Assumptions listed in first-brief.md (mehendi 13 Feb evening, haldi 60 Guests, and so on).
 - Budget check: the ₹15L variant shows the flag, the three fixes with their previews, and "Plan at my budget anyway".
 - A city not in the X or Y list is Z, shown as the Assumption "treated as a smaller city".
+- `editField`: with `briefState` `"summary"`, changing the Guest count updates the Brief and re-runs the Budget check; with `briefState` `"planned"`, changing the Guest count leaves the stored Brief unchanged and calls `proposeEssentialChange` (the contract stub refuses until S14, so the call fails and nothing is written), while changing the honoree applies directly.
 
 ### Acceptance criteria
 - [ ] The opening line matches first-brief.md.
 - [ ] Chips have a "type my own" option and are keyboard-operable.
-- [ ] Every field on the Brief summary is editable in place, and edits re-run the Budget check.
+- [ ] Every field on the Brief summary is editable in place before the plan, and edits re-run the Budget check.
 - [ ] Smoke test: the Ganesh utsav Brief reaches the summary with the "₹36,000 short" flag (stub model in e2e).
 
 ---
@@ -560,11 +579,12 @@ Parent: Slices. Blocked by: S9, S10.
 `components/quotes/`, `convex/quotes.ts`, `convex/assistant/tools/quotes.ts` (the `addQuote` op handler), `evals/quotes.eval.ts`, `e2e/quotes.spec.ts`; may change `components/items/budget/` and `components/items/shortlisted-vendor/` (both merged by then).
 
 ### Interfaces
-- Uses: `vendorLinks`, `comparableForFunction`, `budgetRollup`, Convex file storage, `propose`.
-- Provides: `api.quotes.add`, `api.quotes.listForLink`, `api.quotes.useAsAmount({ entryId, quoteId })`, `quoteForEntries(quote, entries) => amount` (a Quote that names Functions compares with those Functions' Entries; one that names none with all Entries its checklist Entry pays for).
+- Uses: `vendorLinks`, `comparableForFunction`, `budgetRollup`, Convex file storage, `propose` and `createProposal` (S10), the contract's Proposal op registry.
+- Provides: `api.quotes.add`, `api.quotes.listForLink`, `api.quotes.useAsAmount({ entryId, quoteId })`, `quoteForEntries(quote, entries) => amount` (a Quote that names Functions compares with those Functions' Entries; one that names none with all Entries its checklist Entry pays for), and the `addQuote` op handler. An `addQuote` change has `docId` and `expectedVersion` null and `guards` holding the current versions of its `vendorLink` and checklist Entry (IMPLEMENTATION_PLAN.md section 6).
 
 ### Test seams
-- Adding a Quote moves a Considering or Contacted link to Quoted; a Booked link stays Booked.
+- Adding a Quote moves a Considering or Contacted link to Quoted; a Booked link stays Booked; either way the link's `version` goes up.
+- While a pasted Quote's Proposal is open, the link is dropped (or gets another Quote): Accept is refused as out of date and no Quote is saved.
 - Pasting "Veg 950/plate for 300 pax, live counters extra" produces one Proposal: ₹950 per plate, 300 Guests, Function sangeet, note "live counters extra", received today. Accepting saves the Quote; the line shows Estimate ₹3L to ₹6L, the Listed price and Quote ₹2.85L side by side.
 - Booking a Vendor asks "Use the ₹2.85L Quote as this line's amount?"; only a Member's yes changes the planned amount.
 - The planned amount never changes on its own.
@@ -585,18 +605,19 @@ Labels: `slice`, `inspirations`. Wave: 25 Oct. Size: L.
 Members add Inspirations from a Pexels search (in the Add Inspiration panel or as a tappable strip in the Chat) and from uploads, use any image for the Theme, and get 1 to 3 decor Suggestions priced from the reference table after a Theme change.
 
 ### Phase
-Parent: Slices. Blocked by: S2, S7.
+Parent: Slices. Blocked by: S1, S2, S7.
 
 ### Owned paths
 `components/inspirations/`, `components/items/inspiration/`, `components/chat/cards/stock-strip/`, `convex/inspirations.ts`, `convex/pexels.ts`, `convex/assistant/tools/images.ts`, `evals/inspirations.eval.ts`, `e2e/inspirations.spec.ts`.
 
 ### Interfaces
-- Uses: `PEXELS_API_KEY`, `pexelsCache`, Convex file storage, `node-vibrant`, the helper model for descriptions, `placeInFreeSpace`, `priceEntry`, the `updateTheme` op of `propose`.
-- Provides: `api.pexels.search({ query, page })` (24-hour cache), `api.inspirations.addFromPexels`, `api.inspirations.generateUploadUrl`, `api.inspirations.addUpload`, `api.inspirations.useForTheme`, `api.inspirations.tag`, `api.inspirations.remove`, `internal.inspirations.describe` (once at save), `internal.inspirations.purgeDeleted` (the 30-day cron), `mergeTheme(theme, update) => theme` (3 to 5 colours, 2 to 4 style words, 3 to 6 decor keywords), the tools `searchStockImages`, `updateTheme`, `tagInspiration`.
+- Uses: `PEXELS_API_KEY`, `pexelsCache`, Convex file storage, `node-vibrant`, the helper model for descriptions, `placeInFreeSpace`, `priceEntry`, `exceedsProposalThresholds` (S7), the Event's `uploadRightsOn` (S1), the contract's Proposal op registry. S13 supplies the `updateTheme` op handler there; S10, built in the same wave, applies it on Accept, so S13 doesn't call S10's code.
+- Provides: `api.pexels.search({ query, page })` (24-hour cache), `api.inspirations.addFromPexels`, `api.inspirations.generateUploadUrl`, `api.inspirations.addUpload`, `api.inspirations.useForTheme`, `api.inspirations.tag`, `api.inspirations.remove`, `internal.inspirations.describe` (once at save), `internal.inspirations.purgeDeleted` (the 30-day cron), `mergeTheme(theme, update) => theme` (3 to 5 colours, 2 to 4 style words, 3 to 6 decor keywords), the tools `searchStockImages`, `updateTheme`, `tagInspiration`, and the `updateTheme` op handler in `convex/assistant/tools/images.ts` (`docId` the Event, `expectedVersion` its version).
 
 ### Test seams
 - `mergeTheme`: never more than 5 colours, 4 style words or 6 decor keywords; new ones replace the oldest.
-- "Use for Theme" from a Member applies at once with the Chat line "Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'"; an Assistant-initiated Theme change goes through `propose`.
+- "Use for Theme" from a Member applies at once with the Chat line "Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'".
+- An Assistant-initiated Theme change can't apply directly: the `updateTheme` tool with no Member request is refused with the message telling the model to use `propose`. Merge gate for that Proposal path: the `updateTheme` op handler, called with a stale Event version, refuses; with the current version, it applies the `ThemeUpdate` through `assistantWrite`.
 - A Theme change never edits existing Entries; it offers 1 to 3 decor Suggestions, each with an Estimate from the table.
 - Upload rules: JPEG, PNG and WebP only, up to 10 MB, 10 at a time; with the Event's upload rights setting off, each batch needs the tick.
 - `purgeDeleted` removes stored files 30 days after deletion and leaves Pexels links alone.
@@ -620,19 +641,20 @@ Labels: `slice`, `assistant`, `canvas`. Wave: 26 Oct. Size: L.
 "Make my plan" turns the Brief into the first plan on the Canvas, streamed Section by Section: Functions, the priced Budget, the Timeline with late bookings pulled forward, run sheets, the Vendor checklist and 5 to 8 Suggestions. Changing an essential afterwards arrives as one Proposal.
 
 ### Phase
-Parent: Slices. Blocked by: S4, S7, S11.
+Parent: Slices. Blocked by: S4, S7, S10, S11.
 
 ### Owned paths
 `convex/plan.ts`, `components/chat/cards/plan-progress/`, `evals/plan.eval.ts`, `e2e/plan.spec.ts`; may change `components/brief/` (S11, merged) to wire "Make my plan".
 
 ### Interfaces
-- Uses: structured output for `FirstPlanDraft`, `pricePlan`, `deadlineDate`, `assistantInsert`, `placeInFreeSpace`, `propose` with the `changeEssential` op.
-- Provides: `internal.plan.generate({ eventId, runId })`, `validateDraft(draft) => errors[]`, `applyPlan(ctx, eventId, priced)`, `diffEssentialChange(event, change) => ProposedChange[]` (keeps Entries with `editedByMember` or Quotes).
+- Uses: structured output for `FirstPlanDraft`, `pricePlan`, `deadlineDate`, `assistantInsert`, `placeInFreeSpace`, `createProposal` (S10), the contract's Proposal op registry, `api.brief.editField` (S11), which already calls `proposeEssentialChange`.
+- Provides: `internal.plan.generate({ eventId, runId })`, `validateDraft(draft) => errors[]`, `applyPlan(ctx, eventId, priced)`, `diffEssentialChange(event, change) => ProposedChange[]` (keeps Entries with `editedByMember` or Quotes; its first change is a `changeEssential` on the Event with the Event's `expectedVersion`), the `changeEssential` op handler, and fills the contract stub `proposeEssentialChange(ctx, eventId, change)` to post that diff through `createProposal` with `origin` a Brief edit and `runId` null.
 
 ### Test seams
 - `validateDraft` rejects a draft with an amount, an unknown category or a run sheet outside 6 to 10 Entries.
 - Applying the Jaipur wedding's fixed draft gives the worked example's numbers, 14 checklist Entries all "to find" and the late-booking dates.
 - `diffEssentialChange` for 300 to 400 Guests raises catering and Venue lines, keeps a Member-edited line, flags Venue capacity to recheck, and is one Proposal.
+- `api.brief.editField` on a planned Event, Guest count 300 to 400: the stored Brief and Entries are unchanged until Accept; one open Proposal exists; after someone else edits the Brief, Accept is refused as out of date.
 - Applying is idempotent per run: a retried run doesn't duplicate Entries.
 
 ### Acceptance criteria
@@ -657,12 +679,13 @@ Parent: Slices. Blocked by: S9.
 `components/map/`, `convex/map.ts`, `e2e/map.spec.ts`.
 
 ### Interfaces
-- Uses: `maplibre-gl`, `react-map-gl/maplibre`, `NEXT_PUBLIC_MAP_STYLE_URL`, `api.vendors.forEvent`, `memberWrite` on `vendors.marker`.
-- Provides: `<VendorMap eventId>` (as a Canvas Item in the Vendors Section and full-screen), `api.map.moveMarker({ vendorId, lat, lng })`, `filterForFunction(vendors, fn, budgetEntry)`.
+- Uses: `maplibre-gl`, `react-map-gl/maplibre`, `NEXT_PUBLIC_MAP_STYLE_URL`, `api.vendors.forEvent`, `requireAccess`, `memberWrite` on `vendors.marker`.
+- Provides: `<VendorMap eventId>`, filling the contract stub that S2 renders inside the Vendors Section frame, plus a full-screen view. The map is Section UI, not an Item: CONTEXT.md's Item list has no map, and it stores nothing of its own (it draws the Shortlisted Vendors and shared Markers). Also `api.map.moveMarker({ eventId, vendorId, lat, lng })` and `filterForFunction(vendors, fn, budgetEntry)`.
 
 ### Test seams
 - `filterForFunction`: for the sangeet with 300 Guests, Venues with capacity under 300 and Listed prices above the budget line drop out; Vendors without a comparable price stay, marked "no price".
-- `moveMarker` clears `approximate`, updates the shared record and writes history in the moving Event.
+- `moveMarker` checks `requireAccess(ctx, eventId, ...)` with the permissions-table action for dragging Markers, and that the Vendor is in that Event's city or shortlisted by it; then, in one mutation, it clears `approximate`, updates the shared record and writes the history row in that Event only.
+- `moveMarker` is refused for a Viewer, for someone with no membership in `eventId`, and for a Vendor outside that Event's city that it hasn't shortlisted; a refused call changes nothing.
 
 ### Acceptance criteria
 - [ ] The map centres on the Event's city and stays zoomed to it.
@@ -680,18 +703,19 @@ Labels: `slice`, `canvas`. Wave: 26 Oct. Size: M.
 On desktop, Members can switch to Compact mode (the same Items in collapsible Sections, by kind or by Function, with personal order and collapse state); on a phone, the Chat is the main view and the Canvas tab is Compact mode.
 
 ### Phase
-Parent: Slices. Blocked by: S2, S4, S8.
+Parent: Slices. Blocked by: S1, S2, S4, S8.
 
 ### Owned paths
 `components/compact/`, `components/shell/`, `app/events/[eventId]/`, `app/settings/`, `convex/viewPrefs.ts`, `e2e/mobile.spec.ts`.
 
 ### Interfaces
-- Uses: the Item registry (the same Item components), `useSelection()`, the Event defaults.
-- Provides: `<CompactCanvas eventId grouping>`, the responsive shell, `api.viewPrefs.get` and `api.viewPrefs.set` (personal order, collapse state and mobile pointing default).
+- Uses: the Item registry (the same Item components), `useSelection()`, the Event defaults (`events.defaults`, set by S1's `api.events.setDefaults`), the `viewPrefs` table and `users.mobilePointing` from the contract.
+- Provides: `<CompactCanvas eventId grouping>`, the responsive shell, `api.viewPrefs.get({ eventId })` and `api.viewPrefs.set({ eventId, grouping?, order?, collapsed? })` (one `viewPrefs` row per person per Event, upserted through the `by_event_user` index, allowed for all four active roles through `requireAccess`'s view action), and `api.viewPrefs.setMobilePointing({ value })` (writes the caller's `users.mobilePointing`, from `/settings`).
 
 ### Test seams
 - Grouping by Function puts Event-wide Items in their own group.
-- Personal order and collapse state don't change anyone else's view.
+- Personal order and collapse state don't change anyone else's view: Meera's `set` leaves Rohan's `get` unchanged, and neither touches `events.defaults`.
+- A Viewer can `get` and `set` their own `viewPrefs`; a removed person is refused; a person without a row gets the Event default grouping.
 - On a phone, tapping a reference in the Chat jumps to the Canvas tab with the Item highlighted and "Back to Chat", or opens a preview sheet, following the person's setting or the Event default.
 
 ### Acceptance criteria
@@ -715,10 +739,11 @@ Parent: Slices. Blocked by: S8, S10, S12, S13.
 `convex/nudges.ts`, `components/chat/cards/nudge/`, `convex/commentAsks.ts`, `evals/nudges.eval.ts`, `e2e/nudges.spec.ts`; may change `components/comments/` (S8, merged).
 
 ### Interfaces
-- Uses: `budgetRollup`, `nudges`, `internal.chat.postSystem`, `runs` (with `source: "comment"`), `<CommentThread>`, `<ProposalCard>`.
-- Provides: `internal.nudges.check({ eventId })` (called after budget, Timeline and Inspiration writes), `internal.nudges.dueSoonSweep` (the daily cron), `api.nudges.act({ nudgeId })`, `api.commentAsks.ask({ commentId })`.
+- Uses: `budgetRollup`, `nudges`, `internal.chat.postSystem`, `runs` (with `source: "comment"`), `<CommentThread>`, `<ProposalCard>`, `createProposal` (S10), the contract's post-write hooks.
+- Provides: `internal.nudges.check({ eventId })`, `internal.nudges.dueSoonSweep` (the daily cron), `api.nudges.act({ nudgeId })`, `api.commentAsks.ask({ commentId })`, and fills the contract's `nudgesAfterWrite(ctx, event)` hook in `convex/nudges.ts`: for a write to a budget Entry, the Event's `budgetTotal`, a Timeline Entry, or an insert of an `inspiration` Item, it schedules `internal.nudges.check` for that Event with `ctx.scheduler.runAfter(0, ...)`; for any other write it does nothing. Because the hook runs inside the contract's write helpers, S17 edits no other slice's file to catch these writes.
 
 ### Test seams
+- Each write path schedules the check and the `nudges` index keeps it to one Nudge: `api.entries.update` on a budget Entry (S4), `api.quotes.useAsAmount` (S12), a Proposal Accept that changes a budget Entry (S10), `api.entries.update` and `api.entries.tick` on a Timeline Entry (S4), `api.inspirations.addFromPexels` and `api.inspirations.addUpload` (S13). A Note edit schedules nothing.
 - The Budget going over posts "The Budget is now ₹40,000 over. Want me to suggest cuts?" once that day; a second over-budget write the same IST day posts nothing.
 - An unticked Entry due within 3 days posts "Book decorator is due Friday and still open."
 - A new Inspiration posts "Meera added a pastel lehenga photo. Want me to update the Theme to match?"
@@ -762,32 +787,58 @@ Parent: Slices. Blocked by: S11, S13, D1.
 
 ---
 
-## S19. The demo Event and its reset
+## S19a. The demo Event's seed and reset
 
-Labels: `slice`, `infra`, `needs-human`. Wave: 27 Oct. Size: M.
+Labels: `slice`, `infra`, `needs-human`. Wave: 26 Oct. Size: S.
 
 ### Goal
 Judges sign in with a judge account and find "Meera weds Rohan" exactly as IMPLEMENTATION_PLAN.md section 9.1 describes, and the Event resets nightly or on demand.
 
 ### Phase
-Parent: Slices. Blocked by: S12, S14, S15, S16, S17 (and every MUST slice through them).
+Parent: Slices. Blocked by: S1, S3, S4, S9 (and through them C0, S2, S5, S7, D2).
 
 ### Owned paths
-`seed/demo/`, `convex/demo.ts`, `e2e/demo-path.spec.ts`.
+`seed/demo/`, `convex/demo.ts`, `components/demo/`.
 
 ### Interfaces
-- Uses: `seed/jaipur-vendors.json`, `internal.vendors.loadStarterSet`, `pricePlan`, `applyPlan`, every insert helper, `DEMO_JUDGE_*_ID`.
-- Provides: `internal.demo.reset`, the nightly cron's target, the demo banner.
+- Uses: `seed/jaipur-vendors.json`, `internal.vendors.loadStarterSet`, `pricePlan` on the fixed worked-example draft in `seed/demo/`, `placeInFreeSpace`, `budgetRollup`, the contract's insert helpers for every table (Quotes, Comments, Proposals and history rows are seeded as rows, so S12, S10 and S17 don't need to have merged), `DEMO_JUDGE_*_ID`, the shell's banner slot. No model calls.
+- Provides: `internal.demo.reset`, the nightly cron's target, `<DemoBanner eventId>` (filling the contract stub).
 
 ### Test seams
-- `reset` twice in a row gives the same Event (same totals, same people, same history groups) and leaves other Events untouched.
+- `reset` twice in a row gives the same Event (same totals, same people, same history groups).
+- Isolation: another Event that shortlisted a starter Vendor, and a Marker a Member moved from that Event, are unchanged by `reset`; `reset` rewrites no `vendors` or `listedPrices` row and only inserts a starter Vendor that is missing.
 - After reset, the judge-owner is Owner (shown as Host), judge-member is Member, judge-viewer is Viewer.
 - The seeded Budget totals exactly ₹25,00,000, with the sangeet at 300 Guests and the catering line at ₹2,45,000.
 
 ### Acceptance criteria
-- [ ] The demo-path Playwright test walks the script in section 9.3 on the preview (stub model for Assistant replies, real model in the manual rehearsal).
 - [ ] The banner from section 3 shows on the demo Event only.
 - [ ] Sah-Nikhil has created the three judge accounts and set their IDs; the logins are not in the repo.
+- [ ] `bunx convex run demo:reset` works on production, and after it the orchestrator rehearses on production the beats whose slices have merged (pan across the Budget, Timeline and map; judge-viewer beside judge-member).
+
+---
+
+## S19b. The demo path, end to end
+
+Labels: `slice`, `infra`. Wave: 27 Oct. Size: S.
+
+### Goal
+The whole 2-minute demo script runs as a browser test on the seeded Event and twice in a row on production.
+
+### Phase
+Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice through them).
+
+### Owned paths
+`e2e/demo-path.spec.ts`; may change `seed/demo/` and `convex/demo.ts` (S19a, merged) for final wiring.
+
+### Interfaces
+- Uses: `internal.demo.reset`, the judge accounts, every screen in the script.
+- Provides: nothing later slices rely on.
+
+### Test seams
+- None beyond S19a's; this slice is the browser test.
+
+### Acceptance criteria
+- [ ] The demo-path Playwright test walks the script in section 9.3 on the preview (stub model for Assistant replies, real model in the manual rehearsal).
 - [ ] A full rehearsal on the production URL, after a reset, runs the script twice in a row.
 
 ---
@@ -798,11 +849,11 @@ These are `stretch` issues: built only when a slot frees up, in this order. Each
 
 ### X1a. Discovery pipeline (later stage, first)
 Labels: `slice`, `vendors`, `stretch`. Size: L. Blocked by: S9.
-Goal: the server finds Vendors' own sites with Serper and reads them under the polite fetch rules with the SSRF guard, quote-checks extracted facts and geocodes them (IMPLEMENTATION_PLAN.md section 4.9, vendors.md "Discovery" and "Extraction"). Seams: the SSRF guard refuses `127.0.0.1`, `10.0.0.5`, `169.254.169.254`, `[::1]` and a redirect from a public host to a private one; the blocklist drops WedMeGood and JustDial; a sentence not on the page drops its field; `robots.txt` disallow skips the site. Contract change: `discoveryRuns`, `serperCache`, `SERPER_API_KEY`, `robots-parser`, `ipaddr.js`.
+Goal: the server finds Vendors' own sites with Serper and reads them under the polite fetch rules with the SSRF guard, quote-checks extracted facts and geocodes them (IMPLEMENTATION_PLAN.md section 4.9, vendors.md "Discovery" and "Extraction"). Every fetch, including Jina Reader, goes through D2's `politeFetch` in `lib/fetch/`. Seams: the SSRF guard refuses `127.0.0.1`, `10.0.0.5`, `169.254.169.254`, `[::1]` and a redirect from a public host to a private one, run against the Discovery path (D2's tests cover the helper itself); the blocklist drops WedMeGood and JustDial; a sentence not on the page drops its field; `robots.txt` disallow skips the site. Contract change: `discoveryRuns`, `serperCache`, `SERPER_API_KEY`, `robots-parser`.
 
 ### X1b. Discovery in the Chat, pasted URLs, refresh, pooling and flagged Estimates (later stage)
 Labels: `slice`, `vendors`, `assistant`, `stretch`. Size: M. Blocked by: X1a.
-Goal: "Find Vendors" and Chat requests stream Vendor cards with "Reading 3 of 5 sites", known Vendors first, the 10-a-day cap, "Paste a website URL", Refresh with price history and change notices, automatic pooling behind the vendors.md guardrails, and the flagged AI Estimate for free-label categories (section 3, item 1). Seams: the pooling guardrails (5 prices from different Vendors in 12 months, outliers beyond 3× or under a third of the median ignored, 25th to 75th percentile, Estimates already on a Budget unchanged); the cap message; tests still pin the table with pooling off. Tools: `discoverVendors`, `addVendorFromUrl`.
+Goal: "Find Vendors" and Chat requests stream Vendor cards with "Reading 3 of 5 sites", known Vendors first, the 10-a-day cap, "Paste a website URL", Refresh with price history and change notices, automatic pooling behind the vendors.md guardrails, and the flagged AI Estimate for free-label categories (section 3, item 1). Seams: the pooling guardrails (5 prices from different Vendors in 12 months, outliers beyond 3× or under a third of the median ignored, 25th to 75th percentile, Estimates already on a Budget unchanged); the cap message; tests still pin the table with pooling off; a free-label category gets one `GeneratedEstimate` per category label and City tier, reused on the second ask, with the label "Estimate (not from our cost table)" and the basis from IMPLEMENTATION_PLAN.md section 3, and the S3 engine never returns one. Tools: `discoverVendors`, `addVendorFromUrl`. Contract change: `generatedEstimates` with its `by_label_tier` index (section 5.5) and the `GeneratedEstimate` type, unless X7 already added them.
 
 ### X2. Pinterest and Instagram References (SHOULD, first)
 Labels: `slice`, `inspirations`, `stretch`. Size: S. Blocked by: S13.
@@ -810,10 +861,10 @@ Goal: "Paste a link" accepts Pin, board, `pin.it`, Instagram post and Reel URLs,
 
 ### X3a. Event keys (later stage)
 Labels: `slice`, `assistant`, `auth`, `stretch`. Size: M. Blocked by: S7.
-Goal: the Owner and Co-owners attach an Anthropic, Google or OpenAI key to an Event (ADR 0004, roles.md "The Event key and roles", section 4.10). Seams: encrypt and decrypt round trip; no query returns ciphertext; a failing key falls back to the default model with the Chat notice; leave with "Remove my Event key too"; the removed person's one remaining action. Contract change: `eventKeys`, `EVENT_KEY_SECRET`, `@ai-sdk/openai`.
+Goal: the Owner and Co-owners attach an Anthropic, Google or OpenAI key to an Event (ADR 0004, roles.md "The Event key and roles", section 4.10). Storage and the revoke rule are in IMPLEMENTATION_PLAN.md section 5.5. Seams: encrypt and decrypt round trip; a second key on the same Event replaces the first; no query returns `ciphertext`, `iv` or `authTag`, and a Member or Viewer gets only the model and the attacher's name, not the provider or `last4`; decryption happens only in the Node action that calls the model (no query or mutation can decrypt); a failing key falls back to the default model with the Chat notice, and neither the serialized error, the tool results, the Chat nor the logs contain the key; leave with "Remove my Event key too"; a removed and blocked attacher can call `api.eventKeys.removeMine` for their own key, and that call is refused for anyone else and reads nothing else of the Event. Contract change: `eventKeys` (fields and indexes from section 5.5), `EVENT_KEY_SECRET`, `@ai-sdk/openai`.
 
 ### X3b. Generate, Remix and the second demo Event (later stage)
-Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X3a, S13, S19.
+Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X3a, S13, S19a.
 Goal: the Generate tab, "Remix this", "Make one like this" and "Use instead" behind a capable Event key with 20 a day per Event (inspirations.md rules 10 to 14), and the seeded "Aarav's 6th birthday" Event carrying Sah-Nikhil's Google key from `DEMO_GOOGLE_EVENT_KEY`. Tools: `generateImage`, `remixImage`.
 
 ### X4. Sticky Don't reply and the mention rule (SHOULD)
@@ -830,7 +881,7 @@ Goal: transfer to a Co-owner or Member; delete after typing the Event's name (sh
 
 ### X7. Hand-typed Vendors (SHOULD)
 Labels: `slice`, `vendors`, `stretch`. Size: S. Blocked by: S9.
-Goal: a Member types a Vendor with no website (name, category, phone, area); it stays private to the Event, has only Quotes, and a Marker only if dropped on the map. Brings the flagged Estimate for free labels if X1b hasn't. Contract change: `privateVendors`.
+Goal: a Member types a Vendor with no website (name, category, phone, area); it stays private to the Event, has only Quotes, and a Marker only if dropped on the map. Brings the flagged Estimate for free labels if X1b hasn't, with the same seam as X1b. Contract change: `privateVendors`, plus `generatedEstimates` with its `by_label_tier` index (category label and City tier, one row each) and the `GeneratedEstimate` type if X1b hasn't added them.
 
 ### X8. Android share sheet (SHOULD)
 Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X2.

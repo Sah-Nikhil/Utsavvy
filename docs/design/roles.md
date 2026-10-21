@@ -79,7 +79,7 @@ Notes:
 ## Leaving and removal
 
 - **Anyone except the Owner can leave** at any time. People who left on their own can rejoin through a link like anyone else.
-- **Removing someone** (a Member or Viewer by the Owner or a Co-owner, or a Co-owner by the Owner) takes their access away at once. Their presence dot disappears and any Assistant reply they asked for finishes normally.
+- **Removing someone** (a Member or Viewer by the Owner or a Co-owner, or a Co-owner by the Owner) takes their access away at once. Their presence dot disappears. A reply the Assistant is streaming for them finishes its text with a short notice, but from the moment of removal it can't read or change anything in the Event for them, and any of their messages still queued are cancelled ([IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 4.3).
 - **Their work stays.** Notes, Comments, Chat messages, history entries, Quotes and Shortlisted Vendors they added keep their name, shown with a "(left)" tag. The same applies to people who left on their own. Nothing is deleted or reassigned, so the history, Restore and the Assistant's earlier replies keep working.
 - **Removed people are blocked.** Opening an invite link shows "You were removed from this Event." The Event's people list has a Blocked section, where the Owner or a Co-owner can unblock someone; after that the person can rejoin by link. An email invite to a blocked address also lifts the block.
 - **The Owner must transfer before leaving.** The Owner picks an existing Co-owner or Member, who becomes the Owner. The old Owner becomes a Co-owner and can then leave like anyone else. A transfer to a Viewer isn't offered; promote them first.
