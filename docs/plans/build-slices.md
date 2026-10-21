@@ -1,11 +1,11 @@
 # Build slices for v1
 
-Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text. On 2026-10-21 Sah-Nikhil changed three things after the issues existed (the local stock library, the Google places sheet as S20, Instagram-only Vendors in D2; see IMPLEMENTATION_PLAN.md section 1), and the changed issues were edited to match this file.
+Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text. On 2026-10-21 Sah-Nikhil changed three things after the issues existed (the local stock library, the Google places sheet as S20, Instagram-only Vendors in D2; see IMPLEMENTATION_PLAN.md section 1), and the changed issues were edited to match this file. On 2026-10-22 he made two more (Estimates researched live with the reference table as fallback, [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md); the map's own style, IMPLEMENTATION_PLAN.md section 7.5), and the changed issues were edited again. X12 is drafted below and still needs its issue.
 
 | Phase | Parent issue | Build issues |
 |---|---|---|
 | Contract (milestone due 22 Oct) | [#28](https://github.com/Sah-Nikhil/Utsavvy/issues/28) | C0 #31, D1 #32, D2 #33 |
-| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53, S20 #66; stretch X1a #54, X1b #55, X2 #56, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X8 #63, X9 #64, X10 #67, X11 #68 |
+| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53, S20 #66; stretch X1a #54, X1b #55, X2 #56, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X8 #63, X9 #64, X10 #67, X11 #68, X12 #69 |
 | Submit (milestone due 28 Oct) | [#30](https://github.com/Sah-Nikhil/Utsavvy/issues/30) | none; its body is the Phase 2 checklist |
 
 ## How to turn this into issues
@@ -51,6 +51,7 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | `convex/<module>.ts`, `convex/assistant/tools/<group>.ts` | One module per slice | One slice each |
 | `lib/types/`, `lib/access/`, `lib/format.ts` | Shared types, the permissions table, ₹ formatting | Shared |
 | `lib/pricing/`, `lib/brief/`, `lib/canvas/` | Pure logic | S3, S11, S2 |
+| `convex/estimates.ts` | The estimate cascade: research, cache, table and knowledge fallbacks | S3 |
 | `lib/fetch/` | `politeFetch`, the polite fetch with its SSRF guard | D2 (X1 reuses it) |
 | `lib/inspirations/` | `searchLibrary`, the stock library search | S13 |
 | `seed/` | Seed data | D1, D2, S19a |
@@ -63,13 +64,13 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | Day | Wave | Issues | Size |
 |---|---|---|---|
 | Thu 22 Oct | Contract | C0 (alone in code), D1 and D2 (data only); the reference table freezes at the end of the day | L + M + M |
-| Fri 23 Oct | 1 | S1, S2, S5, then S3 when a slot frees | M + L + L + M |
+| Fri 23 Oct | 1 | S1, S2, S5, then S3 when a slot frees | M + L + L + L |
 | Sat 24 Oct | 2 | S4, S6, S7, S8, S20 (spike first) | L + S + L + S + M |
-| Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + L + M |
+| Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + M + M |
 | Mon 26 Oct | 4 | S12, S14, S15, S16, S19a; then a rehearsal on production of the beats that exist | M + L + M + M + S |
 | Tue 27 Oct | 5 | S17, S18, then S19b, then the scripted-case CI run, fixes and the production rehearsal | M + S + S |
 
-S6 and S8 are S because cut-line items 1 and 2 moved to SHOULD on 2026-10-21 (X10, X11) to make room for S20; S13 is M without the Pexels API. At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
+S6 and S8 are S because cut-line items 1 and 2 moved to SHOULD on 2026-10-21 (X10, X11) to make room for S20; S13 is M without the Pexels API. On 2026-10-22 S3 grew from M to L with the estimate cascade, and cut-line item 3 moved to SHOULD (X12) to make room, so S11 is M. S3 is the heaviest risk on 23 Oct: S4 and S7 need it on 24 Oct. At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
 
 Cut decisions are dated, with a fallback table per late slice (IMPLEMENTATION_PLAN.md section 10): at 18:00 IST on 26 Oct the orchestrator decides and posts it; a wave 4 slice still open keeps going on 27 Oct ahead of S17, S19b and S18; at 12:00 IST on 27 Oct, one still unmerged drops or replaces its demo beat as the table says and S19b starts on whatever has merged; at 14:00 IST, if S17 is still open, the rest of the cut line moves to SHOULD. The scripted-case CI run and the rehearsal are never cut.
 
@@ -94,8 +95,8 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 ### Interfaces
 - Uses: the stack in `CLAUDE.md`; IMPLEMENTATION_PLAN.md sections 4, 5, 6 and 7.
 - Provides:
-  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index, the `googlePlace` Item kind (data `placeId` and `note`, nothing else), the stock library `pexels` Inspiration source (`localPath`, no image URL), and `vendors.provenance` entries with `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence`, `seenAt` and `confirmedBy`. No `pexelsCache`.
-  - `lib/types/`: `BriefExtraction`, `FirstPlanDraft`, `PricedEstimate`, `BudgetCheck`, `ThemeUpdate`, `ItemKind`, `ItemData`, `EntryFields`, `CommentTarget`, `Selection` (an Item, an Entry or a passage, or null), `Actor`, `WriteEvent`, `ProposedChange` (the op union with `guards`, section 6), `ProposalOpHandler`, `Role`, `Action`, with Convex validators from the same definitions.
+  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index, the `googlePlace` Item kind (data `placeId` and `note`, nothing else), the stock library `pexels` Inspiration source (`localPath`, no image URL), and `vendors.provenance` entries with `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence`, `seenAt` and `confirmedBy`, and the app-wide `estimateCache` table with its `by_city_category_unit` index (section 5.5). No `pexelsCache`, no `generatedEstimates`.
+  - `lib/types/`: `BriefExtraction`, `FirstPlanDraft`, `PricedEstimate` with its `EstimateBasis` (section 5.6: kind `"researched"`, `"referenceTable"` or `"assistantKnowledge"`, the per-unit range, source URLs, search date, reasoning, table version), `BudgetCheck`, `ThemeUpdate`, `ItemKind`, `ItemData`, `EntryFields`, `CommentTarget`, `Selection` (an Item, an Entry or a passage, or null), `Actor`, `WriteEvent`, `ProposedChange` (the op union with `guards`, section 6), `ProposalOpHandler`, `Role`, `Action`, with Convex validators from the same definitions.
   - `lib/access/permissions.ts`: `can(role: Role, action: Action): boolean` and the table it reads, one row per line of the roles.md permissions table.
   - `convex/lib/access.ts`: `requireAccess(ctx, eventId, action) => { membership, user }`, throwing `AccessDenied`; `requireIdentity(ctx) => user` for the narrow exceptions in IMPLEMENTATION_PLAN.md section 4.3.
   - `convex/lib/write.ts`: `memberWrite`, `memberInsert`, `memberSoftDelete`, `assistantWrite`, `assistantInsert`, `assistantSoftDelete` (section 4.4), all writing `changes` rows and then running the post-write hooks; `VersionConflict` error with the current value and version.
@@ -105,7 +106,7 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
   - Stubs that later slices fill in their own files, so earlier slices can render them: `components/history/UndoAllButton.tsx` (renders nothing until X11), `components/google-places/GooglePlacesSheet.tsx` exporting `GooglePlacesProvider` (passes its children through), `GooglePlacesSheet` (renders nothing), `GooglePlacesButton` (renders nothing) and `useGooglePlacesSheet()` (returns `{ open(opts?: { placeId?: string }) }`, a no-op) until S20, `components/map/VendorMap.tsx` (S15), `components/demo/DemoBanner.tsx` (S19a), and `proposeEssentialChange` in `convex/plan.ts` (refuses until S14).
   - `convex/lib/idempotency.ts`: `once(ctx, key, fn)`.
   - `convex/lib/time.ts`: `istDay(timestamp)`, `istNow()`.
-  - `convex/lib/models.ts` and `convex/lib/settings.ts`: model names and the thresholds (10%, 5, 24 hours, 30 seconds, 20 a day, 10 a day, 30 days, 0.8).
+  - `convex/lib/models.ts` and `convex/lib/settings.ts`: model names and the thresholds (10%, 5, 24 hours, 30 seconds, 20 a day, 10 a day, 30 days, 0.8), plus the estimate cascade's limits (8 searches per call, a 20-second research limit, a 24-hour cache; IMPLEMENTATION_PLAN.md section 4.14).
   - `lib/format.ts`: `formatINR(240000) === "₹2,40,000"`, `formatLakh(2500000) === "₹25L"`.
   - Registries: `components/items/registry.tsx` (`ItemKind` to component), `components/chat/cards/registry.tsx` (card kind to component), `convex/assistant/tools/index.ts` (tool name to definition), each pre-filled with stubs that later slices replace in their own files.
   - The workspace shell at `/events/[eventId]` with mount points for the Canvas, Chat, people panel, history panel, Event settings, Add Inspiration, the Google places sheet (`GooglePlacesProvider` around the workspace, `GooglePlacesSheet` at the top level, `GooglePlacesButton` in the header) and a banner slot (the demo banner).
@@ -132,11 +133,12 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 - [ ] `convex/schema.ts` deploys to a fresh Convex deployment; `convex/_generated/` committed.
 - [ ] `.gitattributes` (`* text=auto eol=lf`, `*.cmd` and `*.bat` as CRLF) and `.editorconfig` (`end_of_line = lf`) committed; `bun run lint` fails on a CRLF file.
 - [ ] CI runs the five jobs on the PR; the smoke test signs in with `@clerk/testing`, opens `/events` and passes the axe check.
-- [ ] `.env.example` lists every variable in section 4.11 with a comment each and no values, including `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and not `PEXELS_API_KEY`.
+- [ ] `.env.example` lists every variable in section 4.11 with a comment each and no values, including `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and not `PEXELS_API_KEY`; `NEXT_PUBLIC_MAP_STYLE_URL` is optional and left empty, so the map uses our own style.
 - [ ] Every route sends the Content Security Policy from section 4.12, and the smoke test passes with it on a preview with no CSP violation in the browser console.
 - [ ] Utsavvy's own component set is built with the `impeccable` skill from the references in IMPLEMENTATION_PLAN.md section 7.4 (Material Design 3 surfaces, state layers, shape scale and easing; the Gemini-style Assistant gradient built from the Theme palette); no control is left in stock shadcn styling.
 - [ ] Both candidate token sets from section 7.3 (B, Ivory ledger, and D, Contemporary rangoli, with `--function-1` to `--function-8`) work behind a development-only switch, with `<SectionOrnament>` swapping B's line motif and D's corner pieces. Sah-Nikhil picks during the review (default: B with D's Function colours), and the PR keeps only the chosen set before merging.
 - [ ] Components use semantic tokens only; lint flags hex colours outside `app/globals.css`.
+- [ ] Both token sets define the map colours from IMPLEMENTATION_PLAN.md section 7.5 (`--map-land`, `--map-water`, `--map-park`, `--map-road`, `--map-road-major`, `--map-building`, `--map-label`, `--map-label-halo`, `--map-boundary`) in hex or `rgb()`, which MapLibre can parse: warm paper land, a soft water tint, muted roads and labels.
 - [ ] The three fonts render on the landing and the shell.
 - [ ] The font check from section 7.1 is done and its screenshots are in the PR.
 
@@ -203,7 +205,7 @@ Everything C0 owns, `lib/pricing/` (S3 owns the table code and takes the check f
 - [ ] Own-site Vendors come first. Only when a category can't be filled from own sites does Sah-Nikhil add an Instagram-only Vendor: he reads its public business profile himself and supplies the name, category, area or address, public business phone, profile URL and the date he checked it. It gets no Listed prices, and its Marker comes from Geoapify geocoding the address he typed. The agent and the script never open Instagram or Facebook.
 - [ ] The script fetches only through `politeFetch`, with the User-Agent `UtsavvyBot/1.0`, obeys `robots.txt`, waits about a second between requests to a host and reads at most 4 pages per site.
 - [ ] `politeFetch` applies the SSRF guard from IMPLEMENTATION_PLAN.md section 4.9 to every request and every redirect hop: it resolves the host and refuses loopback, private, link-local, CGNAT and cloud-metadata addresses, connects only to the address it checked, allows only `http` and `https` on ports 80 and 443, follows at most 3 redirects, and stops at about 8 seconds and 2 MB.
-- [ ] By the end of 22 Oct, Sah-Nikhil has approved or rejected every proposed reference-table adjustment in `seed/reference-table-check.md`, which freezes the table at version `2026-10-22`.
+- [ ] By the end of 22 Oct, Sah-Nikhil has approved or rejected every proposed reference-table adjustment in `seed/reference-table-check.md`, which freezes the table at version `2026-10-22`. (Done on 22 Oct: both proposed adjustments rejected, so the table stays the first-brief seed and no worked-example number changes. Since [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md), the table is the fallback when live research finds nothing, so the check file records it as the fallback's source.)
 - [ ] The script checks each recorded sentence against the fetched page text after whitespace normalisation and drops any fact that fails.
 - [ ] Addresses geocoded with Geoapify, filtered to India and biased to Jaipur; matches below 0.8 confidence or at city level are marked approximate.
 - [ ] Each Vendor's `summary` is one line in our own words.
@@ -285,37 +287,45 @@ Parent: Slices. Blocked by: C0.
 
 ---
 
-## S3. The reference table and the pricing engine
+## S3. The estimate cascade and the pricing arithmetic
 
-Labels: `slice`, `assistant`. Wave: 23 Oct. Size: M.
+Labels: `slice`, `assistant`. Wave: 23 Oct. Size: L.
 
 ### Goal
-Every table-backed Estimate in the product comes from one pure pricing engine over the reference table, by City tier, with the Budget check bands, Contingency, rounding and Timeline dates from first-brief.md. The flagged Assistant-generated Estimate for free-label categories (IMPLEMENTATION_PLAN.md section 3, item 1) is not part of this engine; it arrives with X1b or X7 as its own `GeneratedEstimate` type.
+Every Estimate in the product comes from one estimate cascade: live research first (web search plus the Event's Shortlisted Vendors' Listed prices), the reference table by City tier when research finds nothing usable, and the Assistant's own estimate as the last resort, each labelled with its basis ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md), IMPLEMENTATION_PLAN.md section 4.14). Pure code then works out every line's low and high, the Budget check bands, Contingency, rounding and Timeline dates from first-brief.md. The model never adds anything up.
 
 ### Phase
-Parent: Slices. Blocked by: C0, D2. Builds on the reference table frozen at the end of 22 Oct from D2's approved `seed/reference-table-check.md` (version `2026-10-22`).
+Parent: Slices. Blocked by: C0, D2. Builds on the reference table frozen at the end of 22 Oct from D2's `seed/reference-table-check.md` (version `2026-10-22`; both proposed adjustments were rejected, so it is the first-brief seed).
 
 ### Owned paths
-`lib/pricing/`, `lib/pricing/*.test.ts`.
+`lib/pricing/`, `lib/pricing/*.test.ts`, `convex/estimates.ts`, `convex/estimates.test.ts`, `evals/estimates.eval.ts`.
 
 ### Interfaces
-- Uses: `FirstPlanDraft`, `PricedEstimate`, `BudgetCheck` from `lib/types/`.
-- Provides: `REFERENCE_TABLE_VERSION` (`"2026-10-22"`), `referenceTable` (rows keyed by category, with unit, low and high for tier Y, the Source note and which Vendor categories and units feed the row), `cityTier(cityName) => "X" | "Y" | "Z"`, `priceEntry(category, quantity, tier) => { low, high }`, `pricePlan(draft, { tier, budget, contingencyShare }) => { entries: PricedEstimate[], budgetCheck: BudgetCheck, note }`, `budgetCheckFixes(draft, ...)` (the three fixes with their new minimums), `deadlineDate(leadKey, functionDate, today) => { date, late, priority }`, `perHousehold(total, households)`.
+- Uses: `FirstPlanDraft`, `PricedEstimate`, `EstimateBasis`, `BudgetCheck` from `lib/types/`; the `estimateCache` table; `convex/lib/models.ts` and the cascade's limits in `convex/lib/settings.ts`; `listedPrices` and `vendorLinks` (read only, for the Event's Shortlisted Vendors); AI SDK 7 with `@ai-sdk/anthropic`'s provider-executed web search and structured output.
+- Provides:
+  - Pure, in `lib/pricing/`: `REFERENCE_TABLE_VERSION` (`"2026-10-22"`), `referenceTable` (rows keyed by category, with unit, low and high for tier Y, the Source note and which Vendor categories and units feed the row), `cityTier(cityName) => "X" | "Y" | "Z"`, `tableRange(category, unit, tier) => { unitLow, unitHigh } | null`, `lineRange(unitRange, quantity) => { low, high }`, `pricePlan(draft, ranges, { budget, contingencyShare }) => { entries: PricedEstimate[], budgetCheck: BudgetCheck, note }` (`ranges` holds one cascade result per budget line), `deadlineDate(leadKey, functionDate, today) => { date, late, priority }`, `perHousehold(total, households)`, `basisText(basis) => string`.
+  - In `convex/estimates.ts`: `estimateLines(ctx, { eventId, city, tier, eventType, lines }, deps?) => { unit, unitLow, unitHigh, basis }[]` for actions (the cascade, with `deps.research` and `deps.knowledge` replaceable by stubs), `cachedOrTableEstimate(ctx, city, tier, category, unit)` for queries (a fresh cache row, else the table), and `stubEstimateDeps` (both calls return nothing) for other slices' tests and the e2e environment.
+  - The three fixes with previewed minimums (`budgetCheckFixes`) are not here; they moved to X12.
 
 ### Test seams
-- Rule tests that hold for any table: the bands, the fraction f, the roll-up and rounding into the Contingency (the cases below).
-- Worked-example snapshots: the three worked examples in first-brief.md, exactly as listed in IMPLEMENTATION_PLAN.md section 8 (with any number `seed/reference-table-check.md` replaced at the freeze), each asserting `REFERENCE_TABLE_VERSION === "2026-10-22"` so a table change fails them by name.
-- The ₹15L variant: flagged about ₹4.6L short; the fixes' new minimums (drop the reception about ₹14.2L; 200 and 150 Guests about ₹15.5L; raise to ₹19.6L); "plan anyway" scales Entries to about 76% of their lows.
+- Rule tests that hold for any ranges: the bands, the fraction f, the roll-up and rounding into the Contingency (the cases below).
+- Worked-example snapshots, with `stubEstimateDeps` so every line falls through to the table: the three worked examples in first-brief.md, exactly as listed in IMPLEMENTATION_PLAN.md section 8, each asserting `REFERENCE_TABLE_VERSION === "2026-10-22"` so a table change fails them by name, and every line's basis kind `referenceTable`.
+- The ₹15L variant: flagged about ₹4.6L short, minimum about ₹19.6L; "plan anyway" scales Entries to about 76% of their lows.
 - Above high: every Entry at its high, Contingency 10% of them, the rest Unallocated.
 - Rounding: Entries to the nearest ₹1,000, per-plate prices to ₹10, differences into the Contingency, so the total always equals the budget.
-- Tiers: Jaipur Y, Pune X, an unlisted town Z (×0.8).
+- Tiers: Jaipur Y, Pune X, an unlisted town Z (×0.8); the multiplier applies to `referenceTable` lines only.
 - Timeline: the Jaipur wedding's late bookings get P1, P2 and P3 dates within 7, 14 and 21 days of 2026-10-21; transport is due 13 Nov 2026; a month-only date is the 15th.
+- The cascade seams in IMPLEMENTATION_PLAN.md section 8 ("The estimate cascade"): fallback order, basis recorded, URLs only, cache hit and expiry, no cache row from a result that used the Event's Listed prices, the 8-search limit with free labels first, the time limit, no model arithmetic (₹1,100 to ₹1,900 per plate for 300 Guests gives ₹3,30,000 to ₹5,70,000), and no Brief text in the research prompt.
+- `cachedOrTableEstimate` reads a fresh cache row and ignores an expired one.
 
 ### Acceptance criteria
 - [ ] No floating-point drift in totals (amounts in whole rupees).
-- [ ] Every Estimate carries a basis string such as "Y-tier range ₹1,000-₹2,000 per plate, Utsavvy reference table, Oct 2026".
+- [ ] Every Estimate carries an `EstimateBasis` whose `basisText` reads like "Researched 22 Oct 2026 · 3 sources", "Utsavvy reference table, Y tier, Oct 2026" or "Assistant's own estimate, no sources".
+- [ ] The research call has web search and no other tool; its structured output has only a per-unit range, source URLs and one line of reasoning per category, never a total.
+- [ ] When the run's model isn't Claude, research is skipped and no search is spent.
 - [ ] The table's Source column cites the starter set's Listed prices where D2 found them; rows still unsourced keep the † note.
-- [ ] No Convex or React imports: the engine runs in Convex and in the browser.
+- [ ] `lib/pricing/` has no Convex or React imports: the arithmetic runs in Convex and in the browser.
+- [ ] Scripted cases in `evals/estimates.eval.ts` (calling `estimateLines` directly, not through S7's harness) pass with `bun run eval` within the tolerance bands in IMPLEMENTATION_PLAN.md section 8, and the PR reports the searches, time and cost per case.
 
 ---
 
@@ -333,17 +343,17 @@ Parent: Slices. Blocked by: S2, S3.
 `components/items/budget/`, `components/items/timeline/`, `components/items/checklist/`, `components/items/note/`, `components/items/suggestion/`, `convex/entries.ts`, `convex/suggestions.ts`, `convex/notes.ts`, `e2e/plan-items.spec.ts`.
 
 ### Interfaces
-- Uses: `<ItemFrame>`, `memberWrite`, `pricePlan`, `priceEntry`, `formatINR`.
-- Provides: `api.entries.add`, `api.entries.update`, `api.entries.tick`, `api.entries.remove`, `api.entries.confirmAssumption`, `api.suggestions.addToPlan` (prices it and creates its budget Entry and Timeline Entry), `api.suggestions.dismiss`, `api.notes.add`, `api.notes.update`; `budgetRollup(entries) => { byFunction, eventWide, contingency, unallocated, total, overBy }` used by Nudges and the Budget comparison.
+- Uses: `<ItemFrame>`, `memberWrite`, `basisText` (S3), `formatINR`.
+- Provides: `api.entries.add`, `api.entries.update`, `api.entries.tick`, `api.entries.remove`, `api.entries.confirmAssumption`, `api.suggestions.addToPlan` (creates its budget Entry, carrying the Estimate the Suggestion already has, and its Timeline Entry; it runs no research), `api.suggestions.dismiss`, `api.notes.add`, `api.notes.update`; `budgetRollup(entries) => { byFunction, eventWide, contingency, unallocated, total, overBy }` used by Nudges and the Budget comparison.
 
 ### Test seams
 - `budgetRollup`: Function totals + Event-wide + Contingency = Event total for the Jaipur wedding; `overBy` is ₹40,000 after the sangeet catering line goes from ₹2,45,000 to ₹2,85,000 in the demo seed.
-- `addToPlan`: "Rajasthani folk musicians at the sangeet dinner" becomes one budget Entry priced from its cost category and one Timeline Entry; the Suggestion's status is `added`.
+- `addToPlan`: "Rajasthani folk musicians at the sangeet dinner" becomes one budget Entry with the Suggestion's own Estimate and basis, unchanged, and one Timeline Entry; the Suggestion's status is `added`.
 - `confirmAssumption`: removes the field from `assumed` and writes history.
 - A Member editing an Entry's amount sets `editedByMember`.
 
 ### Acceptance criteria
-- [ ] Every price shows a labelled badge (Estimate with its basis on hover or tap); amounts use lakh grouping.
+- [ ] Every price shows a labelled badge (Estimate with its basis line, such as "Researched 22 Oct 2026 · 3 sources", and the source links or reasoning on hover or tap); amounts use lakh grouping. A line with no Estimate shows "No Estimate yet".
 - [ ] The Budget shows the tight or below-minimum note from the Budget check, and the per-household share for community Events.
 - [ ] Late Timeline Entries show "late" and their note; run sheets are grouped per Function with times.
 - [ ] The checklist status (to find, shortlisted, booked) is worked out from Vendor links (zero links until S9).
@@ -428,11 +438,12 @@ Parent: Slices. Blocked by: S1, S3, S5.
 `convex/assistant/instructions.ts`, `convex/assistant/outside.ts`, `convex/assistant/amounts.ts`, `convex/assistant/tools/core.ts`, `components/chat/cards/citations/`, `evals/harness.ts`, `evals/core.eval.ts`, `e2e/assistant.spec.ts`.
 
 ### Interfaces
-- Uses: `assistantWrite`, `assistantInsert`, `requireAccess`, `priceEntry`, `highlights`, the tool registry, the contract's `EntryFields` and `CommentTarget` validators. `addEntry` and `addComment` write through `assistantInsert` with those validators; they don't call S4's `api.entries.add` or S8's `api.comments.add`, which are built in the same wave. Role checks, history and the Comment passage rule all live in the contract (`requireAccess`, the write helpers and their post-write hooks), so the tools and the Member mutations follow the same rules.
-- Provides: the tools `readCanvas`, `readChat`, `addEntry`, `updateEntry`, `addItem`, `updateItem`, `moveItem`, `createSection`, `addComment`, `pointAt` and the `webSearch` provider tool, registered in the tool registry; `wrapOutside(content, { source, addedBy })`; `checkMemberStatedAmount(amount, messageText) => boolean`; `exceedsProposalThresholds(changes, budgetTotal) => string | null`; the eval harness (`runCase({ seed, messages, expect })`).
+- Uses: `assistantWrite`, `assistantInsert`, `requireAccess`, `estimateLines`, `lineRange` and `stubEstimateDeps` (S3), `highlights`, the tool registry, the contract's `EntryFields` and `CommentTarget` validators. `addEntry` and `addComment` write through `assistantInsert` with those validators; they don't call S4's `api.entries.add` or S8's `api.comments.add`, which are built in the same wave. Role checks, history and the Comment passage rule all live in the contract (`requireAccess`, the write helpers and their post-write hooks), so the tools and the Member mutations follow the same rules.
+- Provides: the tools `readCanvas`, `readChat`, `addEntry` (its amount source is `{ estimate: { category or freeLabel, quantity, unit } }`, priced on the server by `estimateLines`, or `{ memberStated: amount }`; IMPLEMENTATION_PLAN.md section 6), `updateEntry`, `addItem`, `updateItem`, `moveItem`, `createSection`, `addComment`, `pointAt` and the `webSearch` provider tool, registered in the tool registry; `wrapOutside(content, { source, addedBy })`; `checkMemberStatedAmount(amount, messageText) => boolean`; `exceedsProposalThresholds(changes, budgetTotal) => string | null`; the eval harness (`runCase({ seed, messages, expect })`).
 
 ### Test seams
 - `checkMemberStatedAmount`: ₹15,000 is accepted for "Add a mehendi artist, around ₹15,000" and for "15k"; ₹18,000 is refused for the same message.
+- `addEntry` with an estimate source, with `stubEstimateDeps`: "Add a DJ for the sangeet" gets the table's DJ range and basis kind `referenceTable`; with a stubbed researched range it gets that range and kind `researched`. The tool's arguments have no amount field outside `memberStated`, so a call carrying any other amount is refused.
 - `exceedsProposalThresholds`: a deletion, a Budget total change, a shift of more than 10% of the total and a change touching 6 Entries all return a reason; adding one ₹15,000 Entry returns null.
 - A tool write with a stale version re-reads and retries once; if the Member's new value contradicts the request, the tool result tells the model to ask ("Aditi just changed the Caterer line to ₹2,40,000. Still want ₹2,10,000?").
 - Repeating a tool call with the same `runId:toolCallId` writes nothing new.
@@ -441,7 +452,7 @@ Parent: Slices. Blocked by: S1, S3, S5.
 
 ### Acceptance criteria
 - [ ] Scripted cases pass with `bun run eval`: simple request, collision, two asks, side conversation, the hidden-instruction Vendor page (adds facts, books nothing, adds "That page contained instructions aimed at me; I ignored them."), Hinglish, English and Devanagari replies, a Pune per-plate web search with citations, and an attempt to write an amount nobody gave.
-- [ ] Replies are short, warm and practical, with ₹ in lakh grouping and no Estimate called a Listed price or a Quote.
+- [ ] Replies are short, warm and practical, with ₹ in lakh grouping and no Estimate called a Listed price or a Quote. When the Assistant mentions an Estimate, it says where it came from ("researched just now", "from our reference table", "my own estimate").
 - [ ] Web search answers show their citations and a "Save as Note" action that keeps them.
 - [ ] Tool results never include another Event's data or any secret.
 - [ ] Removing the asker mid-reply follows the rule in IMPLEMENTATION_PLAN.md section 4.3, as the seam above tests: the text ends with the notice, and nothing is read or written for them after the removal.
@@ -490,7 +501,7 @@ Parent: Slices. Blocked by: S4, S7, D2.
 `components/vendors/`, `components/items/shortlisted-vendor/`, `components/chat/cards/vendor-cards/`, `convex/vendors.ts`, `convex/assistant/tools/vendors.ts`, `evals/vendors.eval.ts`, `e2e/vendors.spec.ts`.
 
 ### Interfaces
-- Uses: `seed/jaipur-vendors.json`, `priceEntry` (Estimate on cards without a comparable Listed price), `assistantWrite`, `memberWrite`.
+- Uses: `seed/jaipur-vendors.json`, `cachedOrTableEstimate` (S3; the Estimate on cards without a comparable Listed price: the city's cached researched range, else the table), `assistantWrite`, `memberWrite`.
 - Provides: `internal.vendors.loadStarterSet` (idempotent, by domain: inserts a missing starter Vendor and its Listed prices, never rewrites an existing row, so a moved Marker stays moved), `api.vendors.findKnown({ eventId, category, functionKey })`, `api.vendors.shortlist({ eventId, vendorId, checklistEntryId })`, `api.vendors.setLinkStatus`, `api.vendors.forEvent` (the Event's Shortlisted Vendors with their private layer), the tools `findVendors`, `shortlistVendor`, `setVendorStatus`, `<VendorCard vendor eventLayer>`, `comparableForFunction(listedPrice, guests) => { low, high, label }`.
 
 ### Test seams
@@ -544,10 +555,10 @@ Parent: Slices. Blocked by: S7.
 
 ## S11. The first Brief: chips, Brief summary and the Budget check
 
-Labels: `slice`, `assistant`, `chat`. Wave: 25 Oct. Size: L.
+Labels: `slice`, `assistant`, `chat`. Wave: 25 Oct. Size: M.
 
 ### Goal
-A Member describes the Event in their own words; the Assistant asks only for missing essentials as chips; the Brief summary in the Chat shows every field, the Assumptions and the Budget check, all editable, ending in "Make my plan".
+A Member describes the Event in their own words; the Assistant asks only for missing essentials as chips; the Brief summary in the Chat shows every field, the Assumptions and the Budget check, all editable, ending in "Make my plan". The Budget check runs over the estimate cascade's ranges ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)), so the summary waits for live research. When the budget is below the minimum it offers "Raise the budget" and "Plan at my budget anyway"; the previewed fewer-Guests and fewer-Functions fixes moved to SHOULD on 2026-10-22 (X12).
 
 ### Phase
 Parent: Slices. Blocked by: S3, S5.
@@ -556,23 +567,25 @@ Parent: Slices. Blocked by: S3, S5.
 `components/brief/` (except `vibe-pick/`), `components/chat/cards/brief/`, `lib/brief/`, `convex/brief.ts`, `evals/brief.eval.ts`, `e2e/brief.spec.ts`.
 
 ### Interfaces
-- Uses: structured output for `BriefExtraction`, `cityTier`, `pricePlan`, `budgetCheckFixes`, `internal.chat.postSystem`, Geoapify (city centre).
-- Provides: `nextQuestion(extraction) => ChipQuestion | null` (first-brief order, seven at most), `festivalDates(kind, year)` with Drik Panchang sources, `defaultFunctions(tradition)`, `assumeFunctionDetails(...)` (dates relative to the wedding day, Guest shares 20%, 40%, 75%, 100%), `api.brief.submitText`, `api.brief.answerChip`, `api.brief.editField` (with the server rule in IMPLEMENTATION_PLAN.md section 4.6, step 5: direct before the plan, through the contract stub `proposeEssentialChange` from `convex/plan.ts` for an essential after it), `api.brief.summary`, and the "Make my plan" hook S14 fills in, plus the vibe-pick mount point S18 fills in.
+- Uses: structured output for `BriefExtraction`, `cityTier`, `estimateLines`, `pricePlan` and `stubEstimateDeps` (S3), `internal.chat.postSystem`, Geoapify (city centre).
+- Provides: `nextQuestion(extraction) => ChipQuestion | null` (first-brief order, seven at most), `festivalDates(kind, year)` with Drik Panchang sources, `defaultFunctions(tradition)`, `assumeFunctionDetails(...)` (dates relative to the wedding day, Guest shares 20%, 40%, 75%, 100%), `api.brief.submitText`, `api.brief.answerChip`, `api.brief.editField` (with the server rule in IMPLEMENTATION_PLAN.md section 4.6, step 5: direct before the plan, through the contract stub `proposeEssentialChange` from `convex/plan.ts` for an essential after it), `api.brief.summary`, `internal.brief.checkBudget({ eventId })` (an action: builds the Brief's budget lines, runs `estimateLines` on them, then `pricePlan`, and stores the `BudgetCheck`; the research fills the cache that S14's plan reads), and the "Make my plan" hook S14 fills in, plus the vibe-pick mount point S18 fills in.
 
 ### Test seams
 - Extraction cases (scripted, with the model): the three first-brief Briefs produce the extractions listed there; unknown fields are null.
 - `nextQuestion`: the Jaipur wedding asks only Q6 (Tradition) then Q7; Aarav's birthday asks none of Q4 (Guests assumed at 60); the Ganesh utsav asks Q4 (Guests) after confirming 4 to 14 Sep 2027.
 - `festivalDates("ganesh-utsav", 2027)` returns 4 to 14 Sep 2027.
 - `assumeFunctionDetails` for the Jaipur wedding gives the Assumptions listed in first-brief.md (mehendi 13 Feb evening, haldi 60 Guests, and so on).
-- Budget check: the ₹15L variant shows the flag, the three fixes with their previews, and "Plan at my budget anyway".
+- Budget check, with `stubEstimateDeps`: the ₹15L variant shows the flag "A plan like this in Jaipur usually starts at about ₹19.6L. You're about ₹4.6L short.", "Raise the budget" (to about ₹19.6L) and "Plan at my budget anyway"; the Ganesh utsav is about ₹36,000 short. With a stubbed researched catering range, the minimum moves by the change in the catering lines' lows × 1.10, worked out by hand in the test.
 - A city not in the X or Y list is Z, shown as the Assumption "treated as a smaller city".
 - `editField`: with `briefState` `"summary"`, changing the Guest count updates the Brief and re-runs the Budget check; with `briefState` `"planned"`, changing the Guest count leaves the stored Brief unchanged and calls `proposeEssentialChange` (the contract stub refuses until S14, so the call fails and nothing is written), while changing the honoree applies directly.
 
 ### Acceptance criteria
 - [ ] The opening line matches first-brief.md.
 - [ ] Chips have a "type my own" option and are keyboard-operable.
-- [ ] Every field on the Brief summary is editable in place before the plan, and edits re-run the Budget check.
-- [ ] Smoke test: the Ganesh utsav Brief reaches the summary with the "₹36,000 short" flag (stub model in e2e).
+- [ ] Every field on the Brief summary is editable in place before the plan, and edits re-run the Budget check (mostly from the cache, so no new searches for the same city and categories).
+- [ ] While research runs, the Chat shows "Checking current prices in <city>"; past the research time limit, the summary arrives with table Estimates for the unfinished lines.
+- [ ] The Budget check line on the summary says what its figures rest on, for example "Based on prices researched today for 6 of 9 lines; the rest from Utsavvy's reference table."
+- [ ] Smoke test: the Ganesh utsav Brief reaches the summary with the "₹36,000 short" flag (stub model and `stubEstimateDeps` in e2e).
 
 ---
 
@@ -613,7 +626,7 @@ Parent: Slices. Blocked by: S9, S10.
 Labels: `slice`, `inspirations`. Wave: 25 Oct. Size: M.
 
 ### Goal
-Members add Inspirations from the stock library (the Search tab of the Add Inspiration panel, or a tappable strip in the Chat) and from uploads, use any image for the Theme, and get 1 to 3 decor Suggestions priced from the reference table after a Theme change. There is no Pexels API ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
+Members add Inspirations from the stock library (the Search tab of the Add Inspiration panel, or a tappable strip in the Chat) and from uploads, use any image for the Theme, and get 1 to 3 decor Suggestions after a Theme change, each with an Estimate from the estimate cascade. There is no Pexels API ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)).
 
 ### Phase
 Parent: Slices. Blocked by: S1, S2, S7, D1.
@@ -622,7 +635,7 @@ Parent: Slices. Blocked by: S1, S2, S7, D1.
 `components/inspirations/`, `components/items/inspiration/`, `components/chat/cards/stock-strip/`, `lib/inspirations/`, `convex/inspirations.ts`, `convex/assistant/tools/images.ts`, `evals/inspirations.eval.ts`, `e2e/inspirations.spec.ts`.
 
 ### Interfaces
-- Uses: `seed/vibe-sets.json` and `public/inspirations/` (D1), Convex file storage, `node-vibrant` (uploads), the helper model for upload descriptions, `placeInFreeSpace`, `priceEntry`, `exceedsProposalThresholds` (S7), the Event's `uploadRightsOn` (S1), the contract's Proposal op registry. S13 supplies the `updateTheme` op handler there; S10, built in the same wave, applies it on Accept, so S13 doesn't call S10's code.
+- Uses: `seed/vibe-sets.json` and `public/inspirations/` (D1), Convex file storage, `node-vibrant` (uploads), the helper model for upload descriptions, `placeInFreeSpace`, `estimateLines` (S3), `exceedsProposalThresholds` (S7), the Event's `uploadRightsOn` (S1), the contract's Proposal op registry. S13 supplies the `updateTheme` op handler there; S10, built in the same wave, applies it on Accept, so S13 doesn't call S10's code.
 - Provides: `searchLibrary(query, { setKeys? }) => LibraryPhoto[]` in `lib/inspirations/library.ts` (at most 6; a query word matches a tag when it equals one of the tag's words, after lowercasing and dropping stop words such as "find", "some", "ideas"; photos sort by matching words, then the Event's own set, then seed order; a photo with no match is never returned), `api.inspirations.addFromLibrary({ eventId, pexelsId, functionKey? })` (looks the photo up in the seed on the server, never trusting metadata from the browser, and saves its credit, `localPath`, `alt`, `tags` and palette as the Item's `source` and `seen`, with no model call), `api.inspirations.generateUploadUrl`, `api.inspirations.addUpload`, `api.inspirations.useForTheme`, `api.inspirations.tag`, `api.inspirations.remove`, `internal.inspirations.describe` (once at save, uploads only), `internal.inspirations.purgeDeleted` (the 30-day cron), `mergeTheme(theme, update) => theme` (3 to 5 colours, 2 to 4 style words, 3 to 6 decor keywords), the tools `searchStockImages`, `updateTheme`, `tagInspiration`, and the `updateTheme` op handler in `convex/assistant/tools/images.ts` (`docId` the Event, `expectedVersion` its version).
 
 ### Test seams
@@ -633,7 +646,7 @@ Parent: Slices. Blocked by: S1, S2, S7, D1.
 - "Use for Theme" from a Member applies at once with the Chat line "Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'"; on a library photo it uses the seed palette and tags.
 - An Assistant-initiated Theme change can't apply directly: the `updateTheme` tool with no Member request is refused with the message telling the model to use `propose`. Merge gate for that Proposal path: the `updateTheme` op handler, called with a stale Event version, refuses; with the current version, it applies the `ThemeUpdate` through `assistantWrite`.
 - `tagInspiration` is refused, writing nothing, unless the run answers a Member message that names a Function ("find mehendi decor" tags; "find some decor" doesn't), and in any `"nudge"` or `"brief"` run; `propose` with a `tagInspiration` change fails validation.
-- A Theme change never edits existing Entries; it offers 1 to 3 decor Suggestions, each with an Estimate from the table.
+- A Theme change never edits existing Entries; it offers 1 to 3 decor Suggestions, each with an Estimate from `estimateLines` and its basis (with `stubEstimateDeps`, the table's decor range).
 - Upload rules: JPEG, PNG and WebP only, up to 10 MB, 10 at a time; with the Event's upload rights setting off, each batch needs the tick.
 - `purgeDeleted` removes stored files 30 days after deletion and leaves library photos alone (they have no stored file).
 - Pointing at a library photo gives the model its `alt` and `tags`, not the picture; pointing at an upload gives the picture.
@@ -655,7 +668,7 @@ Parent: Slices. Blocked by: S1, S2, S7, D1.
 Labels: `slice`, `assistant`, `canvas`. Wave: 26 Oct. Size: L.
 
 ### Goal
-"Make my plan" turns the Brief into the first plan on the Canvas, streamed Section by Section: Functions, the priced Budget, the Timeline with late bookings pulled forward, run sheets, the Vendor checklist and 5 to 8 Suggestions. Changing an essential afterwards arrives as one Proposal.
+"Make my plan" turns the Brief into the first plan on the Canvas, streamed Section by Section: Functions, the priced Budget, the Timeline with late bookings pulled forward, run sheets, the Vendor checklist and 5 to 8 Suggestions. Every budget line and costed Suggestion is priced by the estimate cascade ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)), mostly from the cache the Brief summary filled. Changing an essential afterwards arrives as one Proposal.
 
 ### Phase
 Parent: Slices. Blocked by: S4, S7, S10, S11.
@@ -664,20 +677,20 @@ Parent: Slices. Blocked by: S4, S7, S10, S11.
 `convex/plan.ts`, `components/chat/cards/plan-progress/`, `evals/plan.eval.ts`, `e2e/plan.spec.ts`; may change `components/brief/` (S11, merged) to wire "Make my plan".
 
 ### Interfaces
-- Uses: structured output for `FirstPlanDraft`, `pricePlan`, `deadlineDate`, `assistantInsert`, `placeInFreeSpace`, `createProposal` (S10), the contract's Proposal op registry, `api.brief.editField` (S11), which already calls `proposeEssentialChange`.
-- Provides: `internal.plan.generate({ eventId, runId })`, `validateDraft(draft) => errors[]`, `applyPlan(ctx, eventId, priced)`, `diffEssentialChange(event, change) => ProposedChange[]` (keeps Entries with `editedByMember` or Quotes; its first change is a `changeEssential` on the Event with the Event's `expectedVersion`), the `changeEssential` op handler, and fills the contract stub `proposeEssentialChange(ctx, eventId, change)` to post that diff through `createProposal` with `origin` a Brief edit and `runId` null.
+- Uses: structured output for `FirstPlanDraft`, `estimateLines`, `pricePlan`, `deadlineDate` and `stubEstimateDeps` (S3), `assistantInsert`, `placeInFreeSpace`, `createProposal` (S10), the contract's Proposal op registry, `api.brief.editField` (S11), which already calls `proposeEssentialChange`.
+- Provides: `internal.plan.generate({ eventId, runId })`, `validateDraft(draft) => errors[]`, `applyPlan(ctx, eventId, priced)`, `diffEssentialChange(event, change) => ProposedChange[]` (keeps Entries with `editedByMember` or Quotes; its first change is a `changeEssential` on the Event with the Event's `expectedVersion`), the `changeEssential` op handler, and fills the contract stub `proposeEssentialChange(ctx, eventId, change)`: since research can't run in a mutation, it schedules `internal.plan.proposeEssentialChange` (an action, `runAfter(0)`), which re-runs `estimateLines` and `pricePlan` on the changed Brief and posts the diff through `createProposal` with `origin` a Brief edit and `runId` null.
 
 ### Test seams
 - `validateDraft` rejects a draft with an amount, an unknown category or a run sheet outside 6 to 10 Entries.
-- Applying the Jaipur wedding's fixed draft gives the worked example's numbers, 14 checklist Entries all "to find" and the late-booking dates.
+- Applying the Jaipur wedding's fixed draft with `stubEstimateDeps` gives the worked example's numbers, every Estimate with basis kind `referenceTable`, 14 checklist Entries all "to find" and the late-booking dates.
 - `diffEssentialChange` for 300 to 400 Guests raises catering and Venue lines, keeps a Member-edited line, flags Venue capacity to recheck, and is one Proposal.
-- `api.brief.editField` on a planned Event, Guest count 300 to 400: the stored Brief and Entries are unchanged until Accept; one open Proposal exists; after someone else edits the Brief, Accept is refused as out of date.
+- `api.brief.editField` on a planned Event, Guest count 300 to 400: the stored Brief and Entries are unchanged until Accept; once the scheduled action finishes, one open Proposal exists; after someone else edits the Brief, Accept is refused as out of date.
 - Applying is idempotent per run: a retried run doesn't duplicate Entries.
 
 ### Acceptance criteria
 - [ ] The Chat shows progress while each Section fills ("Budget done, now the Timeline").
 - [ ] Every Assumption is tagged; prices are Estimates with their basis.
-- [ ] Scripted cases: the three first Briefs end to end, checked for structure (Functions, Entry counts, bands), not for exact wording.
+- [ ] Scripted cases: the three first Briefs end to end with live research, checked for structure (Functions, Entry counts, every line with a basis, researched lines with source URLs, totals equal to the budget), not for exact wording or numbers; the PR reports the searches, time and cost per plan.
 - [ ] Smoke test on the Ganesh utsav (stub model): the Canvas shows daily aarti as one Function with a date range and "₹1,000 per household".
 
 ---
@@ -687,7 +700,7 @@ Parent: Slices. Blocked by: S4, S7, S10, S11.
 Labels: `slice`, `vendors`. Wave: 26 Oct. Size: M.
 
 ### Goal
-Members see their Shortlisted Vendors on a map coloured by status, other shared Vendors in the city as faint Markers, filter by category and by a Function's needs, and drag an approximate Marker into place.
+Members see their Shortlisted Vendors on a map coloured by status, other shared Vendors in the city as faint Markers, filter by category and by a Function's needs, and drag an approximate Marker into place. The map is drawn in Utsavvy's own style over OpenFreeMap's vector tiles, built from our tokens, not OpenStreetMap's stock look (IMPLEMENTATION_PLAN.md section 7.5, decided 2026-10-22).
 
 ### Phase
 Parent: Slices. Blocked by: S9.
@@ -696,18 +709,22 @@ Parent: Slices. Blocked by: S9.
 `components/map/`, `convex/map.ts`, `e2e/map.spec.ts`.
 
 ### Interfaces
-- Uses: `maplibre-gl`, `react-map-gl/maplibre`, `NEXT_PUBLIC_MAP_STYLE_URL`, `api.vendors.forEvent`, `requireAccess`, `memberWrite` on `vendors.marker`.
-- Provides: `<VendorMap eventId>`, filling the contract stub that S2 renders inside the Vendors Section frame, plus a full-screen view. The map is Section UI, not an Item: CONTEXT.md's Item list has no map, and it stores nothing of its own (it draws the Shortlisted Vendors and shared Markers). Also `api.map.moveMarker({ eventId, vendorId, lat, lng })` and `filterForFunction(vendors, fn, budgetEntry)`.
+- Uses: `maplibre-gl`, `react-map-gl/maplibre`, OpenFreeMap's vector source (`https://tiles.openfreemap.org/planet`) and label fonts, the contract's `--map-*` and status colour tokens, `NEXT_PUBLIC_MAP_STYLE_URL` (an optional override), `api.vendors.forEvent`, `requireAccess`, `memberWrite` on `vendors.marker`.
+- Provides: `<VendorMap eventId>`, filling the contract stub that S2 renders inside the Vendors Section frame, plus a full-screen view. The map is Section UI, not an Item: CONTEXT.md's Item list has no map, and it stores nothing of its own (it draws the Shortlisted Vendors and shared Markers). Also `api.map.moveMarker({ eventId, vendorId, lat, lng })`, `filterForFunction(vendors, fn, budgetEntry)` and `buildMapStyle(colours) => StyleSpecification` in `components/map/style.ts`.
 
 ### Test seams
 - `filterForFunction`: for the sangeet with 300 Guests, Venues with capacity under 300 and Listed prices above the budget line drop out; Vendors without a comparable price stay, marked "no price".
 - `moveMarker` checks `requireAccess(ctx, eventId, ...)` with the permissions-table action for dragging Markers, and that the Vendor is in that Event's city or shortlisted by it; then, in one mutation, it clears `approximate`, updates the shared record and writes the history row in that Event only.
 - `moveMarker` is refused for a Viewer, for someone with no membership in `eventId`, and for a Vendor outside that Event's city that it hasn't shortlisted; a refused call changes nothing.
+- `buildMapStyle`: given a colour for each `--map-*` token, every colour in the returned style's paint properties is one of those values (no other colour literal in `style.ts`); its vector source is OpenFreeMap's; it has no `sprite` and no point-of-interest layer; its label layers read the Latin name fields.
 
 ### Acceptance criteria
 - [ ] The map centres on the Event's city and stays zoomed to it.
-- [ ] Approximate Markers are hollow and labelled "approximate"; Vendors without an address are listed beside the map.
-- [ ] OpenFreeMap, OpenStreetMap and Geoapify attribution show near the map.
+- [ ] With `NEXT_PUBLIC_MAP_STYLE_URL` empty, the map uses `buildMapStyle` with the token colours read from the document at mount: warm paper land, a soft water tint, parks a shade off the land, muted roads with major roads slightly stronger, faint buildings at close zoom, quiet labels with a paper halo. With it set, the map loads that URL instead.
+- [ ] Markers are our own SVG shapes in the status colours with the category illustration, not MapLibre's default Marker.
+- [ ] Approximate Markers are the same shape, hollow, and labelled "approximate"; Vendors without an address are listed beside the map.
+- [ ] OpenFreeMap, OpenMapTiles, OpenStreetMap and Geoapify attribution show near the map.
+- [ ] The PR shows screenshots of Jaipur at city zoom and at street zoom with Markers, in the chosen look, for Sah-Nikhil's review before merging.
 - [ ] Every Marker is reachable from the list beside the map by keyboard; smoke test passes axe.
 
 ---
@@ -819,7 +836,7 @@ Parent: Slices. Blocked by: S1, S3, S4, S9 (and through them C0, S2, S5, S7, D2)
 `seed/demo/`, `convex/demo.ts`, `components/demo/`.
 
 ### Interfaces
-- Uses: `seed/jaipur-vendors.json`, `internal.vendors.loadStarterSet`, `pricePlan` on the fixed worked-example draft in `seed/demo/`, `placeInFreeSpace`, `budgetRollup`, `DEMO_JUDGE_*_ID`, the shell's banner slot. No model calls. Seed rows, including Quotes, Comments, Proposals and the seeded `changes` rows, go in through `seedInsert` (below), so S12, S10 and S17 don't need to have merged.
+- Uses: `seed/jaipur-vendors.json`, `internal.vendors.loadStarterSet`, `tableRange` and `pricePlan` (S3) on the fixed worked-example draft in `seed/demo/`, on the reference-table path with no research, so every seeded Estimate has basis kind `referenceTable`, `placeInFreeSpace`, `budgetRollup`, `DEMO_JUDGE_*_ID`, the shell's banner slot. No model calls. Seed rows, including Quotes, Comments, Proposals and the seeded `changes` rows, go in through `seedInsert` (below), so S12, S10 and S17 don't need to have merged.
 - Provides: `internal.demo.reset`, the nightly cron's target, `<DemoBanner eventId>` (filling the contract stub), and `seedInsert(ctx, demoEventId, table, row)` in `convex/demo.ts`: a plain function, not a Convex function, that calls `ctx.db.insert` directly, writes no extra `changes` row, runs no post-write hook, and throws unless the row's `eventId` is `demoEventId`, the Event found by the demo's `demoKey` (IMPLEMENTATION_PLAN.md section 4.4). `internal.demo.reset` is internal, so no public API reaches it.
 
 ### Test seams
@@ -861,6 +878,7 @@ Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice 
 - [ ] The demo-path Playwright test walks the script in section 9.3 on the preview (stub model for Assistant replies, real model in the manual rehearsal), with one named step per beat so a beat dropped by the fallback table is skipped by name.
 - [ ] After S17 has merged, `reset` schedules zero `internal.nudges.check` calls and leaves the demo Event's Chat exactly as seeded.
 - [ ] A full rehearsal on the production URL, after a reset, runs the script twice in a row.
+- [ ] The rehearsal checks the 0:08 beat's live Estimates ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)): the researched ranges are plausible, their sources open, and ₹2,40,000 still falls below the minimum so the flag and "Plan at my budget anyway" appear. If it doesn't, Sah-Nikhil picks a smaller collection for the script's Brief, and the script and narration are updated (IMPLEMENTATION_PLAN.md section 9.3). The demo-path test itself runs with research stubbed.
 
 ---
 
@@ -908,9 +926,9 @@ These are `stretch` issues: built only when a slot frees up, in this order. Each
 Labels: `slice`, `vendors`, `stretch`. Size: L. Blocked by: S9.
 Goal: the server finds Vendors' own sites with Serper and reads them under the polite fetch rules with the SSRF guard, quote-checks extracted facts and geocodes them (IMPLEMENTATION_PLAN.md section 4.9, vendors.md "Discovery" and "Extraction"). Every fetch, including Jina Reader, goes through D2's `politeFetch` in `lib/fetch/`. Seams: the SSRF guard refuses `127.0.0.1`, `10.0.0.5`, `169.254.169.254`, `[::1]` and a redirect from a public host to a private one, run against the Discovery path (D2's tests cover the helper itself); the blocklist drops WedMeGood and JustDial; a sentence not on the page drops its field; `robots.txt` disallow skips the site. Contract change: `discoveryRuns`, `serperCache`, `SERPER_API_KEY`, `robots-parser`.
 
-### X1b. Discovery in the Chat, pasted URLs, refresh, pooling and flagged Estimates (later stage)
+### X1b. Discovery in the Chat, pasted URLs, refresh and pooling (later stage)
 Labels: `slice`, `vendors`, `assistant`, `stretch`. Size: M. Blocked by: X1a.
-Goal: "Find Vendors" and Chat requests stream Vendor cards with "Reading 3 of 5 sites", known Vendors first, the 10-a-day cap, "Paste a website URL", Refresh with price history and change notices, automatic pooling behind the vendors.md guardrails, and the flagged AI Estimate for free-label categories (section 3, item 1). Seams: the pooling guardrails (5 prices from different Vendors in 12 months, outliers beyond 3× or under a third of the median ignored, 25th to 75th percentile, Estimates already on a Budget unchanged); the cap message; tests still pin the table with pooling off; a free-label category gets one `GeneratedEstimate` per category label and City tier, reused on the second ask, with the label "Estimate (not from our cost table)" and the basis from IMPLEMENTATION_PLAN.md section 3, and the S3 engine never returns one. Tools: `discoverVendors`, `addVendorFromUrl`. Contract change: `generatedEstimates` with its `by_label_tier` index (section 5.5) and the `GeneratedEstimate` type, unless X7 already added them.
+Goal: "Find Vendors" and Chat requests stream Vendor cards with "Reading 3 of 5 sites", known Vendors first, the 10-a-day cap, "Paste a website URL", Refresh with price history and change notices, and automatic pooling behind the vendors.md guardrails. Free-label Vendors' Estimates need nothing here: since [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) they go through S3's estimate cascade like any line, so the planned `GeneratedEstimate` work is dropped. Seams: the pooling guardrails (5 prices from different Vendors in 12 months, outliers beyond 3× or under a third of the median ignored, 25th to 75th percentile, Estimates already on a Budget unchanged); the cap message; tests still pin the table with research stubbed and pooling off; a Vendor card in a free-label category shows the cascade's Estimate with its basis. Tools: `discoverVendors`, `addVendorFromUrl`.
 
 ### X2. Pinterest and Instagram References (SHOULD, first)
 Labels: `slice`, `inspirations`, `stretch`. Size: S. Blocked by: S13.
@@ -938,7 +956,7 @@ Goal: transfer to a Co-owner or Member; delete after typing the Event's name (sh
 
 ### X7. Hand-typed Vendors (SHOULD)
 Labels: `slice`, `vendors`, `stretch`. Size: S. Blocked by: S9.
-Goal: a Member types a Vendor with no website (name, category, phone, area); it stays private to the Event, has only Quotes, and a Marker only if dropped on the map. Brings the flagged Estimate for free labels if X1b hasn't, with the same seam as X1b. Contract change: `privateVendors`, plus `generatedEstimates` with its `by_label_tier` index (category label and City tier, one row each) and the `GeneratedEstimate` type if X1b hasn't added them.
+Goal: a Member types a Vendor with no website (name, category, phone, area); it stays private to the Event, has only Quotes, and a Marker only if dropped on the map. A free-label category's Estimate comes from S3's estimate cascade ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)); the hand-typed Vendor's details never reach the research prompt. Contract change: `privateVendors`.
 
 ### X8. Android share sheet (SHOULD)
 Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X2.
@@ -955,3 +973,7 @@ Goal: selecting text in a Note or an Entry label and choosing "Comment" anchors 
 ### X11. Grouped "Undo all" (SHOULD, moved from S6 on 2026-10-21)
 Labels: `slice`, `canvas`, `stretch`. Size: S. Blocked by: S6.
 Goal: `api.history.undoGroup({ groupKey })` and the contract's `<UndoAllButton groupKey>` in `components/history/UndoAllButton.tsx`, which S5's Chat already renders under each Assistant reply. Seams: `undoGroup` on 8 changes where Rohan later edited one restores 7 and returns "Undid 7 of 8; Rohan has since edited Sangeet DJ"; Viewers are refused. May change `components/history/` and `convex/history.ts` (S6, merged).
+
+### X12. The previewed Budget check fixes (SHOULD, moved from S11 on 2026-10-22)
+Labels: `slice`, `assistant`, `chat`, `stretch`. Size: S. Blocked by: S11.
+Goal: when the budget is below the minimum, the Brief summary adds two fixes beside "Raise the budget", each previewing its new minimum: fewer Guests, and fewer or merged Functions (first-brief.md "Brief summary"). Provides `budgetCheckFixes(draft, ranges, ...)` in `lib/pricing/budgetCheckFixes.ts`, which re-prices the changed Brief from the ranges the Budget check already has, so a preview spends no search. Seams, with `stubEstimateDeps`: the ₹15L variant's fixes (drop the reception, new minimum about ₹14.2L, fits; 200 Guests at the wedding and reception and 150 at the sangeet, about ₹15.5L, still about ₹55,000 short; raise to ₹19.6L); the Ganesh utsav's (skip the cultural night, about ₹1.90L, fits; 250 Guests at the cultural night, about ₹2.59L, still about ₹19,000 short). May change `lib/pricing/` (S3, merged) and `components/brief/`, `components/chat/cards/brief/` and `convex/brief.ts` (S11, merged).

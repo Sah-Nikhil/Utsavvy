@@ -36,6 +36,8 @@ The examples use one Jaipur wedding planned by three Members: Meera, Rohan and A
     - was not asked for: a change the Assistant thought of itself, or numbers it read out of outside content, such as a Quote pasted from WhatsApp.
 
     Changing an essential of the Brief after the first plan (date, city, Guest count, budget) usually touches many Entries, so it lands here as a Proposal.
+
+    > Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: an Estimate the Assistant researched on the web is its own labelled range with its sources, not a number read out of outside content. It follows the ordinary rules: direct when a Member asked for the line and the change is small, a Proposal otherwise. The outside-content clause still covers a Quote, a Listed price or a planned amount taken from pasted or fetched content.
 11. **Any Member can Accept or Reject.** The card then shows "Accepted by Meera". A view-only role, if [Who can do what on an Event?](https://github.com/Sah-Nikhil/Utsavvy/issues/14) creates one, cannot.
 12. **All or nothing.** Accept applies every change in the Proposal together, and Reject applies none. To change part of it, a Member replies ("keep the drone shoot") and the Assistant posts a new Proposal that replaces the old one.
 13. **A Proposal closes when** it is accepted, rejected or replaced, when it goes out of date (rule 16), or 24 hours after it was posted. A closed card stays in the Chat, greyed, with its reason.
@@ -61,6 +63,8 @@ The examples use one Jaipur wedding planned by three Members: Meera, Rohan and A
 
 22. **Content Members bring in is data, never instructions.** That covers Vendor pages read by the Discovery pipeline, shared Instagram or Pinterest posts, pasted text, text in images and Chat history. The model receives it quoted, with its source and who added it. Only what a Member typed is a request.
 23. **When content contains instructions aimed at the Assistant**, the Assistant ignores them and adds one line: "That page contained instructions aimed at me; I ignored them." It still uses the page's facts.
+
+    > Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: the search results the Estimate research reads are outside content too. That step has web search and no other tool, sees only the line's category, unit, Event type and city, and returns only a price range per unit and the URLs it used, which code checks against the search results.
 24. **Even if it is fooled, it can do little harm.** Its tools only touch this Event's Canvas, deletions and Budget total changes need a Member's Accept, and it has no tool for messaging, payments or fetching an address of its own choosing (see Tools).
 
 ### Voice

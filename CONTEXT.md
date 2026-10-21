@@ -153,8 +153,12 @@ A price taken from a Vendor's own website, always shown with that page, the sent
 _Avoid_: rate, market price
 
 **Estimate**:
-A price the Assistant generated, always labeled as such.
-_Avoid_: guess, approximate price
+A price range the Assistant worked out for one budget Entry, always labelled as an Estimate and shown with its basis. The basis is one of three, tried in this order: researched (current prices the Assistant found on the web and in the Listed prices of the Event's Shortlisted Vendors, with the pages it used), the reference table (when research finds nothing usable), or the Assistant's own estimate with no sources (when neither has a price). Members can change any Estimate. An Estimate is never a Listed price or a Quote, and the three are never added together.
+_Avoid_: guess, approximate price, market rate, AI price
+
+**Reference table**:
+Utsavvy's own table of typical cost ranges per budget category and unit, for City tier Y. It prices a line only when research finds nothing usable.
+_Avoid_: cost table, rate card, price list
 
 **Quote**:
 A price a Vendor actually gave the Members, entered by them for one of a Shortlisted Vendor's checklist Entries.
@@ -179,5 +183,5 @@ The comparison of an Event's budget with the typical range of Estimates for its 
 _Avoid_: feasibility check, reality check, validation
 
 **City tier**:
-The government's X, Y or Z class of a city (for example Delhi is X, Jaipur is Y, and unlisted towns are Z), used to scale Estimates to where the Event happens.
+The government's X, Y or Z class of a city (for example Delhi is X, Jaipur is Y, and unlisted towns are Z), used to scale the reference table's ranges to where the Event happens.
 _Avoid_: city class, metro, tier-1

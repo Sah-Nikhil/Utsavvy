@@ -15,8 +15,12 @@ Inputs: [Which LLM and agent tooling should the Assistant run on?](https://githu
 
 5. **Brief summary before generating.** The Assistant posts a Brief summary in the Chat (type, city, dates, Guests, budget, Tradition, Functions, Theme, Assumptions, Budget check). Members edit any field or tap "Make my plan". The plan then streams onto the Canvas section by section.
 6. **Estimates come from a reference table by City tier**, not from the LLM's memory. The LLM decides the plan's structure (Functions, Guest split, which budget Entries, Suggestions, run sheets); a deterministic pricing step fills every amount from the table. Live web lookups happen only when a Member asks in the Chat, are shown with their sources, and are never stored or fed back into the table.
+
+   > Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: each line's price per unit comes from a cascade. The Assistant researches current prices with web search first, the reference table is the fallback, and the Assistant's own knowledge is the last resort. Every Estimate shows which one it came from. The LLM still decides the structure, and code still does every total, the bands, rounding and dates.
 7. **Budget rolls up** as Function totals + Event-wide + Contingency (10% by default) = Event total. Every budget Entry shows its Estimate; a Quote, when one arrives, sits beside it and is never blended into it.
 8. **Budget check bands.** Below the typical minimum: the Brief summary flags it with three fixes before any plan exists, and the Member can still choose "Plan at my budget anyway". Between minimum and typical: plan at the budget with a "tight" note. Above the high end: every Entry stops at its high end and the rest shows as Unallocated.
+
+   > Amended on 2026-10-22: the minimum, typical and high figures are worked out over the estimate cascade's ranges ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)), and v1 offers only "Raise the budget" among the fixes (see "Brief summary" below).
 9. **Timeline** is built backwards from the date using typical lead times. Entries whose ideal date has passed are marked late and pulled into the next three weeks by priority, with a short note. A month-only date assumes the 15th.
 10. **Every Function gets a short run sheet** (6 to 10 timed Entries, all assumed), as part of the Timeline.
 11. **Vendor checklist Entries** name a Vendor category, the Function it serves (or Event-wide), a book-by date from the Timeline, the budget Entry or Entries it pays for, and a status: to find, shortlisted, booked. Which actual Vendors are suggested is left to [How do Vendors and Listed prices get into v1?](https://github.com/Sah-Nikhil/Utsavvy/issues/16).
@@ -77,6 +81,8 @@ A Chat message with every field editable in place:
 - Event type, city (with City tier), dates per Function, Guests per Function, budget, Tradition, Theme.
 - The list of Assumptions, each with "change".
 - The Budget check, when the budget is below the typical minimum: "A plan like this in Jaipur usually starts at about ₹19.6L. You're about ₹4.6L short." with three fixes, each previewing its new minimum: fewer Guests, fewer or merged Functions, raise the budget. And "Plan at my budget anyway".
+
+  > Amended by [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 1.5 on 2026-10-22: v1 shows the flag, "Raise the budget" and "Plan at my budget anyway". The previewed fewer-Guests and fewer-Functions fixes are SHOULD (X12).
 - A late-date note is not added here; lateness is handled in the Timeline.
 - "Make my plan".
 
@@ -91,6 +97,8 @@ Each Estimate carries a `basis` string shown with it, e.g. "Y-tier range ₹1,00
 The seed values below are a planning draft. Values marked † are our own working figures with no source yet; the build slice that implements the table verifies them or replaces them with Listed prices. The tier multipliers are also unsourced.
 
 > Amended by [vendors.md](vendors.md) and [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 3: the table is hand-checked against the starter set's Listed prices for v1, and automatic pooling of Listed prices arrives later with Discovery. Tests always pin the table with pooling off.
+
+> Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: the table is now the fallback for lines that research can't price. Sah-Nikhil rejected both adjustments D2 proposed, so the seed values below are the table, frozen at version `2026-10-22`. The basis string names its kind: researched (with source pages and the date searched), reference table (as in the example above) or "Assistant's own estimate, no sources". The tier multipliers apply to table rows only, since research and the Assistant's own estimate are already for the Event's city.
 
 **Weddings (tier Y, per unit)**
 
@@ -158,9 +166,13 @@ The LLM never writes an amount. It explains them ("catering is about 45% of your
 
 > Amended by [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 3 and [vendors.md](vendors.md): amounts a Member states in their own request are allowed, and free-label Vendor categories with no table row get a flagged Assistant Estimate, a knowing exception.
 
+> Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: the model now writes one kind of number, a low and high price per unit for one budget line, in the research step or as its own estimate, always labelled with that basis. It still never writes a total, a planned amount, the Contingency or a date. The pricing step above runs unchanged over those per-unit ranges.
+
 ### Live lookups in the Chat
 
 > Amended by [vendors.md](vendors.md) "Chat web search" and [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 3: lookups use Claude's web search tool, not Gemini grounding. The rest of this section still holds.
+
+> Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: Estimates are now researched with web search too, in their own step. A Chat answer still stays in the Chat and doesn't change an Estimate already on the Canvas.
 
 A Member can ask "what do banquet halls in Pune charge per plate?". The Assistant may answer through Gemini's Search or Maps grounding (paid only, per the LLM research), showing its citations. The answer is not stored as a Listed price, not used to change Estimates, and not added to the reference table. A Member who wants a number on the Canvas types it as a Quote. The idea of pooling shortlisted Vendors' data into our own table is handed to [How do Vendors and Listed prices get into v1?](https://github.com/Sah-Nikhil/Utsavvy/issues/16), with the note that the stored data must come from the Vendor's own website, not from Gemini's answer.
 
@@ -243,6 +255,9 @@ type FirstPlanDraft = {
 
 // After pricing (server side), each budget Entry and costed Suggestion gains:
 type PricedEstimate = { low: number; high: number; amount: number; basis: string; label: "Estimate" };
+// Amended by ADR 0013: `basis` becomes a record with its kind ("researched", "referenceTable"
+// or "assistantKnowledge"), the price per unit, and for researched lines the source URLs,
+// the date searched and one line of reasoning. IMPLEMENTATION_PLAN.md section 5.6 has the fields.
 // and the plan gains:
 type BudgetCheck = {
   band: "belowMinimum" | "tight" | "comfortable" | "aboveHigh";
@@ -256,6 +271,8 @@ Dates in deadlines are computed from `leadKey` and today's date by the server, t
 ## Worked examples
 
 These double as test cases. Amounts follow from the seed table and the pricing rules above; if the table changes, the expected numbers change with it, so tests should assert the rules (bands, fraction f, roll-up, rounding into Contingency) and use these numbers only with the seed table fixed. Today is 2026-10-21 in all three.
+
+> Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: these are the table-path numbers. Tests reproduce them exactly with web search stubbed to return nothing, so every line falls through to the table. A live plan researches its prices, so its numbers differ.
 
 ### 1. Jaipur wedding, about 300 Guests, ₹25L (tight band)
 

@@ -143,6 +143,8 @@ When a Vendor has no Listed price at all, the card says "No price on their websi
 - **For a free-label category with no table row, the Assistant may generate an Estimate**, labelled "Estimate (not from our cost table)", with the basis "Assistant's general estimate, not from the Utsavvy reference table". It is generated once per category and City tier and reused. Sah-Nikhil chose this knowingly as an exception to the first-brief rule that the LLM never writes an amount; the build plan must carry the exception.
 - Estimates are never stored as, or shown as, Listed prices.
 
+> Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: the free-label exception is now the general rule. Every Estimate, for any category, comes from the cascade: researched with web search first, then the reference table, then the Assistant's own estimate labelled "Assistant's own estimate, no sources". A free-label line has no table row, so it is researched or the Assistant's own estimate. A Vendor card reads the city's cached researched range for its category when one exists, and the table otherwise.
+
 ## Pooling Listed prices into the reference table
 
 Both, decided on 2026-10-21:
@@ -204,6 +206,8 @@ A Quote that names Functions is compared against those Functions' budget Entries
 - Anthropic's service does the fetching. Our server never opens directory pages itself.
 - An answer may cite Instagram profiles and directory pages as live links. They stay links in that answer: never saved as Vendors, facts or Listed prices.
 - This replaces the first-brief design's mention of Gemini Search or Maps grounding for Chat lookups; the rule that answers are shown with sources and never stored is unchanged.
+
+> Amended by [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) on 2026-10-22: Estimates now run their own web search, separate from the Chat's, and can cite a Shortlisted Vendor's Listed price as a source. A Chat answer still never changes an Estimate already on the Canvas, and the Listed price still shows as its own badge beside the Estimate.
 
 ## The starter set
 
