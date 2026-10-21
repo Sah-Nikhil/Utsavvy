@@ -17,6 +17,23 @@ Ideas and stretch goals are not issues. They live in the [Ideas discussions](htt
 - Assets created while resolving an issue (research reports, prototypes) are linked from the issue, never pasted in.
 - Research findings are committed to a throwaway `research/<slug>` branch that is never merged, and linked as `research/<slug>:research/<slug>.md`.
 
+## Research and prototype branches
+
+All of these are on GitHub, one commit each on top of `main` at the time, and never merged. Read one without checking it out: `git show <branch>:<file>`.
+
+| Branch | File | What it holds |
+|---|---|---|
+| `research/charting-context` | `research/charting-context.md` | PromptWars rules, the Google Labs inspirations, SahayakOS and comparable products |
+| `research/vendor-data` | `research/vendor-data.md` | Where Vendor locations and Listed prices can legally come from |
+| `research/inspiration-sources` | `research/inspiration-sources.md` | Inspiration sources, and how Pinterest and Instagram can come in |
+| `research/realtime-backend` | `research/realtime-backend.md` | Backends for live Chat and Canvas, presence and sign-in |
+| `research/llm-agent` | `research/llm-agent.md` | LLM and agent tooling for the Assistant |
+| `research/search-geocoding` | `research/search-geocoding.md` | Search and geocoding services for Vendor discovery |
+| `prototype/canvas` | `prototype/canvas/index.html` | The throwaway Canvas prototype (desktop and mobile) |
+| `prototype/looks` | `prototype/looks/looks.html` and screenshots | The four look mockups for the contract review (keys A to D, screens 1 to 3) |
+
+Cleanup on 2026-10-21: the local worktrees for these branches under `~/.t3/worktrees/Events/` were removed (all clean), and six empty local `t3/*` branches were deleted. Those branches had no commits of their own; they pointed at `aa4b340` and `60699eb`, both already on `main`. To work on a branch again, check it out or add a new worktree from `origin`.
+
 ## Wayfinding operations
 
 - **Load the map**: `gh issue view 6 -R $R`. It's the open issue labelled `wayfinder:map`: `gh issue list -R $R --label wayfinder:map`.
