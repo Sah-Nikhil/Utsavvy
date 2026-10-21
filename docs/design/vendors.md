@@ -206,6 +206,7 @@ A Quote that names Functions is compared against those Functions' budget Entries
 
 - About 16 Jaipur Vendors: 6 Venues, 4 caterers, 3 decorators, 3 photographers.
 - Collected by running the Discovery pipeline itself on Jaipur queries, then hand-checking every card against the Vendor's site (name, address, Marker position, every Listed price and its unit).
+  > Amended by [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 2: Discovery comes after v1, so an agent collects the starter set under the same polite fetch rules and quote check, and Sah-Nikhil hand-checks every card.
 - Stored as seed data in the repo and loaded by the demo Event's reset script.
 - The collection run is also the pre-launch quality check the search research asked for. Record the own-site hit rate, fetch success rate, address match rate and extraction accuracy in the seed notes.
 - Its Listed prices feed the hand check of the reference table.

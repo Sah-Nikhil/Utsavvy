@@ -2,7 +2,7 @@
 
 Utsavvy (utsav, "festival", + savvy) is a GenAI planning Assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas. Built solo for PromptWars Virtual, with submission due about 2026-10-28.
 
-Status: **planning**. The wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is being worked through on GitHub Issues. The stack is locked (see Stack below), but there is no app code and no tests yet. Don't scaffold anything before the build plan, [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18), closes; the contract slice does the scaffolding.
+Status: **planned, build not started**. Every planning ticket on the wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is closed, and the spec is `IMPLEMENTATION_PLAN.md`, with every build issue drafted in `docs/plans/build-slices.md`. There is no app code and no tests yet. The contract slice (C0) does all the scaffolding; nothing else starts before it merges.
 
 ## Stack (locked: don't substitute without a new decision)
 Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) on 2026-10-21. Versions are the latest as of that date; the contract slice pins them.
@@ -15,7 +15,7 @@ Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/i
 - Vendor discovery: **Serper** (find Vendors' own sites, URLs only), our own polite server-side fetch (Jina Reader as fallback for JavaScript-only sites), **Geoapify** for geocoding. Stock Inspirations: **Pexels**.
 - Map: **MapLibre GL JS** via `react-map-gl/maplibre` with **OpenFreeMap** tiles; the style URL is a single setting. See ADR 0005.
 - Tooling: TypeScript **6.0** (not 7), **ESLint** (`eslint-config-next` + `@convex-dev/eslint-plugin`) + **Prettier** (LF line endings), **Vitest** + `convex-test`, **Playwright**. See ADR 0006.
-- Styling and any Canvas layout library: not locked here; decided by [How should the Canvas look and behave on desktop and mobile?](https://github.com/Sah-Nikhil/Utsavvy/issues/11).
+- UI: **Tailwind CSS 4** + **shadcn/ui** (Base UI variant), copied into the repo and restyled from our own tokens so nothing looks stock; **React Flow** (`@xyflow/react` 12) for the freeform Canvas; fonts Anek Devanagari, Fraunces and Tiro Devanagari Hindi via `next/font`. Components use named colour tokens only, never raw colour values. See ADR 0010; the look is picked at the contract review (`IMPLEMENTATION_PLAN.md` section 7.3).
 - All code is written with the Ponytail skill (smallest change that fully solves the task); see `docs/agents/build-workflow.md`.
 
 ## Commands
@@ -33,6 +33,8 @@ Planned; the contract slice creates these scripts in `package.json`.
 - `issues/`: frozen archive of the planning tickets from before 2026-10-21. The live tracker is GitHub Issues; see `docs/agents/issue-tracker.md` for how it works.
 - `.github/`: issue and PR templates. Ideas and stretch goals go in the Ideas discussions, not issues.
 - `docs/adr/`: numbered ADRs for settled tradeoffs.
+- `docs/design/`: one design doc per planning ticket (first brief, Assistant behaviour, Vendors, Inspirations, roles), with worked examples that become tests.
+- `docs/plans/`: `build-slices.md`, every build issue drafted from `IMPLEMENTATION_PLAN.md`.
 - `docs/agents/`: docs for agents working in this repo.
 
 ## Conventions

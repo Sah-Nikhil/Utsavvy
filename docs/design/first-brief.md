@@ -87,6 +87,8 @@ Each Estimate carries a `basis` string shown with it, e.g. "Y-tier range ₹1,00
 
 The seed values below are a planning draft. Values marked † are our own working figures with no source yet; the build slice that implements the table verifies them or replaces them with Listed prices. The tier multipliers are also unsourced.
 
+> Amended by [vendors.md](vendors.md) and [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 3: the table is hand-checked against the starter set's Listed prices for v1, and automatic pooling of Listed prices arrives later with Discovery. Tests always pin the table with pooling off.
+
 **Weddings (tier Y, per unit)**
 
 | Category | Unit | Low | High | Source |
@@ -151,7 +153,11 @@ For a drafted plan, the pricing step works out each budget Entry's low and high 
 
 The LLM never writes an amount. It explains them ("catering is about 45% of your budget because there are five meals") from the priced result.
 
+> Amended by [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 3 and [vendors.md](vendors.md): amounts a Member states in their own request are allowed, and free-label Vendor categories with no table row get a flagged Assistant Estimate, a knowing exception.
+
 ### Live lookups in the Chat
+
+> Amended by [vendors.md](vendors.md) "Chat web search" and [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 3: lookups use Claude's web search tool, not Gemini grounding. The rest of this section still holds.
 
 A Member can ask "what do banquet halls in Pune charge per plate?". The Assistant may answer through Gemini's Search or Maps grounding (paid only, per the LLM research), showing its citations. The answer is not stored as a Listed price, not used to change Estimates, and not added to the reference table. A Member who wants a number on the Canvas types it as a Quote. The idea of pooling shortlisted Vendors' data into our own table is handed to [How do Vendors and Listed prices get into v1?](https://github.com/Sah-Nikhil/Utsavvy/issues/16), with the note that the stored data must come from the Vendor's own website, not from Gemini's answer.
 
