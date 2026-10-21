@@ -7,14 +7,15 @@
  *    site. Every request goes through politeFetch with our User-Agent, obeys robots.txt
  *    and waits about a second between requests to the same host.
  *
- *    TODO(Phase B): how candidate URLs are found and which sources may be read is being
- *    revisited. Until then this file is filled by hand and is the only input; nothing
- *    here searches the web.
+ *    The agent fills this file from its own web search, keeping only the result URLs of
+ *    Vendors' own sites. Directories, Google Places and social sites are never read
+ *    (`isDirectory` refuses them); nothing here searches the web or opens Instagram.
  *
  * 2. check: quote-check drafted Vendor records against the cached text and geocode them.
  *      bun --env-file=C:\Programming\SELF\0Web\PromptWars\Events\.env.local scripts/collect-starter-set.ts check <drafts.json> <cacheDir> <out.json>
- *    <drafts.json> is an array of `Vendor` records without `marker`, each fact citing
- *    the page and exact sentence it came from. Facts whose sentence isn't on the cached
+ *    <drafts.json> is an array of `Vendor` records without `marker`, each `ownSite` fact
+ *    citing the page and exact sentence it came from. Instagram-only Vendors typed in by
+ *    Sah-Nikhil (see seed/README.md) pass through without a page. Facts whose sentence isn't on the cached
  *    page are dropped. Prints the rates seed/README.md records. Needs GEOAPIFY_API_KEY.
  *
  * Keep <cacheDir> outside the repo: it holds copies of Vendors' pages.
@@ -29,7 +30,7 @@ export const UNITS = [
   "per_day",
   "per_function",
 ] as const;
-/** Vendor fields read from the Vendor's site; each needs provenance with its sentence. */
+/** Vendor fields that each need a provenance entry. */
 export const FACT_FIELDS = [
   "name",
   "address",
@@ -39,9 +40,25 @@ export const FACT_FIELDS = [
   "areaServed",
 ] as const;
 
-type FactField = (typeof FACT_FIELDS)[number];
+export type FactField = (typeof FACT_FIELDS)[number];
 type Range = { min: number; max: number };
-type Provenance = { url: string; seenAt: string; sentence: string };
+/**
+ * One entry per filled field. `ownSite` facts keep the exact sentence from the page,
+ * which the quote check looks for. `instagramProfileHumanChecked` facts were read off a
+ * public Instagram profile by Sah-Nikhil and have no sentence; nothing here opens it.
+ */
+export type Provenance = {
+  field: FactField;
+  url: string;
+  seenAt: string;
+} & (
+  | { kind: "ownSite"; sentence: string; confirmedBy: null }
+  | {
+      kind: "instagramProfileHumanChecked";
+      sentence: null;
+      confirmedBy: "Sah-Nikhil";
+    }
+);
 
 export type ListedPrice = {
   sourceUrl: string;
@@ -72,7 +89,10 @@ export type Vendor = {
   domain: string;
   name: string;
   category: "venue" | "caterer" | "decorator" | "photographer";
-  website: string;
+  /** Null for an Instagram-only Vendor, whose `domain` is `instagram.com/<handle>`. */
+  website: string | null;
+  /** The Instagram profile, for an Instagram-only Vendor only. */
+  profileUrl?: string;
   address?: { line: string; locality: string; city: string };
   phone?: string;
   email?: string;
@@ -81,7 +101,7 @@ export type Vendor = {
   areaServed?: string;
   summary: string;
   marker?: Marker;
-  provenance: Partial<Record<FactField, Provenance>>;
+  provenance: Provenance[];
   factsSeenAt: string;
   source: "starterSet";
   listedPrices: ListedPrice[];
@@ -167,15 +187,18 @@ export function quoteCheck(draft: Vendor, pages: Map<string, string>) {
     const text = pages.get(url);
     return text !== undefined && normalise(text).includes(normalise(sentence));
   };
-  const vendor: Vendor = { ...draft, provenance: { ...draft.provenance } };
+  const vendor: Vendor = { ...draft };
   for (const field of FACT_FIELDS) {
     if (vendor[field] === undefined) continue;
-    const source = vendor.provenance[field];
+    const source = vendor.provenance.find((p) => p.field === field);
+    if (source?.kind === "instagramProfileHumanChecked") continue;
     if (source && onPage(source.url, source.sentence)) continue;
     dropped.push(`${draft.domain} ${field}`);
     delete vendor[field];
-    delete vendor.provenance[field];
   }
+  vendor.provenance = draft.provenance.filter(
+    (p) => vendor[p.field] !== undefined,
+  );
   vendor.listedPrices = draft.listedPrices.filter((p) => {
     const ok =
       onPage(p.sourceUrl, p.sentence) &&

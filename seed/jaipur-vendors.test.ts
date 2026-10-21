@@ -12,6 +12,8 @@ import {
   quoteCheck,
   sentenceHasAmount,
   toMarker,
+  type FactField,
+  type Provenance,
   type Vendor,
 } from "../scripts/collect-starter-set";
 
@@ -59,12 +61,11 @@ describe("seed/jaipur-vendors.json", () => {
       }
   });
 
-  it("every Vendor has provenance on its own site for each field it fills", () => {
+  it("every Vendor has provenance for each field it fills", () => {
     for (const v of vendors) {
       for (const field of FACT_FIELDS.filter((f) => v[f] !== undefined)) {
-        const source = v.provenance[field];
+        const source = v.provenance.find((p) => p.field === field);
         expect(source, `${v.domain} ${field}`).toBeDefined();
-        expect(domainOf(source!.url), `${v.domain} ${field}`).toBe(v.domain);
         expect(source!.seenAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       }
       for (const p of v.listedPrices)
@@ -72,8 +73,40 @@ describe("seed/jaipur-vendors.json", () => {
     }
   });
 
-  it("no domain is on the directory blocklist", () => {
+  it("every ownSite entry is on the Vendor's own site and keeps its sentence", () => {
     for (const v of vendors)
+      for (const p of v.provenance.filter((p) => p.kind === "ownSite")) {
+        expect(domainOf(p.url), `${v.domain} ${p.field}`).toBe(v.domain);
+        expect(p.sentence, `${v.domain} ${p.field}`).toBeTruthy();
+        expect(p.confirmedBy).toBeNull();
+      }
+  });
+
+  it("every Instagram-checked entry was confirmed by Sah-Nikhil on www.instagram.com, with no sentence", () => {
+    for (const v of vendors)
+      for (const p of v.provenance.filter(
+        (p) => p.kind === "instagramProfileHumanChecked",
+      )) {
+        expect(p.confirmedBy, `${v.domain} ${p.field}`).toBe("Sah-Nikhil");
+        expect(new URL(p.url).hostname).toBe("www.instagram.com");
+        expect(p.sentence).toBeNull();
+      }
+  });
+
+  it("an Instagram-only Vendor has no Listed prices, no website and a profileUrl", () => {
+    for (const v of vendors.filter((v) =>
+      v.provenance.some((p) => p.kind === "instagramProfileHumanChecked"),
+    )) {
+      expect(v.listedPrices, v.domain).toEqual([]);
+      expect(v.website, v.domain).toBeNull();
+      expect(v.profileUrl, v.domain).toMatch(
+        /^https:\/\/www\.instagram\.com\//,
+      );
+    }
+  });
+
+  it("no own-site domain is on the directory blocklist", () => {
+    for (const v of vendors.filter((v) => v.website !== null))
       expect(isDirectory(v.domain), v.domain).toBe(false);
   });
 
@@ -130,6 +163,14 @@ describe("the quote check", () => {
     url: "https://vendor.example/menu",
     text: "Vinayak   Caterers\n\nVeg menu starting at ₹250 per plate. Call 98290 12345 to book.",
   };
+  const ownSite = (field: FactField, sentence: string): Provenance => ({
+    field,
+    kind: "ownSite",
+    url: page.url,
+    sentence,
+    seenAt: "2026-10-22",
+    confirmedBy: null,
+  });
   const draft: Vendor = {
     domain: "vendor.example",
     name: "Vinayak Caterers",
@@ -138,23 +179,11 @@ describe("the quote check", () => {
     phone: "+91 98290 12345",
     email: "hello@vendor.example",
     summary: "Vegetarian caterer for weddings.",
-    provenance: {
-      name: {
-        url: page.url,
-        seenAt: "2026-10-22",
-        sentence: "Vinayak Caterers",
-      },
-      phone: {
-        url: page.url,
-        seenAt: "2026-10-22",
-        sentence: "Call 98290  12345 to book.",
-      },
-      email: {
-        url: page.url,
-        seenAt: "2026-10-22",
-        sentence: "Write to hello@vendor.example",
-      },
-    },
+    provenance: [
+      ownSite("name", "Vinayak Caterers"),
+      ownSite("phone", "Call 98290  12345 to book."),
+      ownSite("email", "Write to hello@vendor.example"),
+    ],
     factsSeenAt: "2026-10-22",
     source: "starterSet",
     listedPrices: [
@@ -192,7 +221,7 @@ describe("the quote check", () => {
     expect(vendor?.name).toBe("Vinayak Caterers");
     expect(vendor?.phone).toBe("+91 98290 12345");
     expect(vendor?.email).toBeUndefined();
-    expect(vendor?.provenance.email).toBeUndefined();
+    expect(vendor?.provenance.map((p) => p.field)).toEqual(["name", "phone"]);
     expect(vendor?.listedPrices.map((p) => p.diet)).toEqual(["veg"]);
     expect(dropped).toEqual([
       "vendor.example email",
@@ -210,6 +239,29 @@ describe("the quote check", () => {
       new Map([[page.url, page.text]]),
     );
     expect(vendor?.listedPrices).toEqual([]);
+  });
+
+  it("keeps an Instagram-checked fact without looking for it on a page", () => {
+    const checked: Provenance = {
+      field: "phone",
+      kind: "instagramProfileHumanChecked",
+      url: "https://www.instagram.com/example_decor/",
+      sentence: null,
+      seenAt: "2026-10-22",
+      confirmedBy: "Sah-Nikhil",
+    };
+    const { vendor, dropped } = quoteCheck(
+      {
+        ...draft,
+        provenance: [ownSite("name", "Vinayak Caterers"), checked],
+        email: undefined,
+        listedPrices: [],
+      },
+      new Map([[page.url, page.text]]),
+    );
+    expect(vendor?.phone).toBe("+91 98290 12345");
+    expect(vendor?.provenance).toContainEqual(checked);
+    expect(dropped).toEqual([]);
   });
 
   it("drops the whole Vendor when its name can't be checked", () => {
