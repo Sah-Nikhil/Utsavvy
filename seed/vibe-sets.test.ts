@@ -70,6 +70,7 @@ function webpSize(file: Buffer) {
 
 describe("stock library seed", () => {
   it(`has the 4 sets, each with ${PER_CATEGORY} photos in every category`, () => {
+    expect(records).toHaveLength(288);
     for (const record of records) {
       expect(CATEGORIES[record.setKey], `${record.pexelsId}`).toContain(
         record.category,
@@ -89,6 +90,21 @@ describe("stock library seed", () => {
     for (const setKey of SET_KEYS) {
       const picks = records.filter((r) => r.setKey === setKey && r.vibePick);
       expect(picks, setKey).toHaveLength(12);
+    }
+  });
+
+  // Licensed characters may show up in Search, but never in the vibe pick.
+  it("tags licensed characters as branded and keeps them out of the vibe pick", () => {
+    const character =
+      /mickey|minnie|spider-?man|superman|batman|frozen|elsa|hello kitty|\bkitty\b/i;
+    for (const record of records) {
+      const text = `${record.alt} ${record.tags.join(" ")}`;
+      if (character.test(text)) {
+        expect(record.tags, `${record.pexelsId}`).toContain("branded");
+      }
+      if (record.tags.includes("branded")) {
+        expect(record.vibePick, `${record.pexelsId}`).toBe(false);
+      }
     }
   });
 
