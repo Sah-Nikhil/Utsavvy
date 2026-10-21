@@ -19,7 +19,7 @@ Follow [docs/agents/build-workflow.md](docs/agents/build-workflow.md); its setup
 - [x] Commit the planning docs, check no secrets are tracked, then publish the repo from GitHub Desktop as **public** (File > Add local repository > Publish repository, "Keep this code private" unticked)
 - [ ] Install Ponytail in Claude Code and Codex
 - [x] GitHub basics (2026-10-21): merge settings, labels, Discussions with Ideas, issue and PR templates, planning tickets moved to GitHub
-- [x] Set up the rest of GitHub (2026-10-21): milestones Contract, Slices and Submit; phase parent issues #28, #29 and #30; build issues #31 to #64 from `docs/plans/build-slices.md` with labels and "blocked by" links
+- [x] Set up the rest of GitHub (2026-10-21): milestones Contract, Slices and Submit; phase parent issues #28, #29 and #30; build issues #31 to #64 from `docs/plans/build-slices.md` (and #66 to #69 for later changes) with labels and "blocked by" links
 - [ ] Connect Vercel and check Convex preview deployments on the free plan, which decides whether the browser test runs on each PR's preview
 - [ ] Contract slice built and merged after the human's go; ruleset on `main` turned on with the required checks
 - [ ] Build the remaining slices in waves of up to 3 worktree agents and merge into `main`
