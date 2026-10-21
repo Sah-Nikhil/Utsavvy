@@ -13,7 +13,7 @@ Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/i
 - Assistant: **AI SDK 7** + the **Convex Agent** component (`@convex-dev/agent`). Default model `claude-sonnet-5-5`, helper model `claude-haiku-5-5`, fallback default `gemini-3.8-flash`; the model is a setting. See ADR 0003.
 - Event keys: Anthropic, Google or OpenAI keys attached to an Event, encrypted with AES-256-GCM, fixed model list, falling back to the default model on failure. Image generation (`gemini-nano-banana-2.1`, `gpt-image-2.5-flare`) exists only with a capable Event key. See ADR 0004.
 - Vendor discovery: **Serper** (find Vendors' own sites, URLs only), our own polite server-side fetch (Jina Reader as fallback for JavaScript-only sites), **Geoapify** for geocoding. Directories, Google Places data, search snippets and automated Instagram or Facebook reading are never sources of stored Vendor data (vendors.md).
-- Google places: Google's **Places UI Kit** in its own full-screen sheet; we store only place IDs and Members' notes, never Google content (ADR 0011). Needs `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+- Google places: Google's **Places UI Kit** with Google's own map beside the list, in its own full-screen sheet; we store only place IDs and Members' notes, never Google content (ADR 0011). Needs `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID`; setup steps in `docs/setup/google-cloud.md`.
 - Stock Inspirations: a **local, hand-curated library** of Pexels photos served from `public/inspirations/` with tags in `seed/vibe-sets.json`; no stock-photo API at runtime (ADR 0012).
 - Map: **MapLibre GL JS** via `react-map-gl/maplibre` with **OpenFreeMap** tiles; the style URL is a single setting. See ADR 0005.
 - Tooling: TypeScript **6.0** (not 7), **ESLint** (`eslint-config-next` + `@convex-dev/eslint-plugin`) + **Prettier** (LF line endings), **Vitest** + `convex-test`, **Playwright**. See ADR 0006.
@@ -38,6 +38,7 @@ Planned; the contract slice creates these scripts in `package.json`.
 - `docs/design/`: one design doc per planning ticket (first brief, Assistant behaviour, Vendors, Inspirations, roles), with worked examples that become tests.
 - `docs/plans/`: `build-slices.md`, every build issue drafted from `IMPLEMENTATION_PLAN.md`.
 - `docs/agents/`: docs for agents working in this repo.
+- `docs/setup/`: step-by-step guides for Sah-Nikhil's account setup (Google Cloud).
 
 ## Conventions
 - Use the vocabulary in `CONTEXT.md` exactly. In particular: Member (plans) vs Guest (attends); Listed price vs Estimate vs Quote, never blended; Vendor with Venue as one category; never "pin" or "board".
