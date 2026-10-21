@@ -13,8 +13,28 @@ An occasion being planned: a wedding, a birthday or a community event. Made of o
 _Avoid_: occasion, party, project
 
 **Function**:
-One gathering within an Event, with its own date, place, guest count and share of the budget. A wedding has several (haldi, mehendi, sangeet, wedding, reception); a birthday usually has one.
+One gathering within an Event, with its own date, place, guest count and share of the budget. A wedding has several (haldi, mehendi, sangeet, wedding, reception); a birthday usually has one. A programme that repeats, such as a society's evening aarti on each day of a Ganesh utsav, is one Function with a date range.
 _Avoid_: sub-event, ceremony, session
+
+**Brief**:
+What the Members tell the Assistant about an Event before its first plan: the Event type, city, date, Guest count and budget, plus anything else they mention. Whatever the Brief leaves out, the Assistant fills in as Assumptions.
+_Avoid_: intake, questionnaire, requirements, form
+
+**Assumption**:
+A value other than a price that the Assistant filled in because the Brief didn't give it, such as a Function's Guest count, a date when only the month was given, or a run sheet time. It is shown as assumed until a Member confirms or changes it.
+_Avoid_: default, guess, placeholder
+
+**Tradition**:
+The community or regional customs that decide which Functions a wedding has, such as North Indian Hindu, Marwari, Punjabi or Sikh, Muslim, South Indian Hindu, Bengali or Christian. A wedding of two families can mix two.
+_Avoid_: religion, caste, culture, community
+
+**Theme**:
+The look and feel chosen for an Event: a colour palette and a few style words (e.g. "royal Rajputana, marigold, pastel"). Members can edit it. It shapes the Suggestions and the decor in the plan.
+_Avoid_: vibe, mood, aesthetic, style
+
+**Vibe pick**:
+The optional step before the first plan where a Member taps a few images to seed the Theme. The tapped images are saved as Inspirations.
+_Avoid_: moodboard, image quiz, style quiz
 
 **Event key**:
 An AI provider key a Member attaches to one Event. While it is attached, the Assistant's replies and image generation in that Event run on it instead of the default model.
@@ -51,7 +71,7 @@ The conversation of one Event, between the people planning it and the Assistant.
 _Avoid_: thread, room, group
 
 **Item**:
-One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Vendor, an Inspiration or a Note.
+One thing laid out on a Canvas: the Budget, the Timeline, the Vendor checklist, a Vendor, an Inspiration, a Suggestion or a Note.
 _Avoid_: card, block, widget, element
 
 **Section**:
@@ -74,6 +94,22 @@ _Avoid_: reply, note, annotation
 An image or reference saved to a Canvas to shape the look and feel of an Event, whether from a stock photo, an AI generation or Pinterest.
 _Avoid_: pin, idea, moodboard item
 
+**Suggestion**:
+A personalised idea from the Assistant for an Event or one of its Functions, such as "Rajasthani folk musicians at the sangeet dinner", possibly with an Estimate. It is not part of the plan until a Member adds it, which turns it into a budget Entry and a Timeline Entry; a Member can also dismiss it.
+_Avoid_: idea, recommendation, tip, touch
+
+**Proposal**:
+A change to the Canvas that the Assistant has prepared but not made, shown in the Chat for a Member to accept or reject. Risky changes (deletions, the Budget total, large shifts) and changes no Member asked for arrive as Proposals.
+_Avoid_: suggestion, draft, pending change, approval
+
+**Nudge**:
+A short message the Assistant posts in the Chat without being asked, because something on the Canvas needs attention, such as the Budget going over its total. A Nudge never changes the Canvas.
+_Avoid_: alert, notification, reminder
+
+**Run sheet**:
+The Timeline's Entries for the day of one Function, each with a time, such as "7:30 pm varmala".
+_Avoid_: itinerary, schedule, agenda, programme
+
 **Marker**:
 A point on the map that stands for a vendor's location.
 _Avoid_: pin, dot, location
@@ -91,3 +127,25 @@ _Avoid_: guess, approximate price
 **Quote**:
 A price a vendor actually gave the people planning, entered by them.
 _Avoid_: bid, offer, final price
+
+## Budget
+
+**Event-wide**:
+The part of an Event's Budget not tied to one Function, such as outfits, invitations or one photographer covering every Function. The Event total is the Function totals plus Event-wide plus the Contingency.
+_Avoid_: shared, common, general, overall
+
+**Contingency**:
+A budget Entry held back for surprises, 10% of the rest of the Budget unless Members change it.
+_Avoid_: buffer, reserve, padding
+
+**Unallocated**:
+The part of an Event's budget left over when every budget Entry is already at the high end of its Estimate. Members can move it into any Entry.
+_Avoid_: surplus, extra, savings
+
+**Budget check**:
+The comparison of an Event's budget with the typical range of Estimates for its city, Functions and Guest counts. A budget below the typical minimum is flagged on the Brief before the first plan, with ways to close the gap.
+_Avoid_: feasibility check, reality check, validation
+
+**City tier**:
+The government's X, Y or Z class of a city (for example Delhi is X, Jaipur is Y, and unlisted towns are Z), used to scale Estimates to where the Event happens.
+_Avoid_: city class, metro, tier-1
