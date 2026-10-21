@@ -63,7 +63,7 @@ The contract creates this layout, with stubs where a later slice fills in the co
 
 At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
 
-Cut decisions are dated (IMPLEMENTATION_PLAN.md section 10): at 18:00 IST on 26 Oct, if any of S12, S14, S15, S16 or S19a is still open, cut-line items move to SHOULD in the order of section 1.5, starting with the ones in still-open slices; at 14:00 IST on 27 Oct, if S17 or S18 is still open, the rest of the cut line follows and S19b starts on whatever has merged. The scripted-case CI run and the rehearsal are never cut.
+Cut decisions are dated, with a fallback table per late slice (IMPLEMENTATION_PLAN.md section 10): at 18:00 IST on 26 Oct the orchestrator decides and posts it; a wave 4 slice still open keeps going on 27 Oct ahead of S17, S19b and S18; at 12:00 IST on 27 Oct, one still unmerged drops or replaces its demo beat as the table says and S19b starts on whatever has merged; at 14:00 IST, if S17 is still open, the rest of the cut line moves to SHOULD. The scripted-case CI run and the rehearsal are never cut.
 
 ---
 
@@ -489,6 +489,7 @@ Parent: Slices. Blocked by: S4, S7, D2.
 - The checklist status: to find with no active link, shortlisted once one is active, booked once one link is Booked; Booking marks the Entry done.
 - `comparableForFunction`: Parampara's ₹1,200 to ₹3,500 per plate for 300 Guests gives "₹3.6L to ₹10.5L, from Listed price"; Vinayak's starting ₹250 gives "from ₹250/plate (starting price)"; "₹500 per hand" is not comparable.
 - "Find Vendors" outside Jaipur returns none, and the Assistant offers Chat web search.
+- `shortlistVendor` and `setVendorStatus` are refused, writing nothing, in a run whose `source` is `"nudge"` or `"brief"`, and in a chat run whose message didn't ask for that change ("which caterer is cheapest?"); the refusal tells the model to suggest it in its reply. `propose` with a `shortlistVendor` or `setVendorStatus` change fails validation, since the union has no such op.
 
 ### Acceptance criteria
 - [ ] Cards show provenance per section ("from example.in · seen 21 Oct 2026"), the exact sentence on hover or tap, the Assistant's one-line summary, a neutral category illustration and "Compare on WedMeGood" for the city and category.
@@ -618,6 +619,7 @@ Parent: Slices. Blocked by: S1, S2, S7.
 - `mergeTheme`: never more than 5 colours, 4 style words or 6 decor keywords; new ones replace the oldest.
 - "Use for Theme" from a Member applies at once with the Chat line "Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'".
 - An Assistant-initiated Theme change can't apply directly: the `updateTheme` tool with no Member request is refused with the message telling the model to use `propose`. Merge gate for that Proposal path: the `updateTheme` op handler, called with a stale Event version, refuses; with the current version, it applies the `ThemeUpdate` through `assistantWrite`.
+- `tagInspiration` is refused, writing nothing, unless the run answers a Member message that names a Function ("find mehendi decor" tags; "find some decor" doesn't), and in any `"nudge"` or `"brief"` run; `propose` with a `tagInspiration` change fails validation.
 - A Theme change never edits existing Entries; it offers 1 to 3 decor Suggestions, each with an Estimate from the table.
 - Upload rules: JPEG, PNG and WebP only, up to 10 MB, 10 at a time; with the Event's upload rights setting off, each batch needs the tick.
 - `purgeDeleted` removes stored files 30 days after deletion and leaves Pexels links alone.
@@ -733,7 +735,7 @@ Labels: `slice`, `assistant`, `chat`. Wave: 27 Oct. Size: M.
 Plain code posts the three Nudges in the Chat, each with one button that sends a ready-made request; and a Member can ask @Utsavvy from inside a Comment thread, getting the reply and any Proposal in that thread.
 
 ### Phase
-Parent: Slices. Blocked by: S8, S10, S12, S13.
+Parent: Slices. Blocked by: S8, S10, S12, S13. The S12 link is waived if S12 is still open at 12:00 IST on 27 Oct (IMPLEMENTATION_PLAN.md section 10); the Quote parts of the seams and scripted case then use a typed amount.
 
 ### Owned paths
 `convex/nudges.ts`, `components/chat/cards/nudge/`, `convex/commentAsks.ts`, `evals/nudges.eval.ts`, `e2e/nudges.spec.ts`; may change `components/comments/` (S8, merged).
@@ -801,11 +803,13 @@ Parent: Slices. Blocked by: S1, S3, S4, S9 (and through them C0, S2, S5, S7, D2)
 `seed/demo/`, `convex/demo.ts`, `components/demo/`.
 
 ### Interfaces
-- Uses: `seed/jaipur-vendors.json`, `internal.vendors.loadStarterSet`, `pricePlan` on the fixed worked-example draft in `seed/demo/`, `placeInFreeSpace`, `budgetRollup`, the contract's insert helpers for every table (Quotes, Comments, Proposals and history rows are seeded as rows, so S12, S10 and S17 don't need to have merged), `DEMO_JUDGE_*_ID`, the shell's banner slot. No model calls.
-- Provides: `internal.demo.reset`, the nightly cron's target, `<DemoBanner eventId>` (filling the contract stub).
+- Uses: `seed/jaipur-vendors.json`, `internal.vendors.loadStarterSet`, `pricePlan` on the fixed worked-example draft in `seed/demo/`, `placeInFreeSpace`, `budgetRollup`, `DEMO_JUDGE_*_ID`, the shell's banner slot. No model calls. Seed rows, including Quotes, Comments, Proposals and the seeded `changes` rows, go in through `seedInsert` (below), so S12, S10 and S17 don't need to have merged.
+- Provides: `internal.demo.reset`, the nightly cron's target, `<DemoBanner eventId>` (filling the contract stub), and `seedInsert(ctx, demoEventId, table, row)` in `convex/demo.ts`: a plain function, not a Convex function, that calls `ctx.db.insert` directly, writes no extra `changes` row, runs no post-write hook, and throws unless the row's `eventId` is `demoEventId`, the Event found by the demo's `demoKey` (IMPLEMENTATION_PLAN.md section 4.4). `internal.demo.reset` is internal, so no public API reaches it.
 
 ### Test seams
-- `reset` twice in a row gives the same Event (same totals, same people, same history groups).
+- `reset` twice in a row gives the same Event (same totals, same people, same history groups) and identical `changes` rows, compared without `_id` and `_creationTime`.
+- With a test hook registered in `convex/lib/hooks.ts`, `reset` calls it zero times and schedules nothing; the demo Event's Chat has exactly the seeded messages and no Nudge card.
+- `seedInsert` throws for a row whose `eventId` is another Event's.
 - Isolation: another Event that shortlisted a starter Vendor, and a Marker a Member moved from that Event, are unchanged by `reset`; `reset` rewrites no `vendors` or `listedPrices` row and only inserts a starter Vendor that is missing.
 - After reset, the judge-owner is Owner (shown as Host), judge-member is Member, judge-viewer is Viewer.
 - The seeded Budget totals exactly ₹25,00,000, with the sangeet at 300 Guests and the catering line at ₹2,45,000.
@@ -825,7 +829,7 @@ Labels: `slice`, `infra`. Wave: 27 Oct. Size: S.
 The whole 2-minute demo script runs as a browser test on the seeded Event and twice in a row on production.
 
 ### Phase
-Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice through them).
+Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice through them). At 12:00 IST on 27 Oct the orchestrator waives the link to any of S12, S14, S15, S16 or S19a still open, and that slice's demo step follows the fallback table in IMPLEMENTATION_PLAN.md section 10.
 
 ### Owned paths
 `e2e/demo-path.spec.ts`; may change `seed/demo/` and `convex/demo.ts` (S19a, merged) for final wiring.
@@ -838,7 +842,8 @@ Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice 
 - None beyond S19a's; this slice is the browser test.
 
 ### Acceptance criteria
-- [ ] The demo-path Playwright test walks the script in section 9.3 on the preview (stub model for Assistant replies, real model in the manual rehearsal).
+- [ ] The demo-path Playwright test walks the script in section 9.3 on the preview (stub model for Assistant replies, real model in the manual rehearsal), with one named step per beat so a beat dropped by the fallback table is skipped by name.
+- [ ] After S17 has merged, `reset` schedules zero `internal.nudges.check` calls and leaves the demo Event's Chat exactly as seeded.
 - [ ] A full rehearsal on the production URL, after a reset, runs the script twice in a row.
 
 ---
@@ -861,7 +866,7 @@ Goal: "Paste a link" accepts Pin, board, `pin.it`, Instagram post and Reel URLs,
 
 ### X3a. Event keys (later stage)
 Labels: `slice`, `assistant`, `auth`, `stretch`. Size: M. Blocked by: S7.
-Goal: the Owner and Co-owners attach an Anthropic, Google or OpenAI key to an Event (ADR 0004, roles.md "The Event key and roles", section 4.10). Storage and the revoke rule are in IMPLEMENTATION_PLAN.md section 5.5. Seams: encrypt and decrypt round trip; a second key on the same Event replaces the first; no query returns `ciphertext`, `iv` or `authTag`, and a Member or Viewer gets only the model and the attacher's name, not the provider or `last4`; decryption happens only in the Node action that calls the model (no query or mutation can decrypt); a failing key falls back to the default model with the Chat notice, and neither the serialized error, the tool results, the Chat nor the logs contain the key; leave with "Remove my Event key too"; a removed and blocked attacher can call `api.eventKeys.removeMine` for their own key, and that call is refused for anyone else and reads nothing else of the Event. Contract change: `eventKeys` (fields and indexes from section 5.5), `EVENT_KEY_SECRET`, `@ai-sdk/openai`.
+Goal: the Owner and Co-owners attach an Anthropic, Google or OpenAI key to an Event (ADR 0004, roles.md "The Event key and roles", section 4.10). Storage and the revoke rule are in IMPLEMENTATION_PLAN.md section 5.5. Seams: encrypt and decrypt round trip; a second key on the same Event replaces the first; no query returns `ciphertext`, `iv` or `authTag`, and a Member or Viewer gets only the model and the attacher's name, not the provider or `last4`; decryption happens only in the Node action that calls the model (no query or mutation can decrypt); a failing key falls back to the default model with the Chat notice, and neither the serialized error, the tool results, the Chat nor the logs contain the key; leave with "Remove my Event key too"; a removed and blocked attacher can call `api.eventKeys.removeMine` for their own key, and that call is refused for anyone else and reads nothing else of the Event; `api.eventKeys.listMineRevocable` returns the caller's own keys in Events they left or were removed from, with only the Event ID, Event name and model, never a key someone else attached in such an Event and never a key in an Event where the caller is still active; the `/events` page lists those keys under "Your Event keys in Events you're no longer in" with "Remove my Event key from this Event", and a removed attacher who opens Utsavvy sees it there. Contract change: `eventKeys` (fields and indexes from section 5.5), `EVENT_KEY_SECRET`, `@ai-sdk/openai`.
 
 ### X3b. Generate, Remix and the second demo Event (later stage)
 Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X3a, S13, S19a.
