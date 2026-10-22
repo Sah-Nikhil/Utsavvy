@@ -60,10 +60,23 @@ export const shortlistedVendorDataValidator = v.object({
 /** A Google place keeps only Google's place ID and the Member's note (ADR 0011). */
 export const googlePlaceDataValidator = v.object({
   placeId: v.string(),
-  /** The Member's own words, required, up to 280 characters. */
+  /** The Member's own words, required, up to GOOGLE_PLACE_NOTE_MAX characters. */
   note: v.string(),
 });
 export const GOOGLE_PLACE_NOTE_MAX = 280;
+
+/**
+ * Checks a Google place note before it is stored; S20's mutation calls it,
+ * since a validator can't limit length. Counts characters, not UTF-16 units.
+ * Returns why the note is refused, or null when it is fine.
+ */
+export function googlePlaceNoteProblem(
+  note: string,
+): "empty" | "tooLong" | null {
+  if (note.trim() === "") return "empty";
+  if (Array.from(note).length > GOOGLE_PLACE_NOTE_MAX) return "tooLong";
+  return null;
+}
 
 /** A stock library photo: served from our own origin, no image URL (ADR 0012). */
 export const pexelsSourceValidator = v.object({
@@ -82,40 +95,63 @@ export const uploadSourceValidator = v.object({
   fromReference: v.union(v.id("items"), v.null()),
   remixRightsTicked: v.boolean(),
 });
-/** A Reference: only the link, shown through the platform's own embed (ADR 0014). */
-export const referenceSourceValidator = v.object({
+/**
+ * A Reference: only the link, shown through the platform's own embed (ADR 0014).
+ * Each platform allows only its own kinds of link.
+ */
+export const pinterestReferenceSourceValidator = v.object({
   kind: v.literal("reference"),
-  platform: v.union(v.literal("pinterest"), v.literal("instagram")),
-  urlKind: v.union(
-    v.literal("pin"),
-    v.literal("board"),
-    v.literal("pinShort"),
-    v.literal("post"),
-    v.literal("reel"),
-  ),
+  platform: v.literal("pinterest"),
+  urlKind: v.union(v.literal("pin"), v.literal("board"), v.literal("pinShort")),
   url: v.string(),
 });
+export const instagramReferenceSourceValidator = v.object({
+  kind: v.literal("reference"),
+  platform: v.literal("instagram"),
+  urlKind: v.union(v.literal("post"), v.literal("reel")),
+  url: v.string(),
+});
+export const referenceSourceValidator = v.union(
+  pinterestReferenceSourceValidator,
+  instagramReferenceSourceValidator,
+);
 export const inspirationSourceValidator = v.union(
   pexelsSourceValidator,
   uploadSourceValidator,
-  referenceSourceValidator,
+  pinterestReferenceSourceValidator,
+  instagramReferenceSourceValidator,
 );
 export type InspirationSource = Infer<typeof inspirationSourceValidator>;
 
-export const inspirationDataValidator = v.object({
-  source: inspirationSourceValidator,
+/** What the Assistant reads instead of pixels. */
+export const seenValidator = v.object({
+  description: v.string(),
+  palette: v.array(v.string()),
+  decorKeywords: v.array(v.string()),
+});
+
+const inspirationCommon = {
   addedBy: v.id("memberships"),
   memberNote: v.union(v.string(), v.null()),
-  /** What the Assistant reads instead of pixels; null for a Reference. */
-  seen: v.union(
-    v.object({
-      description: v.string(),
-      palette: v.array(v.string()),
-      decorKeywords: v.array(v.string()),
-    }),
-    v.null(),
-  ),
-});
+};
+
+/**
+ * A stock photo or upload may carry what the Assistant saw; a Reference never
+ * does, because the Assistant can't read Pinterest or Instagram (ADR 0014), so
+ * its `seen` is always null.
+ */
+export const inspirationDataValidator = v.union(
+  v.object({
+    ...inspirationCommon,
+    source: v.union(pexelsSourceValidator, uploadSourceValidator),
+    seen: v.union(seenValidator, v.null()),
+  }),
+  v.object({
+    ...inspirationCommon,
+    source: referenceSourceValidator,
+    seen: v.null(),
+  }),
+);
 
 export const suggestionDataValidator = v.object({
   title: v.string(),
