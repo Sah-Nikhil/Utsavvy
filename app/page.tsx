@@ -3,8 +3,8 @@ import Link from "next/link";
 import { SiteChrome } from "@/components/shell/SiteChrome";
 import { Button } from "@/components/ui/button";
 
-// S1 owns this page: the landing, sign-in and "Open the demo Event" for judge
-// accounts. Contract stub with the three fonts in use.
+// S1 owns this page: what Utsavvy is in two lines, sign in, and "Open the demo
+// Event" for the judge accounts (IMPLEMENTATION_PLAN.md section 4.2).
 
 export default function LandingPage() {
   return (
@@ -17,10 +17,10 @@ export default function LandingPage() {
           Plan your wedding, birthday or community festival together.
         </h1>
         <p className="text-body text-ink-2">
-          Utsavvy is a planning Assistant for events in India. It drafts your
-          budget, timeline and Vendor checklist, and keeps them up to date as
-          your family plans on one shared Canvas. For example: Mehendi के लिए
-          ₹2,40,000.
+          Utsavvy is a planning Assistant for events in India: tell it about the
+          Event and it drafts the budget, timeline and Vendor checklist. Your
+          family plans on one shared Canvas and Chat, and the Assistant keeps
+          every number up to date as plans change.
         </p>
         <div className="flex flex-wrap gap-3 pt-2">
           <Show when="signed-out">
@@ -30,14 +30,6 @@ export default function LandingPage() {
               render={<Link href="/sign-in" />}
             >
               Sign in
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/sign-up" />}
-            >
-              Create an account
             </Button>
           </Show>
           <Show when="signed-in">
@@ -49,7 +41,26 @@ export default function LandingPage() {
               Go to your Events
             </Button>
           </Show>
+          {/* Signed out, the proxy sends this through sign-in and back. */}
+          <Button
+            size="lg"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href="/events?open=demo" />}
+          >
+            Open the demo Event
+          </Button>
         </div>
+        <p className="text-label text-ink-3">
+          Judges: sign in with a judge account to open the demo Event, or create
+          an account and start your own.{" "}
+          <Link
+            href="/terms"
+            className="text-ink-2 underline underline-offset-2"
+          >
+            Terms and privacy
+          </Link>
+        </p>
       </section>
     </SiteChrome>
   );
