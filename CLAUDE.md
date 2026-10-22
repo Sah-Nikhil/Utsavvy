@@ -55,7 +55,7 @@ Keep these in the repo and update them in the same session a decision is made:
 
 ## Gotchas
 - The repo will be public for judging. Secrets go in `.env.local` (gitignored) and platform dashboards only.
-- Challenge rules (PromptWars Virtual): any AI tool may be used to build; submission is code, a live preview and a LinkedIn build-in-public post.
+- Challenge rules (PromptWars Virtual) are unclear, checked 2026-10-22 on https://promptwars.in/promptwarsVirtual.html. The page contradicts itself: "You must use Google Antigravity or other AI tools to build a functional app" in one place, "You must use Google Antigravity to build a functional app" in another, and the FAQ says "using Google Antigravity is a requirement for all submissions". The narrative is a LinkedIn build-in-public post in one place and "a technical blog post and a LinkedIn post" in another. Submission is code and a live preview. Sah-Nikhil is to confirm with the organizers; until then, don't assume any AI tool is allowed.
 
 ## Orchestration
 
