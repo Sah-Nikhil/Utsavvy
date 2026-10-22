@@ -298,10 +298,11 @@ export const links = query({
  * The caller's own place in the Event, for the UI (`useMembership`): their role
  * and the Event's Owner label, or why they have no access. Never throws for a
  * refusal, so a page can show "You were removed from this Event." instead of
- * an error.
+ * an error. Takes the page address's ID as a plain string, so a mistyped
+ * `/events/<id>` shows "not in this Event" rather than a validator error.
  */
 export const me = query({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.string() },
   returns: v.union(
     v.object({
       status: v.literal("active"),
@@ -311,7 +312,11 @@ export const me = query({
     }),
     v.object({ status: v.literal("denied"), reason: v.string() }),
   ),
-  handler: async (ctx, { eventId }) => {
+  handler: async (ctx, args) => {
+    const eventId = ctx.db.normalizeId("events", args.eventId);
+    if (eventId === null) {
+      return { status: "denied" as const, reason: "notAMember" };
+    }
     try {
       const { membership } = await requireAccess(ctx, eventId, "canvas.view");
       const event = await ctx.db.get("events", eventId);

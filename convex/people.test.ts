@@ -606,6 +606,18 @@ describe("people.me", () => {
   });
 });
 
+describe("people.me for a page address that isn't an Event", () => {
+  it("is refused as not a member instead of throwing", async () => {
+    const t = setUp();
+    await meerasWedding(t);
+    expect(
+      await as(t, "Meera").query(api.people.me, {
+        eventId: "smoke-test-event",
+      }),
+    ).toEqual({ status: "denied", reason: "notAMember" });
+  });
+});
+
 describe("worked example: the wedding in roles.md", () => {
   it("Meera hosts, Rohan becomes Co-host, removes Aditi, Meera unblocks her", async () => {
     const t = setUp();
