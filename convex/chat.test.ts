@@ -206,6 +206,28 @@ describe("chat.send", () => {
   });
 });
 
+describe("chat.details", () => {
+  it("is null for someone outside the Event and for a mistyped Event ID", async () => {
+    const s = await setUp();
+    const asStranger = s.t.withIdentity(identityFor("Stranger"));
+    await s.t.run((ctx) => seedMembership(ctx, { clerkId: "Stranger" }));
+    expect(
+      await asStranger.query(api.chat.details, { eventId: s.eventId }),
+    ).toBeNull();
+    expect(
+      await s.asRohan.query(api.chat.details, { eventId: "smoke-test-event" }),
+    ).toBeNull();
+  });
+
+  it("lets a Viewer read but not post", async () => {
+    const s = await setUp();
+    const details = await s.asPapa.query(api.chat.details, {
+      eventId: s.eventId,
+    });
+    expect(details?.me).toEqual({ membershipId: s.papa, canPost: false });
+  });
+});
+
 describe("the run queue", () => {
   it("runs two messages sent in the same second in order", async () => {
     const s = await setUp();
@@ -223,9 +245,9 @@ describe("the run queue", () => {
     const details = await s.asAditi.query(api.chat.details, {
       eventId: s.eventId,
     });
-    expect(
-      details.runs.find((run) => run._id === aditi.runId)?.status,
-    ).toBe("queued");
+    expect(details?.runs.find((run) => run._id === aditi.runId)?.status).toBe(
+      "queued",
+    );
 
     await s.t.mutation(internal.runs.finish, {
       runId: rohan.runId!,
@@ -295,7 +317,7 @@ describe("runs.stop", () => {
     const details = await s.asRohan.query(api.chat.details, {
       eventId: s.eventId,
     });
-    expect(details.runs.find((run) => run._id === rohanRun)).toMatchObject({
+    expect(details?.runs.find((run) => run._id === rohanRun)).toMatchObject({
       status: "stopped",
       stoppedByName: "Aditi",
     });

@@ -77,10 +77,10 @@ async function messages(s: Awaited<ReturnType<typeof setUp>>) {
   });
   const page = await s.asAditi.query(api.chat.list, {
     eventId: s.eventId,
-    threadId: details.threadId!,
+    threadId: details!.threadId!,
     paginationOpts: { numItems: 20, cursor: null },
   });
-  return { details, page: page.page };
+  return { details: details!, page: page.page };
 }
 
 describe("respond", { timeout: 20_000 }, () => {

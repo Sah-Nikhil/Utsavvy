@@ -60,7 +60,8 @@ async function ensureThread(
 
 async function loadEvent(ctx: QueryCtx, eventId: Id<"events">) {
   const event = await ctx.db.get("events", eventId);
-  if (event === null) throw new ConvexError({ kind: "NotFound", what: "event" });
+  if (event === null)
+    throw new ConvexError({ kind: "NotFound", what: "event" });
   return event;
 }
 
@@ -218,31 +219,42 @@ async function nameOf(
  * latest reply.
  */
 export const details = query({
-  args: { eventId: v.id("events") },
-  returns: v.object({
-    threadId: v.union(v.string(), v.null()),
-    me: v.object({
-      membershipId: v.id("memberships"),
-      canPost: v.boolean(),
-    }),
-    annotations: v.array(
-      v.object({
-        messageId: v.string(),
-        authorMembershipId: v.union(v.id("memberships"), v.null()),
-        authorName: v.string(),
-        dontReply: v.boolean(),
-        pointing: pointingValidator,
-        card: cardValidator,
+  // A string, so a mistyped workspace URL or a lost membership reads as "no
+  // access" (null) instead of an error the page has to catch.
+  args: { eventId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      threadId: v.union(v.string(), v.null()),
+      me: v.object({
+        membershipId: v.id("memberships"),
+        canPost: v.boolean(),
       }),
-    ),
-    runs: v.array(runSummaryValidator),
-    latestModel: v.union(
-      v.object({ model: v.string(), fallback: v.boolean() }),
-      v.null(),
-    ),
-  }),
-  handler: async (ctx, { eventId }) => {
-    const { membership } = await requireAccess(ctx, eventId, "canvas.view");
+      annotations: v.array(
+        v.object({
+          ...schema.tables.chatAnnotations.validator.fields,
+          _id: v.id("chatAnnotations"),
+          _creationTime: v.number(),
+          authorName: v.string(),
+        }),
+      ),
+      runs: v.array(runSummaryValidator),
+      latestModel: v.union(
+        v.object({ model: v.string(), fallback: v.boolean() }),
+        v.null(),
+      ),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const eventId = ctx.db.normalizeId("events", args.eventId);
+    if (eventId === null) return null;
+    let membership: Doc<"memberships">;
+    try {
+      ({ membership } = await requireAccess(ctx, eventId, "canvas.view"));
+    } catch (error) {
+      if (error instanceof AccessDenied) return null;
+      throw error;
+    }
     const event = await loadEvent(ctx, eventId);
     const names = new Map<string, string>();
 
@@ -254,12 +266,8 @@ export const details = query({
       .take(RECENT_ANNOTATIONS);
     for (const annotation of recentAnnotations.reverse()) {
       annotations.push({
-        messageId: annotation.messageId,
-        authorMembershipId: annotation.authorMembershipId,
+        ...annotation,
         authorName: await nameOf(ctx, annotation.authorMembershipId, names),
-        dontReply: annotation.dontReply,
-        pointing: annotation.pointing,
-        card: annotation.card,
       });
     }
 

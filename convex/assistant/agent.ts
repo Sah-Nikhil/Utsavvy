@@ -247,8 +247,7 @@ export function chainedModel(
       const candidates = answered ? [answered] : links;
       let lastError: unknown;
       for (const [index, link] of candidates.entries()) {
-        const canFallBack =
-          answered === null && index < candidates.length - 1;
+        const canFallBack = answered === null && index < candidates.length - 1;
         try {
           const result = await link.model.doGenerate(
             optionsFor(link.id, options),
@@ -267,8 +266,7 @@ export function chainedModel(
       const candidates = answered ? [answered] : links;
       let lastError: unknown;
       for (const [index, link] of candidates.entries()) {
-        const canFallBack =
-          answered === null && index < candidates.length - 1;
+        const canFallBack = answered === null && index < candidates.length - 1;
         let result: StreamResult;
         try {
           result = await link.model.doStream(optionsFor(link.id, options));

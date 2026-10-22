@@ -42,15 +42,11 @@ function textParts(text: string): Part[] {
   return [
     { type: "stream-start", warnings: [] },
     { type: "text-start", id: "t" },
-    ...text
-      .split(" ")
-      .map(
-        (word, i): Part => ({
-          type: "text-delta",
-          id: "t",
-          delta: (i ? " " : "") + word,
-        }),
-      ),
+    ...text.split(" ").map((word, i): Part => ({
+      type: "text-delta",
+      id: "t",
+      delta: (i ? " " : "") + word,
+    })),
     { type: "text-end", id: "t" },
     {
       type: "finish",
@@ -115,7 +111,10 @@ describe("chainedModel", () => {
     const { text, answered } = await reply([
       rejecting(
         "claude-sonnet-5-5",
-        apiError(400, "Your credit balance is too low to access the Anthropic API."),
+        apiError(
+          400,
+          "Your credit balance is too low to access the Anthropic API.",
+        ),
       ),
       streaming("gemini-3.8-flash", textParts("Hello from Gemini")),
     ]);
@@ -224,7 +223,10 @@ describe("assistantChain", () => {
 
   it("can stage a failing Claude and an answering Gemini for the browser check", async () => {
     const links = assistantChain({ DEFAULT_MODEL: STUB_FALLBACK_MODEL });
-    expect(links.map((link) => link.id)).toEqual(["stub-claude", "stub-gemini"]);
+    expect(links.map((link) => link.id)).toEqual([
+      "stub-claude",
+      "stub-gemini",
+    ]);
   });
 
   it("is Claude then Gemini with both keys", () => {
