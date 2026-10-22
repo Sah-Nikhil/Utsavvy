@@ -577,6 +577,17 @@ export const respond = internalAction({
       runId,
       outcome: failed ? "failed" : "done",
     });
+
+    // The asker was removed or made a Viewer mid-reply (section 4.3): from
+    // that moment their tools are refused, and the reply ends with a notice.
+    const after = await ctx.runQuery(internal.chat.runContext, { runId });
+    if (after !== null && !after.askerActive) {
+      await ctx.runMutation(internal.chat.postSystem, {
+        eventId: context.eventId,
+        card: { kind: "system", id: null },
+        text: `${context.askerName} no longer has access to this Event, so I stopped changing it.`,
+      });
+    }
     return null;
   },
 });
