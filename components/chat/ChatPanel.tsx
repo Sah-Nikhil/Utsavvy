@@ -158,6 +158,17 @@ function ChatBody({
     const element = scroller.current;
     if (element && pinned.current) element.scrollTop = element.scrollHeight;
   }, [lastSize, rows.length]);
+  // Stay at the latest message when the panel itself resizes (a phone
+  // rotating, the replying bar appearing).
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <>

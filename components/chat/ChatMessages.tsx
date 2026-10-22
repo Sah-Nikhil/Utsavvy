@@ -4,11 +4,11 @@ import { useSmoothText, type UIMessage } from "@convex-dev/agent/react";
 import { useMutation } from "convex/react";
 import {
   CircleAlert,
+  CircleStop,
   Clock,
   Crosshair,
   Link as LinkIcon,
   MessageCircleOff,
-  Square,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { CHAT_CARDS } from "@/components/chat/cards/registry";
@@ -135,7 +135,7 @@ export function describePointing(pointing: Pointing): string {
 
 const noticeIcon: Record<RunNotice["tone"], ReactNode> = {
   queued: <Clock aria-hidden className="size-3.5" />,
-  stopped: <Square aria-hidden className="size-3" />,
+  stopped: <CircleStop aria-hidden className="size-3.5" />,
   problem: <CircleAlert aria-hidden className="size-3.5" />,
   muted: null,
 };
