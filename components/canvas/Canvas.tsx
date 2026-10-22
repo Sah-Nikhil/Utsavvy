@@ -543,18 +543,21 @@ function CanvasFlow({
           size={1.2}
           color="var(--rule-strong)"
         />
-        <Panel position="top-left" className="m-3!">
+        <Panel position="top-left" className="m-3! max-w-[calc(100%-1.5rem)]">
           <FunctionFilterChips />
         </Panel>
-        <Panel position="top-right" className="m-3! flex items-center gap-2">
+        <Panel position="bottom-right" className="m-3! flex items-center gap-2">
           {can(role, "section.custom") ? (
-            <Button variant="tonal" size="sm" onClick={dialogs.create}>
+            <Button
+              variant="tonal"
+              size="sm"
+              onClick={dialogs.create}
+              className="shadow-item"
+            >
               <FolderPlus aria-hidden />
               New Section
             </Button>
           ) : null}
-        </Panel>
-        <Panel position="bottom-right" className="m-3!">
           <ZoomControls />
         </Panel>
         {sections.length === 0 ? (
