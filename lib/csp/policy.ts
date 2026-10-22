@@ -49,17 +49,24 @@ const SOURCES: Record<string, Policy> = {
     "base-uri": ["'self'"],
     "form-action": ["'self'"],
   },
+  // *.protect.clerk.com is Clerk's abuse and fraud protection; its connect-src
+  // entry needs the `:*` port because those hosts serve on ports other than 443.
   clerk: {
     "script-src": [
       "https://*.clerk.accounts.dev",
       "https://challenges.cloudflare.com",
+      "https://*.protect.clerk.com",
     ],
     "connect-src": [
       "https://*.clerk.accounts.dev",
       "https://clerk-telemetry.com",
+      "https://*.protect.clerk.com:*",
     ],
     "img-src": ["https://img.clerk.com"],
-    "frame-src": ["https://challenges.cloudflare.com"],
+    "frame-src": [
+      "https://challenges.cloudflare.com",
+      "https://*.protect.clerk.com",
+    ],
   },
   convex: {
     "connect-src": ["https://*.convex.cloud", "wss://*.convex.cloud"],

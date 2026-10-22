@@ -16,9 +16,9 @@ crons.cron(
 );
 
 // 03:30 IST = 22:00 UTC the day before (S13). The plan fixes the time.
-// eslint-disable-next-line @convex-dev/no-top-of-hour-crons
 crons.cron(
   "purge deleted Inspiration files",
+  // eslint-disable-next-line @convex-dev/no-top-of-hour-crons
   "0 22 * * *",
   internal.inspirations.purgeDeletedFiles,
   {},
