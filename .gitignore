@@ -23,3 +23,13 @@ Thumbs.db
 
 # private plans (never published)
 .private/
+
+# test and tooling output
+coverage/
+playwright-report/
+test-results/
+blob-report/
+e2e/.auth/
+.screenshots/
+*.tsbuildinfo
+next-env.d.ts
