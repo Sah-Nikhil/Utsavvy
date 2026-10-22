@@ -229,7 +229,7 @@ A Member can create an Event and becomes its Owner, share a Member link and a Vi
 Parent: Slices. Blocked by: C0.
 
 ### Owned paths
-`app/page.tsx`, `app/events/page.tsx`, `app/join/`, `components/people/`, `convex/events.ts`, `convex/people.ts`, `e2e/people.spec.ts`.
+`app/page.tsx`, `app/events/page.tsx`, `app/join/`, `app/terms/`, `components/people/`, `convex/events.ts`, `convex/people.ts`, `e2e/people.spec.ts`.
 
 ### Interfaces
 - Uses: `requireAccess`, `requireIdentity`, `can`, `memberWrite`, the shell's people-panel and Event settings mount points.
@@ -251,6 +251,7 @@ Parent: Slices. Blocked by: C0.
 - [ ] The people panel lists people by role with the Owner or Host label, "(left)" tags, a Blocked section for Owners and Co-owners, and the links with copy and reset buttons only for them.
 - [ ] Every change here writes a `changes` row with `op: "people"`.
 - [ ] The landing page explains Utsavvy in two lines and has sign in and "Open the demo Event".
+- [ ] `/terms` (IMPLEMENTATION_PLAN.md section 4.15) is linked from the landing page and the footer and lists every outside service with what it receives, including that Gemini's free tier may use prompts to improve Google's products.
 - [ ] Smoke test: create an Event, open the Viewer link as a second test user, see the Viewer in the list.
 
 ---

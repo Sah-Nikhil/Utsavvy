@@ -124,7 +124,7 @@ These are consequences of the scope above, not new decisions. Short "Amended by"
 
 - **Next.js 16.4 (App Router) on Vercel Hobby** serves the UI. Pages are thin; almost all data comes from Convex through live `useQuery` queries, so every Member sees changes as they happen.
 - **Convex** holds every table, runs every mutation, stores files, keeps presence (`@convex-dev/presence`) and hosts the Assistant through the Convex Agent component (`@convex-dev/agent`). Each Event has one Agent thread, so a streamed reply is saved once and every Member, including one who reconnects, sees the same stream.
-- **Clerk** signs people in (Google, and email + password) on development keys. `ConvexProviderWithClerk` passes the Clerk token to Convex. Clerk's middleware lives in `proxy.ts`, the Next.js 16 name for middleware. A `users` row is upserted from the Clerk identity on the first authenticated call; there is no webhook in v1.
+- **Clerk** signs people in (Google, and email + password) on development keys. `ConvexProviderWithClerk` passes the Clerk token to Convex. Clerk's middleware lives in `proxy.ts`, the Next.js 16 name for middleware. A `users` row is upserted from the Clerk identity on the first authenticated call; there is no webhook in v1. The Clerk application is the Consumer type with Organizations off (decided 2026-10-22): who is in an Event, and with which role, lives only in our own `memberships` table (roles.md), so Clerk never holds Event membership.
 - **AI SDK 7** inside Convex actions calls the models through `@ai-sdk/anthropic` (default) and `@ai-sdk/google` (fallback). Model names are settings in `convex/lib/models.ts`, read from Convex environment variables.
 
 ### 4.2 Routes
@@ -137,6 +137,7 @@ These are consequences of the scope above, not new decisions. Short "Amended by"
 | `/events/[eventId]` | The workspace: Canvas beside Chat on desktop, Chat with a Canvas tab on phones | C0 shell, S16 responsive |
 | `/join/[token]` | Invite link: sign in, then join with the link's role, or the full, removed or already-in messages from roles.md | S1 |
 | `/settings` | Personal settings (mobile pointing default; the sticky Don't reply setting arrives with X4) | S16 |
+| `/terms` | Terms and privacy: what each outside service receives (section 4.15) | S1 |
 
 The people list, history, Event settings, Add Inspiration and the Google places sheet open as panels or sheets inside the workspace, not as separate routes.
 
@@ -173,7 +174,7 @@ All writes go through `convex/lib/write.ts` (contract):
 - **Outside content** (Vendor pages, pasted text, image text, image descriptions, Chat history, and the search results Estimate research reads) goes to the model wrapped in a labelled block with its source and who added it, never as instructions. The system prompt says so, and when such content contains instructions aimed at the Assistant, it ignores them and adds "That page contained instructions aimed at me; I ignored them."
 - **Language.** The reply follows the language and script of the message it answers. Canvas content the Assistant writes stays in English, keeping Indian terms as they are.
 - **Chat web search** uses Anthropic's provider-executed web search tool through `@ai-sdk/anthropic`, at most 3 searches per reply, only when the run's model is Claude. Citations always show.
-- **Model failure.** If the default model fails (credits used up, outage), the setting `DEFAULT_MODEL` can be switched to `gemini-3.8-flash` without a deploy (Convex environment variable). Chat web search and Estimate research are then off, so Estimates come from the reference table or the model's own estimate (section 4.14).
+- **Model failure.** If the default model fails (credits used up, outage), the setting `DEFAULT_MODEL` can be switched to `gemini-3.8-flash` without a deploy (Convex environment variable). Chat web search and Estimate research are then off, so Estimates come from the reference table or the model's own estimate (section 4.14). Until the Anthropic key exists, both `DEFAULT_MODEL` and `HELPER_MODEL` may run on `gemini-3.8-flash` with a Gemini API key, which may be on Gemini's free tier; the terms page discloses that (section 4.15).
 - **Costs.** The default model runs on the Anthropic API key funded by the developer's monthly API credits ([ADR 0003](docs/adr/0003-assistant-runs-on-claude-sonnet.md)); requests stop rather than overspend when they run out. Estimate research adds up to 8 web searches per Brief or plan ($10 per 1,000 searches, so about $0.08) plus the tokens of the search results the model reads; the cache cuts both on repeat Briefs in the same city. The scripted cases record the real cost and time per plan.
 
 ### 4.6 The first plan
@@ -260,6 +261,21 @@ Decided by Sah-Nikhil on 2026-10-22 ([ADR 0013](docs/adr/0013-estimates-are-rese
 - **Basis.** Every `PricedEstimate` carries an `EstimateBasis` (section 5.6). The UI shows it as the Estimate badge's source line: "Researched 22 Oct 2026 · 3 sources" (the URLs on hover or tap), "Utsavvy reference table, Y tier, Oct 2026" or "Assistant's own estimate, no sources".
 - **Privacy.** Search queries and cache rows hold only a category, a unit, an Event type and a city. No Brief text, names, budget or Event ID reaches a search, and the shared cache never holds an Event's private layer.
 - **Stubbing.** `estimateLines` takes its research and knowledge calls as dependencies. Tests and the e2e environment pass stubs that return nothing, so every line with a table row falls through to the table and the first-brief worked examples come out exact.
+
+### 4.15 Terms and privacy page
+
+Added on 2026-10-22, when Sah-Nikhil accepted the Gemini free tier as the fallback on condition that it is disclosed. `/terms` is one static page, linked from the landing page and the footer, written plainly. It says that Utsavvy is a non-commercial hackathon prototype with no warranty, and what each outside service receives:
+
+- **Clerk** signs people in and holds their name, email and photo.
+- **Convex** stores Events, the Chat, Comments and uploads.
+- **Anthropic** receives Chat messages and the Canvas context the Assistant needs, on `claude-sonnet-5-5`.
+- **Google Gemini**, when the fallback model is on, receives the same. On Gemini's free tier, Google may use those prompts and replies to improve its products.
+- **Web research** for Estimates sends only a category, a unit, an Event type and a city (section 4.14), never names, budgets or Brief text.
+- **Geoapify** receives city names and Vendors' published addresses for map positions.
+- **Google Maps** receives what a Member searches in the Google places sheet.
+- **Pinterest and Instagram** receive the usual browser data when their boards or embeds load.
+- Stock photos are credited to their Pexels photographers, and the demo Event's people, Quotes and Comments are made up.
+- The "Report content" address is how to ask for something to be taken down.
 
 ## 5. Data model
 
