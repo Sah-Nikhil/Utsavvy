@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SignedInAs } from "@/components/providers/SignedInAs";
 import { SiteChrome } from "@/components/shell/SiteChrome";
 import { MountPlaceholder } from "@/components/shell/MountPlaceholder";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ export default function EventsPage() {
             <p className="text-body text-ink-2">
               Every Event you plan or follow, newest first.
             </p>
+            <SignedInAs />
           </div>
           <Button disabled>New Event</Button>
         </div>

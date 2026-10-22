@@ -47,23 +47,42 @@ test.describe("smoke", () => {
     expect(cspViolations).toEqual([]);
   });
 
-  test("a signed-out visit to /events redirects to sign-in", async ({
-    page,
-  }) => {
-    await page.goto("/events/some-event");
-    await expect(page).toHaveURL(/\/sign-in/);
-  });
+  for (const path of [
+    "/events/some-event",
+    // A dotted ID must not slip past the proxy's static-file exclusion.
+    "/events/report.png",
+    "/join/abc.css",
+    "/settings/x.js",
+  ]) {
+    test(`a signed-out visit to ${path} redirects to sign-in`, async ({
+      page,
+    }) => {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/sign-in/);
+    });
+  }
 
   test("a signed-in person reaches /events and the workspace shell", async ({
     page,
     signIn,
     cspViolations,
   }) => {
+    const accountErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" && /Convex/.test(message.text()))
+        accountErrors.push(message.text());
+    });
     await signIn();
     await page.goto("/events");
     await expect(
       page.getByRole("heading", { name: "Your Events" }),
     ).toBeVisible();
+    // Clerk -> Convex: ensureMe made the users row with the Clerk token, and an
+    // authenticated query (users.me) reads it back.
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
+    expect(accountErrors).toEqual([]);
     await expectNoSeriousA11yViolations(page);
 
     await page.goto("/events/smoke-test-event");

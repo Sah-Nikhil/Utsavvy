@@ -99,3 +99,65 @@ describe("requireIdentity", () => {
     });
   });
 });
+
+describe("requireIdentity keeps the users row in step with Clerk", () => {
+  const rohan = {
+    subject: "user_rohan",
+    issuer: "https://clerk.example",
+    tokenIdentifier: "https://clerk.example|user_rohan",
+    name: "Rohan",
+    email: "rohan@example.com",
+    pictureUrl: "https://img.clerk.com/rohan-1",
+  };
+
+  it("stores the tokenIdentifier and Clerk ID on the first call", async () => {
+    const t = newTest();
+    const user = await t.withIdentity(rohan).run((ctx) => requireIdentity(ctx));
+    expect(user).toMatchObject({
+      clerkId: "user_rohan",
+      tokenIdentifier: "https://clerk.example|user_rohan",
+    });
+  });
+
+  it("updates name, email (lowercased) and picture when the claims change", async () => {
+    const t = newTest();
+    const first = await t
+      .withIdentity(rohan)
+      .run((ctx) => requireIdentity(ctx));
+    const changed = await t
+      .withIdentity({
+        ...rohan,
+        name: "Rohan Sharma",
+        email: "Rohan.Sharma@NewMail.example",
+        pictureUrl: "https://img.clerk.com/rohan-2",
+      })
+      .run((ctx) => requireIdentity(ctx));
+    expect(changed._id).toBe(first._id);
+    expect(changed).toMatchObject({
+      name: "Rohan Sharma",
+      email: "rohan.sharma@newmail.example",
+      imageUrl: "https://img.clerk.com/rohan-2",
+    });
+    const stored = await t.run((ctx) => ctx.db.get("users", first._id));
+    expect(stored?.email).toBe("rohan.sharma@newmail.example");
+  });
+
+  it("links a row made ahead by Clerk ID (a demo judge) on that person's first sign-in", async () => {
+    const t = newTest();
+    const premade = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        clerkId: "user_rohan",
+        name: "Rohan (judge)",
+        email: "rohan@example.com",
+        imageUrl: null,
+        mobilePointing: null,
+        keepDontReplyOn: false,
+      }),
+    );
+    const user = await t.withIdentity(rohan).run((ctx) => requireIdentity(ctx));
+    expect(user._id).toBe(premade);
+    expect(user.tokenIdentifier).toBe("https://clerk.example|user_rohan");
+    const all = await t.run((ctx) => ctx.db.query("users").collect());
+    expect(all).toHaveLength(1);
+  });
+});
