@@ -8,7 +8,7 @@ Set up on GitHub on 2026-10-21: repo merge settings, Discussions with the "Ideas
 
 | Role | Who | Does |
 |---|---|---|
-| Human | Sah-Nikhil | Approves the build plan and its test seams (ticket 013), gives the one go-ahead for GitHub setup, reviews and merges the contract PR, can stop or question any merge at any time, installs Ponytail. |
+| Human | Sah-Nikhil | Approves the build plan and its test seams (ticket 013), gives the one go-ahead for GitHub setup, reviews and merges the contract PR, can stop or question any merge at any time. |
 | Orchestrator | Claude Opus, high effort, the main T3 thread | Creates the GitHub setup and issues, starts build agents, owns every shared file, reviews results, posts the TLDR and verdict on each PR, merges. |
 | Build agent | Claude Opus, high effort, one per issue | Builds exactly one issue in its own worktree and opens one PR. |
 | Reviewer | Codex Sol, high effort | Independent review of every PR before merging. |
@@ -109,7 +109,7 @@ Checks pass locally, the PR is open with the template filled in, and the PR URL 
 
 1. Read `CLAUDE.md`, `CONTEXT.md`, this doc and the issue. The issue is the spec; if it has a gap, report it instead of improvising.
 2. Mark the issue `in-progress`, set up the worktree (`bun install`, its own local backend) and rename the branch if needed.
-3. Build test-first with `/tdd` on the issue's listed seams, and keep the code minimal with Ponytail (see Testing).
+3. Build test-first with `/tdd` on the issue's listed seams (see Testing). Don't use the Ponytail skill.
 4. Run every command in the issue's Checks section and make them pass.
 5. Commit with conventional commit messages, push the branch and open a PR from the template, linking the issue with `Closes #<n>`.
 6. Report the PR URL and head commit to the orchestrator, then stop. Don't merge, and don't take another issue.
@@ -119,7 +119,6 @@ Checks pass locally, the PR is open with the template filled in, and the PR URL 
 ## Testing
 
 - **`/tdd` on the listed seams.** For each seam: write one test, run it and see it fail, write just enough code to pass, repeat. Expected values come from the issue's acceptance criteria and worked examples, never recomputed the way the code computes them. The PR's Verification section shows the failing run before the passing one.
-- **Ponytail for the code itself.** Reuse what already exists (the codebase, the standard library, browser features, installed packages) before writing anything new, and keep the implementation as small as the task allows. Validation, error handling, security and accessibility are never cut. Where the two overlap, `/tdd` wins on the listed seams: tests come first there, not after. Ponytail's own small tests are fine for logic outside the listed seams. Its `shortcut:` comments are allowed.
 - **UI layout** without logic skips TDD and is covered by the browser smoke test. A UI slice adds or extends one smoke test for its screen.
 - **Browser smoke test (Playwright)** runs against the PR's own Vercel preview. Signed-in flows use Clerk's testing tokens (`@clerk/testing`).
 
@@ -210,7 +209,7 @@ Run after the map closes, in this order. Steps 2 to 4 are the human's; the orche
 1. **No secrets tracked.** Check `git ls-files` shows no `.env*` file other than a future `.env.example`, and that `.env.local` is gitignored.
 2. **Commit the planning docs** (human asks for it), so worktrees started from the commit can see them.
 3. **Publish** from GitHub Desktop: File > Add local repository > Publish repository, with "Keep this code private" **unticked**. Optionally push the `research/*` branches too, so links in the planning tickets work on GitHub (they are never merged).
-4. **Install Ponytail** in Claude Code (`/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail`) and in Codex (`codex plugin marketplace add DietrichGebert/ponytail`, `codex plugin add ponytail@ponytail`, then trust its two hooks under `/hooks`). Install only from `DietrichGebert/ponytail`.
+4. *Dropped on 2026-10-22: Sah-Nikhil chose not to use Ponytail.*
 5. **Repo settings**: squash merge only, automatically delete head branches, Discussions on with an "Ideas" category, blank issues off.
 6. **Labels** from the table above (`gh label create`).
 7. **Planning tickets on GitHub**: done on 2026-10-21, earlier than planned. All 15 tickets moved to GitHub (the map is #6, its children are sub-issues with "blocked by" links), and GitHub became the tracker for the rest of planning.
@@ -226,4 +225,3 @@ Run after the map closes, in this order. Steps 2 to 4 are the human's; the orche
 - `gh` v2.97.0 help: `gh issue create --parent/--milestone/--type`, `gh issue edit --add-blocked-by`, `gh pr update-branch`, `gh pr merge --squash --match-head-commit`.
 - GitHub docs: [protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) and [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets) are on public repos with GitHub Free, private repos need Pro or higher; [issue dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies) are on all plans; [sub-issues and issue types GA](https://github.blog/changelog/2025-04-09-evolving-github-issues-and-projects/), up to 100 sub-issues per parent ([changelog](https://github.blog/changelog/2024-12-12-github-issues-projects-close-issue-as-a-duplicate-rest-api-for-sub-issues-and-more/)); issue types are organization-only ([Simon Willison, 2025-01-16](https://simonwillison.net/2025/Jan/16/evolving-github-issues/)).
 - Convex: [preview deployments](https://docs.convex.dev/production/hosting/preview-deployments) (beta; on the free plan with 5-day expiry, checked 2026-10-21), [agent mode and worktree local deployments](https://docs.convex.dev/cli/agent-mode), [port 3210 issue](https://github.com/get-convex/convex-backend/issues/288).
-- Ponytail: [README](https://github.com/DietrichGebert/ponytail) (MIT, read 2026-10-21); its benchmark figures are the author's own.

@@ -17,7 +17,7 @@ Exit: nothing left to decide before building.
 Follow [docs/agents/build-workflow.md](docs/agents/build-workflow.md); its setup checklist has the exact steps.
 
 - [x] Commit the planning docs, check no secrets are tracked, then publish the repo from GitHub Desktop as **public** (File > Add local repository > Publish repository, "Keep this code private" unticked)
-- [ ] Install Ponytail in Claude Code and Codex
+- [x] ~~Install Ponytail in Claude Code and Codex~~ Dropped on 2026-10-22: Sah-Nikhil chose not to use Ponytail
 - [x] GitHub basics (2026-10-21): merge settings, labels, Discussions with Ideas, issue and PR templates, planning tickets moved to GitHub
 - [x] Set up the rest of GitHub (2026-10-21): milestones Contract, Slices and Submit; phase parent issues #28, #29 and #30; build issues #31 to #64 from `docs/plans/build-slices.md` (and #66 to #69 for later changes) with labels and "blocked by" links
 - [ ] Connect Vercel and check Convex preview deployments on the free plan, which decides whether the browser test runs on each PR's preview

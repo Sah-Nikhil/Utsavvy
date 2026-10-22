@@ -19,7 +19,6 @@ Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/i
 - Map: **MapLibre GL JS** via `react-map-gl/maplibre` with **OpenFreeMap** tiles; the style URL is a single setting. See ADR 0005.
 - Tooling: TypeScript **6.0** (not 7), **ESLint** (`eslint-config-next` + `@convex-dev/eslint-plugin`) + **Prettier** (LF line endings), **Vitest** + `convex-test`, **Playwright**. See ADR 0006.
 - UI: **Tailwind CSS 4** + **shadcn/ui** (Base UI variant), copied into the repo and restyled from our own tokens so nothing looks stock; **React Flow** (`@xyflow/react` 12) for the freeform Canvas; fonts Anek Devanagari, Fraunces and Tiro Devanagari Hindi via `next/font`. Components use named colour tokens only, never raw colour values. See ADR 0010; the look is picked at the contract review (`IMPLEMENTATION_PLAN.md` section 7.3).
-- All code is written with the Ponytail skill (smallest change that fully solves the task); see `docs/agents/build-workflow.md`.
 
 ## Commands
 Planned; the contract slice creates these scripts in `package.json`.
@@ -43,6 +42,7 @@ Planned; the contract slice creates these scripts in `package.json`.
 
 ## Conventions
 - Use the vocabulary in `CONTEXT.md` exactly. In particular: Member (plans) vs Guest (attends); Listed price vs Estimate vs Quote, never blended; Vendor with Venue as one category; never "pin" or "board".
+- Don't use the Ponytail skill in this project, even where it's installed globally (Sah-Nikhil's decision, 2026-10-22).
 - `.private/` is gitignored and holds plans that must stay out of the public repo. Never copy, quote or summarize its contents into committed files, issues, PRs or commit messages.
 - Planning phase: map tickets produce decisions, not product code. Prototypes are throwaway and live on `prototype/<slug>` branches; research lives on `research/<slug>` branches. Neither is merged.
 
