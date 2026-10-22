@@ -66,15 +66,33 @@ export const googlePlaceDataValidator = v.object({
 export const GOOGLE_PLACE_NOTE_MAX = 280;
 
 /**
+ * Characters as a person sees them (grapheme clusters): "मेहंदी" is 3, not the
+ * 6 code points it is stored as, and a family emoji is 1. Falls back to code
+ * points where `Intl.Segmenter` is missing.
+ */
+export function countCharacters(text: string): number {
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, {
+      granularity: "grapheme",
+    });
+    let count = 0;
+    for (const _ of segmenter.segment(text)) count++;
+    return count;
+  }
+  return Array.from(text).length;
+}
+
+/**
  * Checks a Google place note before it is stored; S20's mutation calls it,
- * since a validator can't limit length. Counts characters, not UTF-16 units.
- * Returns why the note is refused, or null when it is fine.
+ * since a validator can't limit length. The limit counts characters as a
+ * person sees them (`countCharacters`). Returns why the note is refused, or
+ * null when it is fine.
  */
 export function googlePlaceNoteProblem(
   note: string,
 ): "empty" | "tooLong" | null {
   if (note.trim() === "") return "empty";
-  if (Array.from(note).length > GOOGLE_PLACE_NOTE_MAX) return "tooLong";
+  if (countCharacters(note) > GOOGLE_PLACE_NOTE_MAX) return "tooLong";
   return null;
 }
 
