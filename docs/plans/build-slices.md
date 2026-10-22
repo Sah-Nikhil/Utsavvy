@@ -853,7 +853,7 @@ Parent: Slices. Blocked by: S1, S3, S4, S9 (and through them C0, S2, S5, S7, D2)
 
 ### Acceptance criteria
 - [ ] The banner from section 3 shows on the demo Event only.
-- [ ] Sah-Nikhil has created the three judge accounts and set their IDs; the logins are not in the repo.
+- [ ] The three judge accounts exist and their IDs are set (done 2026-10-22); the logins are not in the repo.
 - [ ] `bunx convex run demo:reset` works on production, and after it the orchestrator rehearses on production the beats whose slices have merged (pan across the Budget, Timeline and map; judge-viewer beside judge-member).
 
 ---
@@ -962,7 +962,7 @@ Parent: Slices. Blocked by: C0, S13.
 Labels: `slice`, `inspirations`, `needs-human`. Wave: not yet scheduled. Size: M.
 
 ### Goal
-A Member opens "Browse ideas on Pinterest", picks one of Sah-Nikhil's public Pinterest boards for the Event's Functions, browses it through Pinterest's board widget, and brings a Pin they like back as a Reference by its link ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)).
+A Member opens "Browse ideas on Pinterest", picks one of the public boards on Utsavvy's Pinterest account for the Event's Functions, browses it through Pinterest's board widget, and brings a Pin they like back as a Reference by its link ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)).
 
 ### Phase
 Parent: Slices. Blocked by: X2.
@@ -972,14 +972,14 @@ Parent: Slices. Blocked by: X2.
 
 ### Interfaces
 - Uses: the `/embed/pinterest` page and `<PasteLinkForm>` (X2), the contract's `PinterestIdeasSheet.tsx` stubs and shell mount points (the button sits in the Inspirations Section header and the Add Inspiration panel), the Event's type, Tradition and Functions.
-- Provides: `seed/pinterest-boards.json`, a list of `{ key, label, url, eventTypes, functionKeys }` from Sah-Nikhil's boards; `boardsForEvent(event, functionKey?) => Board[]` in `components/pinterest-ideas/boards.ts`; fills `PinterestIdeasProvider`, `PinterestIdeasSheet`, `PinterestIdeasButton` and `usePinterestIdeas()`.
+- Provides: `seed/pinterest-boards.json`, a list of `{ key, label, url, eventTypes, functionKeys }` from Utsavvy's boards; `boardsForEvent(event, functionKey?) => Board[]` in `components/pinterest-ideas/boards.ts`; fills `PinterestIdeasProvider`, `PinterestIdeasSheet`, `PinterestIdeasButton` and `usePinterestIdeas()`.
 
 ### Test seams
 - The seed test: every `url` is `https://www.pinterest.com/<account>/<board>/`; keys are unique; every board has a label and at least one event type; `functionKeys` use CONTEXT.md's Function keys.
 - `boardsForEvent`: a North Indian Hindu wedding with a haldi Function lists the haldi board first; a child birthday lists party-theme boards and no wedding board; an Event type with no boards returns none.
 
 ### Acceptance criteria
-- [ ] Sah-Nikhil's public boards exist on Pinterest and are in the seed file (he creates them; about 12 to 18, one per Function or theme).
+- [ ] Utsavvy's Pinterest account exists with its public boards, and they are in the seed file (Sah-Nikhil creates the account and saves Pins by hand; about 12 to 18 boards, one per Function or theme).
 - [ ] The sheet lists the Event's boards (the selected Function's first), opens one in the `/embed/pinterest` iframe with Pinterest's own tiles and credits, and shows "Open board on Pinterest" beside it. Nothing of ours covers the widget.
 - [ ] Under the board, outside the widget: "Found one you like? Tap it to open it on Pinterest, copy its link and paste it here.", with X2's `<PasteLinkForm>`; with the installed app on Android it adds "or share it to Utsavvy".
 - [ ] One line says the board loads from Pinterest, which receives the usual browser data.
