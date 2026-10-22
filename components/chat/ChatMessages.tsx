@@ -232,7 +232,7 @@ function Reply({
         </div>
         {sources.length > 0 ? <Sources sources={sources} /> : null}
         {(notice && run) || (run && !streaming) ? (
-          <div className="flex min-h-6 items-center gap-2">
+          <div className="flex items-center gap-2 empty:hidden">
             {notice && run ? (
               <RunLine notice={notice} run={run} mine={false} />
             ) : null}

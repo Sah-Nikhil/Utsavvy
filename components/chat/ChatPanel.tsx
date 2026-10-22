@@ -49,10 +49,12 @@ function Chat({ eventId }: { eventId: string }) {
     (run) => run.status === "running" || run.status === "stopping",
   );
 
+  // On phones the Chat sits under the Canvas; a fixed height keeps the Canvas
+  // reachable until S16 gives phones their Chat and Canvas tabs.
   return (
     <section
       aria-labelledby="chat-heading"
-      className="flex h-full min-h-0 flex-col"
+      className="flex h-[60dvh] min-h-0 flex-col md:h-full"
       data-chat
     >
       <ChatHeader details={details} active={active} />
