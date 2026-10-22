@@ -13,7 +13,7 @@ The agent framework is Vercel AI SDK 7 wrapped by the Convex Agent component (`@
 
 ## Consequences
 
-- **`gemini-3.8-flash` is the fallback default model**, switched by changing the setting, if the credits run out or the scripted quality cases favor it. That needs a Gemini key in the app's environment as well.
+- **`gemini-3.8-flash` is the automatic fallback.** Decided by Sah-Nikhil on 2026-10-22, while the Max plan's API credits were still unconfirmed: Claude stays the default, and when the Anthropic key is missing, or a Claude call fails with an authentication, credit, rate-limit, timeout or outage error before producing any output, the same call runs on Gemini with no setting to change. The helper model falls back the same way. A reply that fails after it has started streaming isn't retried, so a Member never sees half an answer twice. The Chat shows which model answered. Changing `DEFAULT_MODEL` still switches the default outright, for example if the scripted quality cases favour Gemini. The fallback needs a Gemini key in the app's environment ([#75](https://github.com/Sah-Nikhil/Utsavvy/issues/75)).
 - Claude doesn't generate images, so the default model has no image generation. Image generation appears only in Events whose Event key can do it (ADR 0004).
 - Run the 20 to 30 scripted test cases from the LLM research before changing the default model.
 

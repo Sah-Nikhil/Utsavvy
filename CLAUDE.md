@@ -2,7 +2,7 @@
 
 Utsavvy (utsav, "festival", + savvy) is a GenAI planning Assistant that helps people in India organize weddings, birthdays and community events with budgets, timelines, vendor checklists and personalized ideas. Built solo for PromptWars Virtual, with submission due about 2026-10-28.
 
-Status: **planned, build not started**. Every planning ticket on the wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is closed, and the spec is `IMPLEMENTATION_PLAN.md`, with every build issue drafted in `docs/plans/build-slices.md`. There is no app code and no tests yet. The contract slice (C0) does all the scaffolding; nothing else starts before it merges.
+Status: **building**: the contract slice (C0, #74) merged on 2026-10-22 and wave 1 is under way. Every planning ticket on the wayfinder map, [Map: Utsavvy v1](https://github.com/Sah-Nikhil/Utsavvy/issues/6), is closed, and the spec is `IMPLEMENTATION_PLAN.md`, with every build issue drafted in `docs/plans/build-slices.md`. C0 set up the scaffolding, schema, shared types, CI and the browser test; slices build on it in waves (`docs/agents/build-workflow.md`).
 
 ## Stack (locked: don't substitute without a new decision)
 Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/issues/15) on 2026-10-21. Versions are the latest as of that date; the contract slice pins them.
@@ -21,7 +21,7 @@ Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/i
 - UI: **Tailwind CSS 4** + **shadcn/ui** (Base UI variant), copied into the repo and restyled from our own tokens so nothing looks stock; **React Flow** (`@xyflow/react` 12) for the freeform Canvas; fonts Anek Devanagari, Fraunces and Tiro Devanagari Hindi via `next/font`. Components use named colour tokens only, never raw colour values. See ADR 0010. The look is D, Contemporary rangoli, with a personal Ornaments setting, picked at the contract review on 2026-10-22 (`IMPLEMENTATION_PLAN.md` section 7.3).
 
 ## Commands
-Planned; the contract slice creates these scripts in `package.json`.
+Created by the contract slice in `package.json`.
 - dev: `bun run dev` (Next.js and `convex dev` side by side)
 - check before "done": `bun run typecheck && bun run lint`
 - typecheck: `bun run typecheck` (`tsc --noEmit`)

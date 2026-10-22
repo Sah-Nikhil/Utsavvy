@@ -22,7 +22,7 @@ Follow [docs/agents/build-workflow.md](docs/agents/build-workflow.md); its setup
 - [x] Set up the rest of GitHub (2026-10-21): milestones Contract, Slices and Submit; phase parent issues #28, #29 and #30; build issues #31 to #64 from `docs/plans/build-slices.md` (and #66 to #69 for later changes) with labels and "blocked by" links
 - [x] Connect Vercel (2026-10-22): project `utsavvy`, production URL https://utsavvy.vercel.app, Convex production deployment `veracious-shark-534` with production and preview deploy keys in Vercel, Clerk keys in Vercel, and `VERCEL_AUTOMATION_BYPASS_SECRET` in GitHub
 - [ ] Check Convex preview deployments on the free plan with C0's first PR, which decides whether the browser test runs on each PR's preview
-- [ ] Contract slice built and merged after the human's go; ruleset on `main` turned on with the required checks
+- [x] Contract slice built and merged after the human's go; ruleset on `main` turned on with the required checks (2026-10-22, #74)
 - [ ] Build the remaining slices in waves of up to 3 worktree agents and merge into `main`
 
 ### Build days

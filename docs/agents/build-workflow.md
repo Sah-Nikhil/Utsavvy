@@ -120,7 +120,7 @@ Checks pass locally, the PR is open with the template filled in, and the PR URL 
 
 - **`/tdd` on the listed seams.** For each seam: write one test, run it and see it fail, write just enough code to pass, repeat. Expected values come from the issue's acceptance criteria and worked examples, never recomputed the way the code computes them. The PR's Verification section shows the failing run before the passing one.
 - **UI layout** without logic skips TDD and is covered by the browser smoke test. A UI slice adds or extends one smoke test for its screen.
-- **Browser smoke test (Playwright)** runs against the PR's own Vercel preview. Signed-in flows use Clerk's testing tokens (`@clerk/testing`).
+- **Browser smoke test (Playwright)** runs against the PR's own Vercel preview. Signed-in flows use Clerk's testing tokens (`@clerk/testing`). In CI the test user (`E2E_CLERK_USER_EMAIL`) signs in with a Clerk sign-in ticket made with `CLERK_SECRET_KEY`, not a password: a password sign-in from a fresh CI browser meets Clerk's new-device email check.
 
 ## CI gates
 
@@ -135,6 +135,8 @@ The CI workflow runs on every PR and on every push to `main`. All five checks ar
 | `e2e` | `bun run test:e2e` against the PR's Vercel preview URL |
 
 The repo is public, so GitHub Actions minutes are free and the ruleset is enforceable on the free plan.
+
+**How `e2e` finds the preview.** CI waits for the `Vercel` commit status on the PR's head commit, reads the preview URL from Vercel's PR comment, and passes Vercel's deployment protection with `VERCEL_AUTOMATION_BYPASS_SECRET`.
 
 **Fallback for `e2e`.** The `e2e` check needs each PR's preview to have its own backend. Convex preview deployments provide that on the free plan (checked 2026-10-21; beta, deleted after 5 days), so `e2e` is a required PR check. If preview deployments misbehave during setup, `e2e` stops being a required PR check. Instead, the build agent runs the browser test locally in its worktree before opening the PR, CI runs it on `main` after every merge, and a red run on `main` makes the orchestrator revert that merge at once.
 
@@ -165,7 +167,7 @@ This machine has `core.autocrlf=true`, and Claude and Codex agents may write eit
 *.bat text eol=crlf
 ```
 
-plus an `.editorconfig` with `end_of_line = lf`, and the formatter check in `lint` fails on wrong endings.
+plus an `.editorconfig` with `end_of_line = lf`, and `lint` runs `scripts/check-line-endings.ts` over every tracked text file, in the index and the working tree. A checkout made before `.gitattributes` arrived can still hold CRLF copies of unchanged files: convert them once, in place, to LF (the main checkout was converted on 2026-10-22). The checker's message gives a Windows-safe way to restore one file.
 
 ## Labels
 
@@ -192,7 +194,7 @@ What a Member can now do, and the main files touched.
 ## Verification
 - Test-first: the failing run, then the passing run, for each listed seam.
 - Checks run and their results: typecheck, lint, test, build, e2e.
-- UI changes: before and after screenshots, uploaded to GitHub, not committed.
+- UI changes: before and after screenshots, uploaded to GitHub, not committed to the PR's branch. C0 kept them on a `pr-assets/<issue>-<name>` branch; such a branch stays after the merge, because the merged PR's description links its images.
 - Anything not checked.
 
 ## Contract changes
@@ -218,6 +220,8 @@ Run after the map closes, in this order. Steps 2 to 4 are the human's; the orche
 10. **Contract slice**: start one build agent on the contract issue. Its PR adds the CI workflow, templates, `.gitattributes` and `.editorconfig`.
 11. **Ruleset on `main`**, once the contract PR's CI has run at least once so its check names exist: require a pull request (0 approvals), require the status checks `typecheck`, `lint`, `test`, `build` and `e2e` (unless the `e2e` fallback above applies) with "branches must be up to date", block force pushes and deletion, squash merge only. Confirm the `e2e` check shows up on the PR's commit before requiring it.
 12. **Merge the contract** after the human's go, then start the first wave.
+
+Steps 10 to 12 were done on 2026-10-22: the contract merged as `b1a3281` (#74), production at https://utsavvy.vercel.app is public, and the ruleset `main` (id 25644880) requires a pull request with squash merge, the five checks on an up-to-date branch, and blocks force pushes and deletion. The repository admin role may bypass it, so the orchestrator's documentation commits still go straight to `main`.
 
 ## Sources
 
