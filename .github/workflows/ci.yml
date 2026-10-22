@@ -72,7 +72,9 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      deployments: read
+      statuses: read
+      pull-requests: read
+      issues: read
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -84,37 +86,51 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
 
-      # Vercel reports each deployment through GitHub's Deployments API. Wait for
-      # the one built from this commit to succeed, then test its URL.
+      # Vercel reports each deployment as a "Vercel" commit status (it doesn't
+      # create GitHub Deployments for this project). Wait for this commit's to
+      # succeed, then test the PR's preview URL from the Vercel bot's PR comment
+      # (the branch alias, which points at this commit once its status is
+      # success), or production after a merge to main.
       - name: Wait for the Vercel deployment of this commit
         id: deployment
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          ENVIRONMENT: ${{ github.event_name == 'pull_request' && 'Preview' || 'Production' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PRODUCTION_URL: https://utsavvy.vercel.app
         run: |
           for attempt in $(seq 1 90); do
-            statuses_url=$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${SHA}&per_page=100" \
-              --jq "[.[] | select(.environment | test(\"${ENVIRONMENT}\"; \"i\"))][0].statuses_url // empty")
-            if [ -n "$statuses_url" ]; then
-              status=$(gh api "$statuses_url" --jq '.[0] | "\(.state) \(.environment_url // .target_url // "")"')
-              state=${status%% *}
-              url=${status#* }
-              echo "Attempt ${attempt}: ${ENVIRONMENT} deployment is ${state:-pending}"
-              if [ "$state" = "success" ] && [ -n "$url" ]; then
-                echo "url=${url}" >> "$GITHUB_OUTPUT"
+            state=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}/statuses?per_page=100" \
+              --jq '[.[] | select(.context == "Vercel")][0].state // empty')
+            echo "Attempt ${attempt}: Vercel deployment of ${SHA} is ${state:-not reported yet}"
+            if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+              echo "::error::The Vercel deployment of ${SHA} failed."
+              exit 1
+            fi
+            if [ "$state" = "success" ]; then
+              if [ -z "$PR_NUMBER" ]; then
+                echo "url=${PRODUCTION_URL}" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
-              if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
-                echo "::error::The Vercel ${ENVIRONMENT} deployment of ${SHA} failed."
-                exit 1
+              # The bot comment starts with "[vc]: #<hash>:<base64 JSON>" holding previewUrl.
+              preview=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
+                --jq '[.[] | select(.user.login == "vercel[bot]")][0].body // empty' \
+                | head -n 1 | sed -E 's/^\[vc\]: #[^:]*:([^ ]*).*/\1/' \
+                | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+                    try {
+                      const meta = JSON.parse(Buffer.from(s.trim(), "base64").toString());
+                      process.stdout.write(meta.projects.find((p) => p.name === "utsavvy")?.previewUrl ?? "");
+                    } catch {}
+                  });' || true)
+              if [ -n "$preview" ]; then
+                echo "url=https://${preview}" >> "$GITHUB_OUTPUT"
+                exit 0
               fi
-            else
-              echo "Attempt ${attempt}: no ${ENVIRONMENT} deployment for ${SHA} yet"
+              echo "Deployed, but the Vercel bot comment has no preview URL yet"
             fi
             sleep 20
           done
-          echo "::error::Timed out waiting for the Vercel ${ENVIRONMENT} deployment of ${SHA}."
+          echo "::error::Timed out waiting for the Vercel deployment of ${SHA}."
           exit 1
 
       - run: bun run test:e2e
