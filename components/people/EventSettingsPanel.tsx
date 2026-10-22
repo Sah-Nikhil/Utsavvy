@@ -64,9 +64,45 @@ export function EventSettingsPanel({ eventId }: EventSettingsPanelProps) {
 
 function Settings({ me }: { me: ActiveMembership }) {
   const event = useQuery(api.events.get, { eventId: me.eventId });
-  const setOwnerLabel = useMutation(api.events.setOwnerLabel);
-  const setUploadRights = useMutation(api.events.setUploadRights);
-  const setDefaults = useMutation(api.events.setDefaults);
+  // Optimistic, so a choice shows as picked at once rather than after the
+  // round trip; Convex rolls it back if the server refuses.
+  const setOwnerLabel = useMutation(
+    api.events.setOwnerLabel,
+  ).withOptimisticUpdate((store, { eventId, ownerLabel }) => {
+    const current = store.getQuery(api.events.get, { eventId });
+    if (current)
+      store.setQuery(api.events.get, { eventId }, { ...current, ownerLabel });
+  });
+  const setUploadRights = useMutation(
+    api.events.setUploadRights,
+  ).withOptimisticUpdate((store, { eventId, on }) => {
+    const current = store.getQuery(api.events.get, { eventId });
+    if (current) {
+      store.setQuery(
+        api.events.get,
+        { eventId },
+        { ...current, uploadRightsOn: on },
+      );
+    }
+  });
+  const setDefaults = useMutation(api.events.setDefaults).withOptimisticUpdate(
+    (store, { eventId, compactGrouping, mobilePointing }) => {
+      const current = store.getQuery(api.events.get, { eventId });
+      if (!current) return;
+      store.setQuery(
+        api.events.get,
+        { eventId },
+        {
+          ...current,
+          defaults: {
+            ...current.defaults,
+            ...(compactGrouping ? { compactGrouping } : {}),
+            ...(mobilePointing ? { mobilePointing } : {}),
+          },
+        },
+      );
+    },
+  );
   const [error, setError] = useState<string | null>(null);
 
   if (event === undefined) {

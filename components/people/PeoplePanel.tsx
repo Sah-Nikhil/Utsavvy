@@ -85,7 +85,7 @@ function People({ me }: { me: ActiveMembership }) {
             id="people-heading"
             className="font-display text-title font-semibold text-ink"
           >
-            People
+            Everyone
           </h3>
           <span className="text-caption text-ink-3 num">
             {active.length} of {MAX_PEOPLE_PER_EVENT} places
@@ -190,7 +190,9 @@ function PersonRow({
               ({roleLabel(person.role, ownerLabel)})
             </span>
           ) : (
-            <span className="text-ink-3"> (left)</span>
+            <span className="text-ink-3">
+              {person.blocked ? " (removed)" : " (left)"}
+            </span>
           )}
         </p>
         {person.isMe ? <p className="text-caption text-ink-3">You</p> : null}
