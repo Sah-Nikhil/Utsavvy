@@ -116,6 +116,33 @@ test("a drag in one browser appears in the other within about a second", async (
     .toBe(after);
 });
 
+test("dropping an Item in another Section moves it there, for everyone", async () => {
+  const vendorsCount = (page: Page) =>
+    page
+      .locator('[data-section-kind="vendors"] h2 + span')
+      .innerText()
+      .then((text) => Number.parseInt(text, 10));
+  const before = await vendorsCount(rohan.page);
+  const note = meera.page.locator('[data-canvas-item="note"]').last();
+  await note.hover();
+  const handle = (await note.locator(".canvas-item-handle").boundingBox())!;
+  const vendors = (await meera.page
+    .locator('[data-section-kind="vendors"]')
+    .boundingBox())!;
+  await meera.page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await meera.page.mouse.down();
+  await meera.page.mouse.move(
+    vendors.x + vendors.width / 2,
+    vendors.y + vendors.height - 90,
+    { steps: 20 },
+  );
+  await meera.page.mouse.up();
+  await expect.poll(() => vendorsCount(rohan.page)).toBe(before + 1);
+});
+
 test("keyboard: Tab reaches an Item, Enter selects it, and the other person sees who has it", async () => {
   const { page } = meera;
   const first = page.locator(".react-flow__node-item").first();

@@ -84,7 +84,7 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
           selectFrom(event.target);
       }}
       className={cn(
-        "nodrag nopan nowheel size-full overflow-auto rounded-md",
+        "nodrag nopan nowheel size-full cursor-auto overflow-auto rounded-md select-text",
         "transition-[outline-color] duration-(--dur-feedback) ease-standard",
         "[&>article]:min-h-full",
         isSelected && "outline-2 outline-offset-2 outline-action",
