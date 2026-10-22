@@ -5,7 +5,7 @@ import {
   type FunctionIndex,
 } from "@/components/ui/function-marker";
 import { PointingRing } from "@/components/shell/PointingRing";
-import { hindiLang } from "@/lib/lang";
+import { scriptClass } from "@/lib/script";
 import { cn } from "@/lib/utils";
 
 /*
@@ -90,8 +90,10 @@ export function ItemFrame({
         ) : null}
         <div className="grid min-w-0 flex-1 gap-0.5">
           <Heading
-            lang={hindiLang(title)}
-            className="truncate-line min-w-0 font-display text-title text-ink"
+            className={cn(
+              "truncate-line min-w-0 font-display text-title text-ink",
+              scriptClass(title),
+            )}
           >
             {title}
           </Heading>

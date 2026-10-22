@@ -419,13 +419,15 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Hindi line height and weight. Unlayered on purpose: unlayered rules beat
- * every Tailwind layer, so `leading-tight`, `text-headline` (1.2) or
- * `text-display` (1.12) on an element can't squeeze matras above and below the
- * line. Mark Hindi with lang="hi" (lib/lang.ts `hindiLang` does it for text
- * Members type).
+ * Devanagari line height. Unlayered on purpose: unlayered rules beat every
+ * Tailwind layer, so `leading-tight`, `text-headline` (1.2) or `text-display`
+ * (1.12) on an element can't squeeze matras above and below the line.
+ * Two hooks: lang="hi" on text the app knows is Hindi (its own copy), and the
+ * `script-deva` class (lib/script.ts `scriptClass`) on text Members type, which
+ * may be Hindi, Marathi or mixed, so it claims no language.
  * ------------------------------------------------------------------------- */
-:lang(hi) {
+:lang(hi),
+.script-deva {
   line-height: 1.55;
 }
 
