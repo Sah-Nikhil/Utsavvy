@@ -18,7 +18,7 @@
 // Rejected photos are removed from public/inspirations/; the rest are written,
 // with their palettes, to seed/vibe-sets.json. Run it from the repo root.
 
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Vibrant } from "node-vibrant/node";
 
@@ -76,8 +76,10 @@ if (!candidatesFile || !reviewFile || !jpegs) {
   );
   process.exit(1);
 }
-const candidates = (await Bun.file(candidatesFile).json()) as Candidate[];
-const review = (await Bun.file(reviewFile).json()) as Review;
+const readJson = (file: string): unknown =>
+  JSON.parse(readFileSync(file, "utf8"));
+const candidates = readJson(candidatesFile) as Candidate[];
+const review = readJson(reviewFile) as Review;
 const rejected = new Set(review.reject);
 
 const records = [];
