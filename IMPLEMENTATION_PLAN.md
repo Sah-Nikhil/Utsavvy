@@ -273,6 +273,7 @@ Added on 2026-10-22, when Sah-Nikhil accepted the Gemini free tier as the fallba
 - **Web research** for Estimates sends only a category, a unit, an Event type and a city (section 4.14), never names, budgets or Brief text.
 - **Geoapify** receives city names and Vendors' published addresses for map positions.
 - **Google Maps** receives what a Member searches in the Google places sheet.
+- **Services added later** get their own line in the slice that brings them in (noted in the review of S1, 2026-10-23): **Vercel** hosts the site and sees every request; **OpenFreeMap** serves the map tiles (S15); **Serper** and **Jina Reader** (X1) receive search queries and Vendor page addresses; **OpenAI** receives the same as Anthropic for an Event whose key is an OpenAI key (X3a).
 - **Pinterest and Instagram** receive the usual browser data when their boards or embeds load.
 - Stock photos are credited to their Pexels photographers, and the demo Event's people, Quotes and Comments are made up.
 - The "Report content" address is how to ask for something to be taken down.
