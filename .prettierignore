@@ -1,0 +1,21 @@
+# Generated or vendored
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+playwright-report/
+test-results/
+convex/_generated/
+bun.lock
+next-env.d.ts
+
+# Owned by other slices or the planning record (formatted by hand)
+docs/
+issues/
+.agents/
+.claude/
+skills-lock.json
+*.md
+public/inspirations/
