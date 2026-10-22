@@ -63,7 +63,16 @@ test.describe("smoke", () => {
     const response = await page.goto(path);
     // X2's references spec checks the page itself (it arrives with #56); this
     // checks only that the proxy lets the request straight through.
-    expect(response?.request().redirectedFrom()).toBeNull();
+    // Every hop stays on our origin. (On a preview, Vercel's protection bypass
+    // may redirect once to the same URL to set its cookie.)
+    const hops: string[] = [];
+    for (
+      let request = response?.request() ?? null;
+      request !== null;
+      request = request.redirectedFrom()
+    )
+      hops.push(new URL(request.url()).origin);
+    expect(new Set(hops)).toEqual(new Set([new URL(page.url()).origin]));
     expect(new URL(page.url()).pathname).toBe("/embed/pinterest");
     expect(clerkRequests).toEqual([]);
   });
