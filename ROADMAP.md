@@ -41,6 +41,8 @@ Scope, tiers and the cut line are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLA
 - [ ] **Tue 27 Oct, wave 5 and hardening.** S17 Nudges and @Utsavvy in Comments, S18 vibe pick, then S19b the demo path end to end (at 14:00 IST, if S17 or S18 is still open, the rest of the cut line moves to SHOULD); then the full set of scripted Assistant cases runs in CI through the manual workflow, failures become `bug` issues and get fixed; production deploy.
   Exit: the demo script in IMPLEMENTATION_PLAN.md section 9.3 runs twice in a row on the production URL with the judge accounts, after a reset.
 
+- [ ] **Not yet scheduled, MUST since 22 Oct.** X2 Pinterest and Instagram References, S21 Browse ideas on Pinterest, X8 the Android share sheet ([ADR 0014](docs/adr/0014-pinterest-and-instagram-only-through-official-embeds.md)). Sah-Nikhil creates the public Pinterest boards before S21 and does the Android device check for X8. Where they fit, and what moves to SHOULD, is still to decide.
+
 Later-stage and SHOULD issues (`stretch`) are built only if a slot frees up, Discovery first.
 
 ## Phase 2: Submit

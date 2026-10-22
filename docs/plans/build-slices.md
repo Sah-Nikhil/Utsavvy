@@ -1,11 +1,11 @@
 # Build slices for v1
 
-Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text. On 2026-10-21 Sah-Nikhil changed three things after the issues existed (the local stock library, the Google places sheet as S20, Instagram-only Vendors in D2; see IMPLEMENTATION_PLAN.md section 1), and the changed issues were edited to match this file. On 2026-10-22 he made two more (Estimates researched live with the reference table as fallback, [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md); the map's own style, IMPLEMENTATION_PLAN.md section 7.5), and the changed issues were edited again. X12 became issue #69 the same day.
+Every build issue for v1, drafted from [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) in the build issue template from [build-workflow.md](../agents/build-workflow.md). Written by [What is in v1, what is the demo, and what is the build plan?](https://github.com/Sah-Nikhil/Utsavvy/issues/18) on 2026-10-21. The orchestrator created the GitHub issues from this file on 2026-10-21, after Sah-Nikhil's go. The issues are now the live record of each task's state; this file stays the source of their text. On 2026-10-21 Sah-Nikhil changed three things after the issues existed (the local stock library, the Google places sheet as S20, Instagram-only Vendors in D2; see IMPLEMENTATION_PLAN.md section 1), and the changed issues were edited to match this file. On 2026-10-22 he made two more (Estimates researched live with the reference table as fallback, [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md); the map's own style, IMPLEMENTATION_PLAN.md section 7.5), and the changed issues were edited again. X12 became issue #69 the same day. Later that day he moved X2 and X8 to MUST and added S21 ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)); S21 became #72 and X13, the file half of X8, became #73.
 
 | Phase | Parent issue | Build issues |
 |---|---|---|
 | Contract (milestone due 22 Oct) | [#28](https://github.com/Sah-Nikhil/Utsavvy/issues/28) | C0 #31, D1 #32, D2 #33 |
-| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53, S20 #66; stretch X1a #54, X1b #55, X2 #56, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X8 #63, X9 #64, X10 #67, X11 #68, X12 #69 |
+| Slices (milestone due 27 Oct) | [#29](https://github.com/Sah-Nikhil/Utsavvy/issues/29) | S1 #34, S2 #35, S3 #36, S4 #37, S5 #38, S6 #39, S7 #40, S8 #41, S9 #42, S10 #43, S11 #44, S12 #45, S13 #46, S14 #47, S15 #48, S16 #49, S17 #50, S18 #51, S19a #52, S19b #53, S20 #66, X2 #56, S21 #72, X8 #63; stretch X1a #54, X1b #55, X3a #57, X3b #58, X4 #59, X5 #60, X6 #61, X7 #62, X9 #64, X10 #67, X11 #68, X12 #69, X13 #73 |
 | Submit (milestone due 28 Oct) | [#30](https://github.com/Sah-Nikhil/Utsavvy/issues/30) | none; its body is the Phase 2 checklist |
 
 ## How to turn this into issues
@@ -45,7 +45,7 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | `components/items/registry.tsx` | Item kind to component | Shared |
 | `components/items/<kind>/` | One folder per Item kind | The slice for that kind |
 | `components/chat/cards/registry.tsx` | Chat card kind to component | Shared |
-| `components/<area>/` | `people`, `canvas`, `chat`, `history`, `comments`, `vendors`, `quotes`, `proposals`, `brief`, `inspirations`, `map`, `compact`, `demo`, `google-places` | One slice each |
+| `components/<area>/` | `people`, `canvas`, `chat`, `history`, `comments`, `vendors`, `quotes`, `proposals`, `brief`, `inspirations`, `map`, `compact`, `demo`, `google-places`, `references`, `pinterest-ideas`, `share` | One slice each |
 | `convex/schema.ts`, `convex/lib/`, `convex/crons.ts`, `convex/convex.config.ts` | Schema, access, writes, post-write hooks, Proposal op registry, idempotency, time, models, settings | Shared |
 | `convex/assistant/tools/index.ts` | Tool registry | Shared |
 | `convex/<module>.ts`, `convex/assistant/tools/<group>.ts` | One module per slice | One slice each |
@@ -54,7 +54,9 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | `convex/estimates.ts` | The estimate cascade: research, cache, table and knowledge fallbacks | S3 |
 | `lib/fetch/` | `politeFetch`, the polite fetch with its SSRF guard | D2 (X1 reuses it) |
 | `lib/inspirations/` | `searchLibrary`, the stock library search | S13 |
-| `seed/` | Seed data | D1, D2, S19a |
+| `seed/` | Seed data | D1, D2, S19a, S21 |
+| `app/embed/` | The isolated Pinterest and Instagram embed pages, with their own Content Security Policy | X2 |
+| `app/manifest.ts`, `public/icons/`, `app/share/` | The web app manifest with its share target, the app icons, the share landing page | X8 |
 | `public/inspirations/` | The stock library's WebP files | D1 |
 | `evals/` | Scripted Assistant cases | S7 for the harness, each slice for its own case file |
 | `e2e/` | Playwright tests | C0 for setup and the smoke test, each slice for its own spec |
@@ -69,6 +71,7 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + M + M |
 | Mon 26 Oct | 4 | S12, S14, S15, S16, S19a; then a rehearsal on production of the beats that exist | M + L + M + M + S |
 | Tue 27 Oct | 5 | S17, S18, then S19b, then the scripted-case CI run, fixes and the production rehearsal | M + S + S |
+| Not yet scheduled | MUST since 22 Oct | X2, S21, X8 ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)); Sah-Nikhil parked where they fit | L + M + M |
 
 S6 and S8 are S because cut-line items 1 and 2 moved to SHOULD on 2026-10-21 (X10, X11) to make room for S20; S13 is M without the Pexels API. On 2026-10-22 S3 grew from M to L with the estimate cascade, and cut-line item 3 moved to SHOULD (X12) to make room, so S11 is M. S3 is the heaviest risk on 23 Oct: S4 and S7 need it on 24 Oct. At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
 
@@ -95,7 +98,7 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
 ### Interfaces
 - Uses: the stack in `CLAUDE.md`; IMPLEMENTATION_PLAN.md sections 4, 5, 6 and 7.
 - Provides:
-  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index, the `googlePlace` Item kind (data `placeId` and `note`, nothing else), the stock library `pexels` Inspiration source (`localPath`, no image URL), and `vendors.provenance` entries with `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence`, `seenAt` and `confirmedBy`, and the app-wide `estimateCache` table with its `by_city_category_unit` index (section 5.5). No `pexelsCache`, no `generatedEstimates`.
+  - `convex/schema.ts` with every table in IMPLEMENTATION_PLAN.md section 5.1 to 5.5 (not the "later" ones), including `viewPrefs` with its `by_event_user` index, the `googlePlace` Item kind (data `placeId` and `note`, nothing else), the `inspiration` Item kind's `reference` source (`platform` `"pinterest"` or `"instagram"`, `urlKind` `"pin"`, `"board"`, `"pinShort"`, `"post"` or `"reel"`, and `url`; [ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)), the stock library `pexels` Inspiration source (`localPath`, no image URL), and `vendors.provenance` entries with `kind` (`"ownSite"` or `"instagramProfileHumanChecked"`), `url`, `sentence`, `seenAt` and `confirmedBy`, and the app-wide `estimateCache` table with its `by_city_category_unit` index (section 5.5). No `pexelsCache`, no `generatedEstimates`.
   - `lib/types/`: `BriefExtraction`, `FirstPlanDraft`, `PricedEstimate` with its `EstimateBasis` (section 5.6: kind `"researched"`, `"referenceTable"` or `"assistantKnowledge"`, the per-unit range, source URLs, search date, reasoning, table version), `BudgetCheck`, `ThemeUpdate`, `ItemKind`, `ItemData`, `EntryFields`, `CommentTarget`, `Selection` (an Item, an Entry or a passage, or null), `Actor`, `WriteEvent`, `ProposedChange` (the op union with `guards`, section 6), `ProposalOpHandler`, `Role`, `Action`, with Convex validators from the same definitions.
   - `lib/access/permissions.ts`: `can(role: Role, action: Action): boolean` and the table it reads, one row per line of the roles.md permissions table.
   - `convex/lib/access.ts`: `requireAccess(ctx, eventId, action) => { membership, user }`, throwing `AccessDenied`; `requireIdentity(ctx) => user` for the narrow exceptions in IMPLEMENTATION_PLAN.md section 4.3.
@@ -103,14 +106,14 @@ Everything not owned by D1 or D2: root config (`package.json`, `bun.lock`, `tsco
   - `convex/lib/hooks.ts`: `afterWrite(ctx, event: WriteEvent)`, called by every write helper in the same mutation, running the registered hooks `passagesAfterWrite` (stub in `convex/comments.ts`, S8 fills) and `nudgesAfterWrite` (stub in `convex/nudges.ts`, S17 fills).
   - `convex/lib/proposalOps.ts`: the registry from op to `ProposalOpHandler`, each imported from a stub in its owner's file (section 6): `convex/assistant/tools/propose.ts` (S10), `convex/assistant/tools/quotes.ts` (S12), `convex/assistant/tools/images.ts` (S13), `convex/plan.ts` (S14). Stubs throw `NotBuiltYet`.
   - `components/shell/selection.tsx`: `SelectionProvider` around the workspace, `useSelection(): Selection` for readers (Chat, Comments, history, Compact mode) and `useSetSelection()` for the Canvas (S2).
-  - Stubs that later slices fill in their own files, so earlier slices can render them: `components/history/UndoAllButton.tsx` (renders nothing until X11), `components/google-places/GooglePlacesSheet.tsx` exporting `GooglePlacesProvider` (passes its children through), `GooglePlacesSheet` (renders nothing), `GooglePlacesButton` (renders nothing) and `useGooglePlacesSheet()` (returns `{ open(opts?: { placeId?: string }) }`, a no-op) until S20, `components/map/VendorMap.tsx` (S15), `components/demo/DemoBanner.tsx` (S19a), and `proposeEssentialChange` in `convex/plan.ts` (refuses until S14).
+  - Stubs that later slices fill in their own files, so earlier slices can render them: `components/history/UndoAllButton.tsx` (renders nothing until X11), `components/google-places/GooglePlacesSheet.tsx` exporting `GooglePlacesProvider` (passes its children through), `GooglePlacesSheet` (renders nothing), `GooglePlacesButton` (renders nothing) and `useGooglePlacesSheet()` (returns `{ open(opts?: { placeId?: string }) }`, a no-op) until S20, `components/map/VendorMap.tsx` (S15), `components/demo/DemoBanner.tsx` (S19a), `components/references/ReferenceEmbed.tsx` (a plain link until X2) and `components/references/PasteLinkForm.tsx` (renders nothing until X2), `components/pinterest-ideas/PinterestIdeasSheet.tsx` exporting `PinterestIdeasProvider`, `PinterestIdeasSheet`, `PinterestIdeasButton` and `usePinterestIdeas()` (no-ops until S21), and `proposeEssentialChange` in `convex/plan.ts` (refuses until S14).
   - `convex/lib/idempotency.ts`: `once(ctx, key, fn)`.
   - `convex/lib/time.ts`: `istDay(timestamp)`, `istNow()`.
   - `convex/lib/models.ts` and `convex/lib/settings.ts`: model names and the thresholds (10%, 5, 24 hours, 30 seconds, 20 a day, 10 a day, 30 days, 0.8), plus the estimate cascade's limits (8 searches per call, a 20-second research limit, a 24-hour cache; IMPLEMENTATION_PLAN.md section 4.14).
   - `lib/format.ts`: `formatINR(240000) === "₹2,40,000"`, `formatLakh(2500000) === "₹25L"`.
   - Registries: `components/items/registry.tsx` (`ItemKind` to component), `components/chat/cards/registry.tsx` (card kind to component), `convex/assistant/tools/index.ts` (tool name to definition), each pre-filled with stubs that later slices replace in their own files.
   - The workspace shell at `/events/[eventId]` with mount points for the Canvas, Chat, people panel, history panel, Event settings, Add Inspiration, the Google places sheet (`GooglePlacesProvider` around the workspace, `GooglePlacesSheet` at the top level, `GooglePlacesButton` in the header) and a banner slot (the demo banner).
-  - The Content Security Policy from IMPLEMENTATION_PLAN.md section 4.12, set in `next.config.ts` from one list.
+  - The Content Security Policy from IMPLEMENTATION_PLAN.md section 4.12, set in `next.config.ts` from one list, including the separate policy for `/embed/*` with Pinterest's and Instagram's hosts.
   - `convex/crons.ts` with the three daily crons from section 4.7, pointing at no-op internal stubs.
   - Scripts: `dev` (Next.js and `convex dev` side by side), `typecheck`, `lint` (ESLint, then `prettier --check`), `format`, `test` (Vitest), `test:e2e` (Playwright), `build` (`next build`), `eval` (Vitest on `evals/`, outside CI).
   - CI with five jobs named `typecheck`, `lint`, `test`, `build`, `e2e`, the last against the PR's Vercel preview.
@@ -656,7 +659,7 @@ Parent: Slices. Blocked by: S1, S2, S7, D1.
 - [ ] Library photos load from `/inspirations/...` on our own origin; no request goes to Pexels.
 - [ ] Paste from the clipboard and drag and drop both upload; the browser shrinks images to 2048 px first.
 - [ ] Asking "find some haldi decor ideas" shows 6 library photos; only tapped ones land, tagged haldi.
-- [ ] The panel has Search and Upload tabs only (Paste a link arrives with X2, Generate with X3); an empty Search shows the Event's own set.
+- [ ] The panel has Search, Upload and Paste a link tabs (the last hosts X2's `<PasteLinkForm>`, and the inspiration card hands a `reference` to X2's `<ReferenceEmbed>`; both are contract stubs until X2 merges) and the `PinterestIdeasButton` (S21); Generate arrives with X3; an empty Search shows the Event's own set.
 - [ ] The footer has the "Report content" address.
 - [ ] Scripted cases: stock photos from the Chat, nothing in the library, rights setting off, pointing at an image ("would this stage work for 300 Guests?").
 - [ ] Smoke test passes axe, including alt text on every image.
@@ -919,6 +922,103 @@ Parent: Slices. Blocked by: C0, S1, S2.
 
 ---
 
+## X2. Pinterest and Instagram References (MUST since 2026-10-22)
+
+Labels: `slice`, `inspirations`. Wave: not yet scheduled. Size: L.
+
+### Goal
+A Member pastes a Pinterest Pin or board URL, or an Instagram post or Reel URL, says what they like in it, and it lands in the Inspirations Section as a Reference: Utsavvy keeps only the URL and the note, and the card shows the platform's own embed ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md), inspirations.md rules 6, 7 and 14).
+
+### Phase
+Parent: Slices. Blocked by: C0, S13.
+
+### Owned paths
+`app/embed/`, `components/references/`, `lib/references/`, `convex/references.ts`, `e2e/references.spec.ts`.
+
+### Interfaces
+- Uses: the `inspiration` Item kind's `reference` source and its validator, the `/embed/*` Content Security Policy and the `ReferenceEmbed` and `PasteLinkForm` stubs (C0), the Paste a link tab and the inspiration card's hand-off to `<ReferenceEmbed>` (S13), `placeInFreeSpace`, `memberInsert`, `memberWrite`, `memberSoftDelete`, `requireAccess`, Pinterest's `pinit.js` (`data-pin-do="embedPin"` and `"embedBoard"`), Meta's tokenless `https://graph.facebook.com/v25.0/instagram_oembed` and `https://www.instagram.com/embed.js`.
+- Provides: `parseReferenceUrl(input) => { platform, urlKind, url, embedUrl } | { error }` in `lib/references/parse.ts`; `api.references.add({ eventId, url, note, functionKey? }) => { itemId }`; the pages `/embed/pinterest?url=` and `/embed/instagram?url=`, which render the official embed, post their height to the parent as `{ type: "utsavvy-embed-height", height }` and fall back to a link; `<ReferenceEmbed url>` (the lazily loaded, height-fitted iframe) and `<PasteLinkForm eventId onSaved>` in `components/references/`, filling the contract stubs.
+
+### Test seams
+- `parseReferenceUrl` accepts `https://www.pinterest.com/pin/123456789/`, `https://pinterest.com/pin/123456789` and `https://in.pinterest.com/pin/123456789/` (Pins; Indian Members often copy `in.` links, so `embedUrl` normalises to `https://www.pinterest.com/pin/123456789/`), `https://www.pinterest.com/meera/haldi-decor/` (board), `https://pin.it/AbC123` (`pinShort`, a link only), `https://www.instagram.com/p/fA9uwTtkSN/` (post) and `https://www.instagram.com/reel/Cxyz123/` (Reel). It refuses `http://` URLs, other hosts, Pinterest search, idea and profile pages, ports, credentials, `javascript:` and `data:` URLs, and Instagram profiles and stories.
+- `add` stores exactly `{ source: "reference", platform, urlKind, url, memberNote }` plus the usual Item fields and one `changes` row; it refuses a Viewer and a removed person; the server makes no request to the Member's URL.
+- The Instagram embed page calls only Meta's oEmbed endpoint, keeps only the returned `blockquote` (no `script`, no stored HTML, caption or thumbnail) and renders the link card when Meta answers with an error.
+
+### Acceptance criteria
+- [ ] Paste a link: paste, see the preview from the embed page, answer "What do you like in this?" (chips from the Theme and the post type, plus free text), Save; the Reference lands in the Inspirations Section with "Open on Pinterest" or "Open on Instagram".
+- [ ] A `pin.it` link saves as a link card saying "Open it on Pinterest and paste the full Pin link to see a preview."
+- [ ] Each card's embed loads only when it is on screen, inside the `/embed/*` iframe, sized from the height message. No Pinterest or Instagram script runs in the workspace document.
+- [ ] Removed Pins, private, deleted or embed-disabled posts and a blocked script show the link card, and nothing else breaks.
+- [ ] The tab says once: "Previews load from Pinterest or Instagram, which receive the usual browser data."
+- [ ] "Add a screenshot" on a Reference makes an upload that is never a Remix source (rule 14); "Use for Theme" on a Reference adds words from the note only; the Assistant sees a Reference only as its platform and note.
+- [ ] Deployed check with the real policy: a public Pin, a board holding Pins saved from other people, an `in.pinterest.com` Pin, an Instagram post and a Reel render at 390 × 844 and on desktop with no CSP violation. A missing host goes to the orchestrator as a contract change.
+- [ ] Smoke test with stubbed embed pages: paste, save, see the card; axe passes on our parts.
+
+---
+
+## S21. Browse ideas on Pinterest (MUST since 2026-10-22)
+
+Labels: `slice`, `inspirations`, `needs-human`. Wave: not yet scheduled. Size: M.
+
+### Goal
+A Member opens "Browse ideas on Pinterest", picks one of Sah-Nikhil's public Pinterest boards for the Event's Functions, browses it through Pinterest's board widget, and brings a Pin they like back as a Reference by its link ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)).
+
+### Phase
+Parent: Slices. Blocked by: X2.
+
+### Owned paths
+`components/pinterest-ideas/`, `seed/pinterest-boards.json`, `seed/pinterest-boards.test.ts`, `e2e/pinterest-ideas.spec.ts`.
+
+### Interfaces
+- Uses: the `/embed/pinterest` page and `<PasteLinkForm>` (X2), the contract's `PinterestIdeasSheet.tsx` stubs and shell mount points (the button sits in the Inspirations Section header and the Add Inspiration panel), the Event's type, Tradition and Functions.
+- Provides: `seed/pinterest-boards.json`, a list of `{ key, label, url, eventTypes, functionKeys }` from Sah-Nikhil's boards; `boardsForEvent(event, functionKey?) => Board[]` in `components/pinterest-ideas/boards.ts`; fills `PinterestIdeasProvider`, `PinterestIdeasSheet`, `PinterestIdeasButton` and `usePinterestIdeas()`.
+
+### Test seams
+- The seed test: every `url` is `https://www.pinterest.com/<account>/<board>/`; keys are unique; every board has a label and at least one event type; `functionKeys` use CONTEXT.md's Function keys.
+- `boardsForEvent`: a North Indian Hindu wedding with a haldi Function lists the haldi board first; a child birthday lists party-theme boards and no wedding board; an Event type with no boards returns none.
+
+### Acceptance criteria
+- [ ] Sah-Nikhil's public boards exist on Pinterest and are in the seed file (he creates them; about 12 to 18, one per Function or theme).
+- [ ] The sheet lists the Event's boards (the selected Function's first), opens one in the `/embed/pinterest` iframe with Pinterest's own tiles and credits, and shows "Open board on Pinterest" beside it. Nothing of ours covers the widget.
+- [ ] Under the board, outside the widget: "Found one you like? Tap it to open it on Pinterest, copy its link and paste it here.", with X2's `<PasteLinkForm>`; with the installed app on Android it adds "or share it to Utsavvy".
+- [ ] One line says the board loads from Pinterest, which receives the usual browser data.
+- [ ] An Event type with no boards shows "No Pinterest boards for this kind of Event yet." and the Paste a link form. Viewers can browse but not save.
+- [ ] Deployed check at 390 × 844 and on desktop: two boards render, a tile opens its Pin on Pinterest, there is no CSP violation, and reopening the sheet after navigating works.
+- [ ] Smoke test with a stubbed embed page; axe passes on our parts of the sheet.
+
+---
+
+## X8. Android share sheet (MUST since 2026-10-22)
+
+Labels: `slice`, `inspirations`, `needs-human`. Wave: not yet scheduled. Size: M.
+
+### Goal
+On Android, with Utsavvy installed, a Member shares a Pinterest Pin or board, or an Instagram post or Reel, from its app into Utsavvy, picks the Event, adds a note and saves a Reference (inspirations.md rule 9, [ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)). Shared image files are X13.
+
+### Phase
+Parent: Slices. Blocked by: X2.
+
+### Owned paths
+`app/manifest.ts`, `public/icons/`, `app/share/`, `components/share/`, `e2e/share.spec.ts`.
+
+### Interfaces
+- Uses: `parseReferenceUrl`, `api.references.add` and `<ReferenceEmbed>` (X2), Clerk's sign-in redirect, the caller's Events (S1).
+- Provides: the web app manifest (`name`, `short_name`, `id`, `start_url`, `display: "standalone"`, 192 and 512 px icons drawn from the design tokens, and `share_target` as `GET /share` with `title`, `text` and `url`); the `/share` page; `extractSharedUrl({ title, text, url }) => string | null` in `components/share/`.
+
+### Test seams
+- `extractSharedUrl` returns the first Pinterest or Instagram URL from `url`, then `text`, then `title` (for example text "Check out this Pin on Pinterest https://pin.it/AbC123"), ignores other URLs, and returns null when there is none.
+- The `/share` page saves only on an explicit Save; a Viewer's or removed person's save is refused.
+
+### Acceptance criteria
+- [ ] First, the device check, reported in the PR: Chrome on a real Android phone offers to install Utsavvy, Utsavvy appears in the share menu, and sharing one Pin, one board, one Instagram post and one Reel records each app's version and the raw `title`, `text` and `url` (personal data redacted).
+- [ ] Sharing opens `/share` with the Event list (last used first, skipped with one Event), the preview, "What do you like in this?" and Save. The Reference lands, and the Chat shows "Meera added a Pinterest Pin: 'love the teal drapes'".
+- [ ] Signed out, sign-in returns to `/share` with the shared link intact.
+- [ ] A share with no Pinterest or Instagram link says so and offers Paste a link.
+- [ ] Nothing promises a share target on iPhones or desktops; Paste a link is their way in.
+- [ ] Smoke test of `/share?text=...` with a stubbed embed; axe passes.
+
+---
+
 ## Later stage and SHOULD
 
 These are `stretch` issues: built only when a slot frees up, in this order. Each follows the same template; the design docs already specify them, so the bodies below are short. The orchestrator fills in owned paths from the folder map when it creates them, and each needs a contract-change PR first for its tables and packages.
@@ -930,10 +1030,6 @@ Goal: the server finds Vendors' own sites with Serper and reads them under the p
 ### X1b. Discovery in the Chat, pasted URLs, refresh and pooling (later stage)
 Labels: `slice`, `vendors`, `assistant`, `stretch`. Size: M. Blocked by: X1a.
 Goal: "Find Vendors" and Chat requests stream Vendor cards with "Reading 3 of 5 sites", known Vendors first, the 10-a-day cap, "Paste a website URL", Refresh with price history and change notices, and automatic pooling behind the vendors.md guardrails. Free-label Vendors' Estimates need nothing here: since [ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md) they go through S3's estimate cascade like any line, so the planned `GeneratedEstimate` work is dropped. Seams: the pooling guardrails (5 prices from different Vendors in 12 months, outliers beyond 3× or under a third of the median ignored, 25th to 75th percentile, Estimates already on a Budget unchanged); the cap message; tests still pin the table with research stubbed and pooling off; a Vendor card in a free-label category shows the cascade's Estimate with its basis. Tools: `discoverVendors`, `addVendorFromUrl`.
-
-### X2. Pinterest and Instagram References (SHOULD, first)
-Labels: `slice`, `inspirations`, `stretch`. Size: S. Blocked by: S13.
-Goal: "Paste a link" accepts Pin, board, `pin.it`, Instagram post and Reel URLs, stores only the URL and the Member's "What do you like in this?" note, and shows them through `pinit.js` and Instagram oEmbed (inspirations.md rules 6, 7 and 14). A public board, including one Utsavvy curates, is only ever one Reference shown by the board widget: no Pinterest API or RSS reading, no stored Pin data, thumbnails or Pin text, no picking single images out of the widget, and never a source for the vibe pick or `searchStockImages` ([ADR 0012](../adr/0012-stock-photos-from-a-local-hand-curated-library.md)). `pinit.js` loads only when a Reference is on screen, with a plain link until it has; its hosts and Instagram's embed hosts join the Content Security Policy through a contract change, checked in a deployed browser. The Reference card's "Add a screenshot" makes an ordinary upload that is never a Remix source (rule 14). Seams: host and path checks; the server never fetches the link; "Use for Theme" on a Reference adds words only.
 
 ### X3a. Event keys (later stage)
 Labels: `slice`, `assistant`, `auth`, `stretch`. Size: M. Blocked by: S7.
@@ -959,10 +1055,6 @@ Goal: transfer to a Co-owner or Member; delete after typing the Event's name (sh
 Labels: `slice`, `vendors`, `stretch`. Size: S. Blocked by: S9.
 Goal: a Member types a Vendor with no website (name, category, phone, area); it stays private to the Event, has only Quotes, and a Marker only if dropped on the map. A free-label category's Estimate comes from S3's estimate cascade ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)); the hand-typed Vendor's details never reach the research prompt. Contract change: `privateVendors`.
 
-### X8. Android share sheet (SHOULD)
-Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X2.
-Goal: the PWA's Web Share Target with the Event picker (inspirations.md rule 9), after the device check: install the PWA, share one Pin, one board, one Instagram post and one Reel, and record which fields (`text`, `url`, `title`, files) arrive.
-
 ### X9. The other 9 vibe pick sets (SHOULD)
 Labels: `slice`, `inspirations`, `stretch`, `needs-human`. Size: S. Blocked by: S18.
 Goal: curate and approve the remaining sets from inspirations.md rule 21, the same way as D1.
@@ -978,3 +1070,7 @@ Goal: `api.history.undoGroup({ groupKey })` and the contract's `<UndoAllButton g
 ### X12. The previewed Budget check fixes (SHOULD, moved from S11 on 2026-10-22)
 Labels: `slice`, `assistant`, `chat`, `stretch`. Size: S. Blocked by: S11.
 Goal: when the budget is below the minimum, the Brief summary adds two fixes beside "Raise the budget", each previewing its new minimum: fewer Guests, and fewer or merged Functions (first-brief.md "Brief summary"). Provides `budgetCheckFixes(draft, ranges, ...)` in `lib/pricing/budgetCheckFixes.ts`, which re-prices the changed Brief from the ranges the Budget check already has, so a preview spends no search. Seams, with `stubEstimateDeps`: the ₹15L variant's fixes (drop the reception, new minimum about ₹14.2L, fits; 200 Guests at the wedding and reception and 150 at the sangeet, about ₹15.5L, still about ₹55,000 short; raise to ₹19.6L); the Ganesh utsav's (skip the cultural night, about ₹1.90L, fits; 250 Guests at the cultural night, about ₹2.59L, still about ₹19,000 short). May change `lib/pricing/` (S3, merged) and `components/brief/`, `components/chat/cards/brief/` and `convex/brief.ts` (S11, merged).
+
+### X13. Shared image files from the share sheet (SHOULD, split from X8 on 2026-10-22)
+Labels: `slice`, `inspirations`, `stretch`. Size: M. Blocked by: X8.
+Goal: sharing an image file from another app into Utsavvy saves it as an upload (inspirations.md rules 4, 5 and 9). The manifest's `share_target` moves to `POST` with `multipart/form-data` and `files` accepting JPEG, PNG and WebP; a service worker or route handler hands the file to the `/share` page without putting it in a URL; the upload size and rights rules apply; a file shared from Pinterest or Instagram is never a Remix source. Seams: a non-image file is refused; a 12 MB file is refused; the rights tick appears when the Event's setting is off.

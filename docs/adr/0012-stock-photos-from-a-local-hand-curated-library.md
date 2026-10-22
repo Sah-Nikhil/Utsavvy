@@ -9,7 +9,7 @@ We chose this because Pexels has paused new API keys with no date for resuming, 
 - **The Pexels API**, as first planned. New keys are paused.
 - **Wikimedia Commons and Pixabay.** Rejected by Sah-Nikhil on image quality.
 - **Unsplash.** Its terms restrict use of images for AI purposes, which rules out descriptions, palettes and Remix.
-- **Our own Pinterest boards as the catalog.** Pinterest's developer guidelines forbid storing anything read through its API, and the board widget can't make single images selectable. Pinterest stays a Reference that a Member pastes (X2).
+- **Our own Pinterest boards as the catalog.** Pinterest's developer guidelines forbid storing anything read through its API, and the board widget can't make single images selectable. Pinterest stays a Reference that a Member pastes (X2), and since 2026-10-22 its boards can also be browsed through the widget ([ADR 0014](0014-pinterest-and-instagram-only-through-official-embeds.md)).
 
 ## Consequences
 
