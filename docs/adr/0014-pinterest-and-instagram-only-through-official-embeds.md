@@ -6,7 +6,7 @@ Members find their taste on Pinterest and Instagram, so v1 lets them bring it in
 - **Paste a link** (X2). A Member pastes a Pinterest Pin or board URL, or an Instagram post or Reel URL, adds what they like in it, and it becomes a Reference: Utsavvy stores only the URL and the note, and the platform's own embed draws it.
 - **Share from the phone** (X8). On Android, with Utsavvy installed as a PWA, sharing a Pin, a board, a post or a Reel from the Pinterest or Instagram app into Utsavvy opens the Event picker and saves a Reference.
 
-Picking one Pin from a board works through Pinterest: the Member taps it, it opens on Pinterest, and they bring its link back by pasting it or, on Android, sharing it into Utsavvy. Decided with Sah-Nikhil on 2026-10-22, who chose the official boards only (no Google Images and no search buttons) and parked the schedule question.
+Picking one Pin from a board works through Pinterest: the Member taps it, it opens on Pinterest, and they bring its link back by pasting it or, on Android, sharing it into Utsavvy. Decided with Sah-Nikhil on 2026-10-22, who chose the official boards only (no Google Images and no search buttons) and settled the schedule later that day (see Consequences).
 
 ## Why this way
 
@@ -32,7 +32,7 @@ The widget has no selection event, so the board can inspire but can't hand a til
 - A Pin saved to Utsavvy's boards is still someone else's picture. It shows only through Pinterest's widget, and Utsavvy never copies it, stores it or lets the Assistant read it; the pictures Utsavvy holds and reads are its own stock library ([ADR 0012](0012-stock-photos-from-a-local-hand-curated-library.md)) and Members' uploads.
 - The share target needs Utsavvy to be installable (a web app manifest with icons, from X8) and a test on a real Android phone of what the Pinterest and Instagram apps actually send. iPhones and desktops have no share target, so they paste the link. Shared image files are SHOULD (X13); v1 shares links.
 - The Browse ideas sheet and the Paste a link tab each say in one line that this content loads from Pinterest or Instagram, which receive the usual browser data.
-- The MUST tier grows by S21 (M), X2 (now L: Pinterest and Instagram) and X8 (M) with no slot for them yet. Where they fit, and what moves to SHOULD, is an open decision.
+- The MUST tier grows by S21 (M), X2 (now L: Pinterest and Instagram) and X8 (M). Later on 2026-10-22 Sah-Nikhil gave them a fourth agent of their own instead of moving anything to SHOULD: X2 starts as soon as the contract merges, then S21, then X8, one at a time beside the waves.
 
 ## Sources
 

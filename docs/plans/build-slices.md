@@ -71,9 +71,9 @@ The contract creates this layout, with stubs where a later slice fills in the co
 | Sun 25 Oct | 3 | S9, S10, S11, S13 | M + M + M + M |
 | Mon 26 Oct | 4 | S12, S14, S15, S16, S19a; then a rehearsal on production of the beats that exist | M + L + M + M + S |
 | Tue 27 Oct | 5 | S17, S18, then S19b, then the scripted-case CI run, fixes and the production rehearsal | M + S + S |
-| Not yet scheduled | MUST since 22 Oct | X2, S21, X8 ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)); Sah-Nikhil parked where they fit | L + M + M |
+| Fri 23 to Sun 25 Oct | Lane 4, beside the waves | X2 from 23 Oct, then S21, then X8, one at a time ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)) | L + M + M |
 
-S6 and S8 are S because cut-line items 1 and 2 moved to SHOULD on 2026-10-21 (X10, X11) to make room for S20; S13 is M without the Pexels API. On 2026-10-22 S3 grew from M to L with the estimate cascade, and cut-line item 3 moved to SHOULD (X12) to make room, so S11 is M. S3 is the heaviest risk on 23 Oct: S4 and S7 need it on 24 Oct. At most three issues are in progress at once. The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
+S6 and S8 are S because cut-line items 1 and 2 moved to SHOULD on 2026-10-21 (X10, X11) to make room for S20; S13 is M without the Pexels API. On 2026-10-22 S3 grew from M to L with the estimate cascade, and cut-line item 3 moved to SHOULD (X12) to make room, so S11 is M. S3 is the heaviest risk on 23 Oct: S4 and S7 need it on 24 Oct. At most three wave issues are in progress at once. A fourth agent works only on lane 4: X2, then S21, then X8, starting as soon as C0 merges (Sah-Nikhil, 2026-10-22: get them done as quickly as possible rather than spread over several days). The orchestrator may start the next issue of a day as soon as a slot frees, if its blockers are closed and its paths don't overlap.
 
 Cut decisions are dated, with a fallback table per late slice (IMPLEMENTATION_PLAN.md section 10): at 18:00 IST on 26 Oct the orchestrator decides and posts it; a wave 4 slice still open keeps going on 27 Oct ahead of S17, S19b and S18; at 12:00 IST on 27 Oct, one still unmerged drops or replaces its demo beat as the table says and S19b starts on whatever has merged; at 14:00 IST, if S17 is still open, the rest of the cut line moves to SHOULD. The scripted-case CI run and the rehearsal are never cut.
 
@@ -658,6 +658,7 @@ Parent: Slices. Blocked by: S1, S2, S7, D1.
 ### Acceptance criteria
 - [ ] Every Inspiration shows its credit ("Photo by Anil Sharma on Pexels", both linked; "Uploaded by Meera").
 - [ ] Library photos load from `/inspirations/...` on our own origin; no request goes to Pexels.
+- [ ] If X2 merged first: Paste a link is its own tab in the Add Inspiration panel, and a Reference saved through it shows its embed in the inspiration card through `<ReferenceEmbed>`.
 - [ ] Paste from the clipboard and drag and drop both upload; the browser shrinks images to 2048 px first.
 - [ ] Asking "find some haldi decor ideas" shows 6 library photos; only tapped ones land, tagged haldi.
 - [ ] The panel has Search, Upload and Paste a link tabs (the last hosts X2's `<PasteLinkForm>`, and the inspiration card hands a `reference` to X2's `<ReferenceEmbed>`; both are contract stubs until X2 merges) and the `PinterestIdeasButton` (S21); Generate arrives with X3; an empty Search shows the Event's own set.
@@ -925,19 +926,19 @@ Parent: Slices. Blocked by: C0, S1, S2.
 
 ## X2. Pinterest and Instagram References (MUST since 2026-10-22)
 
-Labels: `slice`, `inspirations`. Wave: not yet scheduled. Size: L.
+Labels: `slice`, `inspirations`. Wave: lane 4, from 23 Oct. Size: L.
 
 ### Goal
 A Member pastes a Pinterest Pin or board URL, or an Instagram post or Reel URL, says what they like in it, and it lands in the Inspirations Section as a Reference: Utsavvy keeps only the URL and the note, and the card shows the platform's own embed ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md), inspirations.md rules 6, 7 and 14).
 
 ### Phase
-Parent: Slices. Blocked by: C0, S13.
+Parent: Slices. Blocked by: C0. It starts on 23 Oct beside wave 1 and merges after S2, whose `placeInFreeSpace` it uses. C0's `AddInspirationPanel` already mounts `<PasteLinkForm>`, and S13's inspiration card hands a Reference to `<ReferenceEmbed>`, whose props C0 fixed, so X2 and S13 can merge in either order. If X2 merges first, a saved Reference shows as the contract's placeholder card until S13 lands, and S13's PR checks the embed in the card.
 
 ### Owned paths
 `app/embed/`, `components/references/`, `lib/references/`, `convex/references.ts`, `e2e/references.spec.ts`.
 
 ### Interfaces
-- Uses: the `inspiration` Item kind's `reference` source and its validator, the `/embed/*` Content Security Policy and the `ReferenceEmbed` and `PasteLinkForm` stubs (C0), the Paste a link tab and the inspiration card's hand-off to `<ReferenceEmbed>` (S13), `placeInFreeSpace`, `memberInsert`, `memberWrite`, `memberSoftDelete`, `requireAccess`, Pinterest's `pinit.js` (`data-pin-do="embedPin"` and `"embedBoard"`), Meta's tokenless `https://graph.facebook.com/v25.0/instagram_oembed` and `https://www.instagram.com/embed.js`.
+- Uses: the `inspiration` Item kind's `reference` source and its validator, the `/embed/*` Content Security Policy and the `ReferenceEmbed` and `PasteLinkForm` stubs (C0), the Paste a link tab and the inspiration card's hand-off to `<ReferenceEmbed>` (S13, which may merge after X2), `placeInFreeSpace`, `memberInsert`, `memberWrite`, `memberSoftDelete`, `requireAccess`, Pinterest's `pinit.js` (`data-pin-do="embedPin"` and `"embedBoard"`), Meta's tokenless `https://graph.facebook.com/v25.0/instagram_oembed` and `https://www.instagram.com/embed.js`.
 - Provides: `parseReferenceUrl(input) => { platform, urlKind, url, embedUrl } | { error }` in `lib/references/parse.ts`; `api.references.add({ eventId, url, note, functionKey? }) => { itemId }`; the pages `/embed/pinterest?url=` and `/embed/instagram?url=`, which render the official embed, post their height to the parent as `{ type: "utsavvy-embed-height", height }` and fall back to a link; `<ReferenceEmbed url>` (the lazily loaded, height-fitted iframe) and `<PasteLinkForm eventId onSaved>` in `components/references/`, filling the contract stubs.
 
 ### Test seams
@@ -959,7 +960,7 @@ Parent: Slices. Blocked by: C0, S13.
 
 ## S21. Browse ideas on Pinterest (MUST since 2026-10-22)
 
-Labels: `slice`, `inspirations`, `needs-human`. Wave: not yet scheduled. Size: M.
+Labels: `slice`, `inspirations`, `needs-human`. Wave: lane 4, after X2 (about 24 Oct). Size: M.
 
 ### Goal
 A Member opens "Browse ideas on Pinterest", picks one of the public boards on Utsavvy's Pinterest account for the Event's Functions, browses it through Pinterest's board widget, and brings a Pin they like back as a Reference by its link ([ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)).
@@ -991,13 +992,13 @@ Parent: Slices. Blocked by: X2.
 
 ## X8. Android share sheet (MUST since 2026-10-22)
 
-Labels: `slice`, `inspirations`, `needs-human`. Wave: not yet scheduled. Size: M.
+Labels: `slice`, `inspirations`, `needs-human`. Wave: lane 4, after S21 (about 25 Oct). Size: M.
 
 ### Goal
 On Android, with Utsavvy installed, a Member shares a Pinterest Pin or board, or an Instagram post or Reel, from its app into Utsavvy, picks the Event, adds a note and saves a Reference (inspirations.md rule 9, [ADR 0014](../adr/0014-pinterest-and-instagram-only-through-official-embeds.md)). Shared image files are X13.
 
 ### Phase
-Parent: Slices. Blocked by: X2.
+Parent: Slices. Blocked by: X2, S1.
 
 ### Owned paths
 `app/manifest.ts`, `public/icons/`, `app/share/`, `components/share/`, `e2e/share.spec.ts`.

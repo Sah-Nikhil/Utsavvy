@@ -18,7 +18,7 @@ Decided in [Which stack do we build on?](https://github.com/Sah-Nikhil/Utsavvy/i
 - Pinterest and Instagram: official embeds only (Pinterest's `pinit.js` board and Pin widgets, Instagram through Meta's tokenless oEmbed), each rendered in an isolated `/embed/*` page with its own Content Security Policy; we store only the Member's link and note (ADR 0014).
 - Map: **MapLibre GL JS** via `react-map-gl/maplibre` with **OpenFreeMap** tiles; the style URL is a single setting. See ADR 0005.
 - Tooling: TypeScript **6.0** (not 7), **ESLint** (`eslint-config-next` + `@convex-dev/eslint-plugin`) + **Prettier** (LF line endings), **Vitest** + `convex-test`, **Playwright**. See ADR 0006.
-- UI: **Tailwind CSS 4** + **shadcn/ui** (Base UI variant), copied into the repo and restyled from our own tokens so nothing looks stock; **React Flow** (`@xyflow/react` 12) for the freeform Canvas; fonts Anek Devanagari, Fraunces and Tiro Devanagari Hindi via `next/font`. Components use named colour tokens only, never raw colour values. See ADR 0010; the look is picked at the contract review (`IMPLEMENTATION_PLAN.md` section 7.3).
+- UI: **Tailwind CSS 4** + **shadcn/ui** (Base UI variant), copied into the repo and restyled from our own tokens so nothing looks stock; **React Flow** (`@xyflow/react` 12) for the freeform Canvas; fonts Anek Devanagari, Fraunces and Tiro Devanagari Hindi via `next/font`. Components use named colour tokens only, never raw colour values. See ADR 0010. The look is D, Contemporary rangoli, with a personal Ornaments setting, picked at the contract review on 2026-10-22 (`IMPLEMENTATION_PLAN.md` section 7.3).
 
 ## Commands
 Planned; the contract slice creates these scripts in `package.json`.

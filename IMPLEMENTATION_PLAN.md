@@ -52,9 +52,9 @@ Every item here is built in v1. Slice ids refer to [docs/plans/build-slices.md](
 | S19a | Open the seeded demo Event with a judge account, and have it reset nightly or on demand. | S |
 | S19b | Walk the whole demo script on the seeded Event in a browser test, and rehearse it on production. | S |
 | S20 | Browse Google places in a full-screen sheet built on Google's Places UI Kit, with Google's own map beside the list, save one to the Canvas as a Google place (place ID and own note only), and reopen it in the sheet or in Google Maps. | M |
-| X2 | (MUST since 2026-10-22, not yet scheduled) Paste a Pinterest Pin or board link, or an Instagram post or Reel link, and keep it as a Reference shown through the platform's official embed. | L |
-| S21 | (MUST since 2026-10-22, not yet scheduled) Browse the public boards on Utsavvy's Pinterest account for the Event's Functions through Pinterest's board widget, and bring a Pin back by its link. | M |
-| X8 | (MUST since 2026-10-22, not yet scheduled) On Android, share a Pin, board, post or Reel from the Pinterest or Instagram app into Utsavvy as a Reference. | M |
+| X2 | (MUST since 2026-10-22, lane 4 from 23 Oct) Paste a Pinterest Pin or board link, or an Instagram post or Reel link, and keep it as a Reference shown through the platform's official embed. | L |
+| S21 | (MUST since 2026-10-22, lane 4 from 23 Oct) Browse the public boards on Utsavvy's Pinterest account for the Event's Functions through Pinterest's board widget, and bring a Pin back by its link. | M |
+| X8 | (MUST since 2026-10-22, lane 4 from 23 Oct) On Android, share a Pin, board, post or Reel from the Pinterest or Instagram app into Utsavvy as a Reference. | M |
 
 Sizes: S is about half a slice, M one slice, L about one and a half.
 
@@ -439,7 +439,7 @@ Sah-Nikhil likes [Prompt Motion](https://prompt-motion.com/), a collection of mo
 
 ### 7.3 The look
 
-Sah-Nikhil compared four looks rendered on the same screens (the Canvas prototype's own tones, Ivory ledger, Midnight mehfil and Contemporary rangoli) in a throwaway mockup page. Two candidates remain, and the final call is made once the custom components exist, during the contract review on 22 Oct.
+Sah-Nikhil compared four looks rendered on the same screens (the Canvas prototype's own tones, Ivory ledger, Midnight mehfil and Contemporary rangoli) in a throwaway mockup page. Two candidates remained for the contract review on 22 Oct, where Sah-Nikhil picked D (below).
 
 Shared by both candidates:
 
@@ -453,7 +453,7 @@ Shared by both candidates:
 
 **Candidate D, Contemporary rangoli.** Sand ground with bright white Items. Every Section is framed by original ornamental corner pieces. Each Function has its own muted colour, shown as a diamond marker and a tinted row band in the Budget, the Timeline and the Function filter: haldi ochre, mehendi green, sangeet plum, wedding maroon, reception slate (new Functions take the next colour from a fixed set). Friendlier and more festive, with more colours to keep apart from price, focus and selection states.
 
-The recommended default, if no call is made by the end of the contract review, is B with D's Function colours: Ivory ledger's ground and labels, plus the per-Function markers and row tints, without the corner ornaments.
+**Decided on 2026-10-22: D**, picked by Sah-Nikhil on the contract's real components over B and over C0's default of B with D's Function colours, with one change: the ornaments can be switched off. "Ornaments" is a personal display setting, on by default, in the account menu. Turned off, it hides the corner pieces and any other purely decorative motif and leaves the sand ground, the Function colours and the layout exactly as they are. It is stored per device, like a theme setting, and applied before the page paints, so a reload doesn't flash. B's italic Section labels and diamond line motif went with B.
 
 ### 7.4 Our own components, not stock shadcn
 
@@ -551,7 +551,7 @@ Chosen by Sah-Nikhil: a Ganesh utsav Brief first, then the seeded wedding. Recor
 | 1:30 | judge-member | "Find some haldi decor ideas" shows 6 stock library photos. Tap two, then "Use for Theme" on one. The Theme gains its colours and a new decor Suggestion appears with an Estimate. |
 | 1:45 | Phone | The same Event on a phone: the Chat first, the Canvas tab in Compact mode. End on the repo link. |
 
-The 0:08 figures above are the table-path numbers. On production they come from the live estimate cascade ([ADR 0013](docs/adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)) and may differ; the beats stay the same. The rehearsal checks that the researched numbers are plausible and that ₹2,40,000 still falls below the minimum so the flag and "Plan at my budget anyway" appear. If it doesn't, Sah-Nikhil picks a smaller collection for the script's Brief (for example ₹800 per flat) at the rehearsal, and the narration quotes whatever the summary shows. The demo-path browser test runs with research stubbed, so it checks the table-path wording exactly.
+The 0:08 figures above are the table-path numbers. On production they come from the live estimate cascade ([ADR 0013](docs/adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)) and may differ; the beats stay the same. The rehearsal checks that the researched numbers are plausible and that ₹2,40,000 still falls below the minimum so the flag and "Plan at my budget anyway" appear. If it doesn't, Sah-Nikhil picks a smaller collection for the script's Brief (for example ₹800 per flat) at the rehearsal, and the narration quotes whatever the summary shows. The demo-path browser test runs with research stubbed, so it checks the table-path wording exactly. Sah-Nikhil confirmed on 2026-10-22 that the demo runs on live numbers: the reset doesn't pre-fill any prices for this beat.
 
 Fallbacks for demo day: if the Anthropic credits run out, `DEFAULT_MODEL` switches to `gemini-3.8-flash`, the web search beat is skipped, and Estimates come from the reference table, so 0:08 shows exactly the numbers above. The video is recorded on 28 Oct from the production URL after a reset.
 
@@ -578,9 +578,9 @@ The days, waves and exit criteria are in [ROADMAP.md](ROADMAP.md), and every iss
 | 22 Oct | Fill any starter-set category gap with an Instagram-only Vendor, checked by hand on its public profile (D2) | 20 min, if needed |
 | By 23 Oct | Follow [docs/setup/google-cloud.md](docs/setup/google-cloud.md): the Google Cloud project with a billing account (Free Trial, not upgraded, if offered), Maps JavaScript and the Places UI Kit enabled, the browser key with website and API restrictions, the Map ID, daily caps where offered, a ₹100 budget alert, and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` in `.env.local` and the Vercel dashboard (S20 starts on 24 Oct) | 30 min |
 | 22 Oct | Check the 16 starter Vendor cards against their sites, and approve or reject D2's reference-table adjustments by the end of the day (this freezes the table; done 22 Oct, both rejected) | 50 min |
-| 22 Oct | Review the contract PR, pick the look (B or D, section 7.3) on the real components, and give the go to merge | 45 min |
-| Before S21 starts | Create Utsavvy's Pinterest account (a free business account), then about 12 to 18 public boards on it, one per Function or theme (haldi decor, mehendi, sangeet stages, kids' party themes, Ganesh pandals and so on), save Pins to them, and give the orchestrator their URLs for `seed/pinterest-boards.json` | 2 h |
-| When X8 starts | The Android device check: install Utsavvy from Chrome, then share one Pin, one board, one Instagram post and one Reel into it | 20 min |
+| 22 Oct | Review the contract PR, pick the look (B or D, section 7.3) on the real components, and give the go to merge (look picked 22 Oct: D, with an Ornaments setting) | 45 min |
+| By 24 Oct, before S21 starts | Create Utsavvy's Pinterest account (a free business account), then about 12 to 18 public boards on it, one per Function or theme (haldi decor, mehendi, sangeet stages, kids' party themes, Ganesh pandals and so on), save Pins to them, and give the orchestrator their URLs for `seed/pinterest-boards.json` | 2 h |
+| About 25 Oct, when X8 starts | The Android device check: install Utsavvy from Chrome, then share one Pin, one board, one Instagram post and one Reel into it | 20 min |
 | 26 Oct, morning | Create the three judge accounts in Clerk and put their IDs in Convex, before S19a merges (done 22 Oct) | 10 min |
 | 28 Oct | Record the demo video, publish the LinkedIn post, submit | 2 h |
 
