@@ -139,7 +139,7 @@ export function ReferenceEmbed({
               title={`${name} preview`}
               loading="lazy"
               sandbox={SANDBOX[platform]}
-              referrerPolicy="strict-origin-when-cross-origin"
+              referrerPolicy="no-referrer"
               className="relative block size-full border-0 bg-transparent"
             />
           ) : null}

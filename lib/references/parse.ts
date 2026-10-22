@@ -4,7 +4,8 @@
  * on our server, ever opens the link.
  *
  * - `url` is the link as the Member gave it, without its query string or
- *   fragment (those carry share and tracking codes, not the post).
+ *   fragment (those carry share and tracking codes, not the post), except an
+ *   Instagram carousel's `img_index`, which says which slide they meant.
  * - `embedUrl` is the canonical link the platform's widget takes:
  *   `in.pinterest.com` and the other country hosts become `www.pinterest.com`,
  *   and an Instagram link shared with the poster's name in its path becomes
@@ -84,6 +85,16 @@ const PINTEREST_USER = /^[A-Za-z0-9_]{1,64}$/;
 const BOARD_SLUG = /^[A-Za-z0-9_%.-]{1,200}$/;
 const SHORT_CODE = /^[A-Za-z0-9_-]{1,64}$/;
 const INSTAGRAM_USER = /^[A-Za-z0-9_.]{1,30}$/;
+/** First path segments on instagram.com that are pages, never a poster's name. */
+const INSTAGRAM_RESERVED = new Set([
+  "stories",
+  "share",
+  "explore",
+  "accounts",
+  "direct",
+]);
+/** A carousel's slide number, the one query parameter a stored Instagram link keeps. */
+const IMG_INDEX = /^\d{1,2}$/;
 
 /** Path segments, ignoring empty ones from leading, trailing or doubled slashes. */
 function segmentsOf(pathname: string): string[] {
@@ -135,6 +146,11 @@ function parseInstagram(
   segments: string[],
   url: string,
 ): ParsedReference | null {
+  if (
+    segments[0] !== undefined &&
+    INSTAGRAM_RESERVED.has(segments[0].toLowerCase())
+  )
+    return null;
   // Shared links may carry the poster's name first: /<user>/p/<code>/.
   const rest =
     segments.length === 3 && INSTAGRAM_USER.test(segments[0]!)
@@ -195,7 +211,15 @@ export function parseReferenceUrl(input: string): ParseResult {
   } else if (PINTEREST_HOST.test(host)) {
     result = parsePinterest(segments, url);
   } else if (INSTAGRAM_HOSTS.has(host)) {
-    result = parseInstagram(segments, url);
+    // A carousel link keeps its slide, so "Open on Instagram" shows the one
+    // the Member meant.
+    const slide = parsed.searchParams.get("img_index");
+    result = parseInstagram(
+      segments,
+      slide !== null && IMG_INDEX.test(slide)
+        ? `${url}?img_index=${slide}`
+        : url,
+    );
   }
   return result ?? { error: "notSupported" };
 }

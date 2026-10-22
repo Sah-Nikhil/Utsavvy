@@ -1,3 +1,4 @@
+import { countCharacters } from "../types/canvas";
 import type { ParsedReference } from "./parse";
 
 /**
@@ -48,4 +49,9 @@ export function composeNote(
   if (picked === "") return free;
   if (free === "") return picked;
   return `${picked}; ${free}`;
+}
+
+/** Whether a note is over the limit, counted in characters as the server counts them. */
+export function noteTooLong(note: string | null): boolean {
+  return note !== null && countCharacters(note) > REFERENCE_NOTE_MAX;
 }

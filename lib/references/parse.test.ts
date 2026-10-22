@@ -99,6 +99,27 @@ describe("parseReferenceUrl accepts", () => {
     });
   });
 
+  it("an Instagram carousel link, keeping which slide it shows", () => {
+    expect(
+      parseReferenceUrl(
+        "https://www.instagram.com/p/fA9uwTtkSN/?img_index=3&igsh=abc123",
+      ),
+    ).toEqual({
+      platform: "instagram",
+      urlKind: "post",
+      url: "https://www.instagram.com/p/fA9uwTtkSN/?img_index=3",
+      embedUrl: "https://www.instagram.com/p/fA9uwTtkSN/",
+    });
+  });
+
+  it("an Instagram link whose img_index isn't a slide number, without it", () => {
+    expect(
+      parseReferenceUrl(
+        "https://www.instagram.com/p/fA9uwTtkSN/?img_index=%22%3E",
+      ),
+    ).toMatchObject({ url: "https://www.instagram.com/p/fA9uwTtkSN/" });
+  });
+
   it("surrounding spaces and a Pinterest share suffix", () => {
     expect(
       parseReferenceUrl(
@@ -153,6 +174,41 @@ describe("parseReferenceUrl refuses", () => {
     [
       "an Instagram story",
       "https://www.instagram.com/stories/meera/3123456789/",
+      "notSupported",
+    ],
+    [
+      "an Instagram story of a person named p",
+      "https://www.instagram.com/stories/p/3123456789/",
+      "notSupported",
+    ],
+    [
+      "an Instagram share link",
+      "https://www.instagram.com/share/reel/BAabc123/",
+      "notSupported",
+    ],
+    [
+      "an Instagram explore page",
+      "https://www.instagram.com/explore/p/Cxyz123/",
+      "notSupported",
+    ],
+    [
+      "an Instagram account page",
+      "https://www.instagram.com/accounts/p/Cxyz123/",
+      "notSupported",
+    ],
+    [
+      "an Instagram direct message",
+      "https://www.instagram.com/direct/p/Cxyz123/",
+      "notSupported",
+    ],
+    [
+      "a host that only ends in pinterest.com",
+      "https://xpinterest.com/pin/123456789/",
+      "notSupported",
+    ],
+    [
+      "a user name without a password",
+      "https://user@www.pinterest.com/pin/123456789/",
       "notSupported",
     ],
     ["not a URL", "teal drapes", "invalid"],

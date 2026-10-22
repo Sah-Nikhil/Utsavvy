@@ -5,10 +5,11 @@ const POST = "https://www.instagram.com/p/fA9uwTtkSN/";
 const BLOCKQUOTE =
   '<blockquote class="instagram-media" data-instgrm-permalink="https://www.instagram.com/p/fA9uwTtkSN/?utm_source=ig_embed" data-instgrm-version="14" style="max-width:540px;"><div style="padding:16px;"><a href="https://www.instagram.com/p/fA9uwTtkSN/?utm_source=ig_embed" target="_blank">View this post on Instagram</a></div></blockquote>';
 
-function open(url: string) {
+function open(url: string, dest: string | null = "iframe") {
   return GET(
     new Request(
       `http://localhost:3000/embed/instagram?url=${encodeURIComponent(url)}`,
+      { headers: dest === null ? {} : { "sec-fetch-dest": dest } },
     ),
   );
 }
@@ -68,4 +69,16 @@ describe("/embed/instagram", () => {
     expect(fetchStub).not.toHaveBeenCalled();
     expect(html).toContain("This link can't be previewed.");
   });
+
+  it.each([null, "document"])(
+    "asks Meta nothing and shows the link when sec-fetch-dest is %s, not iframe",
+    async (dest) => {
+      const fetchStub = stubMeta(Response.json({ html: BLOCKQUOTE }));
+      const html = await (await open(POST, dest)).text();
+      expect(fetchStub).not.toHaveBeenCalled();
+      expect(html).not.toContain("instagram-media");
+      expect(html).toContain('"script":null');
+      expect(html).toContain(`href="${POST}"`);
+    },
+  );
 });

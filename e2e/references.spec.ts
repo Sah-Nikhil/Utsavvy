@@ -35,12 +35,19 @@ test.describe("references", () => {
       expect(headers["cache-control"], path).toBe("no-store");
       expect(headers["x-robots-tag"], path).toBe("noindex");
     }
-    const pinterest = await (
-      await request.get(`/embed/pinterest?url=${encodeURIComponent(PIN)}`)
+    const pinPath = `/embed/pinterest?url=${encodeURIComponent(PIN)}`;
+    const framed = await (
+      await request.get(pinPath, { headers: { "sec-fetch-dest": "iframe" } })
     ).text();
-    expect(pinterest).toContain(
+    expect(framed).toContain(
       '<a data-pin-do="embedPin" href="https://www.pinterest.com/pin/123456789/"></a>',
     );
+    // Opened directly rather than in a card's iframe: only the link.
+    const direct = await (
+      await request.get(pinPath, { headers: { "sec-fetch-dest": "document" } })
+    ).text();
+    expect(direct).not.toContain("<a data-pin-do");
+    expect(direct).toContain('"script":null');
   });
 
   test("a pin.it link's embed page shows only the link, with no Pinterest script", async ({
@@ -63,16 +70,34 @@ test.describe("references", () => {
     expect(cspViolations).toEqual([]);
   });
 
-  test("Paste a link previews the link in the embed iframe and asks what they like", async ({
+  test("Paste a link previews the link in the embed iframe, asks what they like and saves", async ({
     page,
     signIn,
     cspViolations,
-  }) => {
+  }, testInfo) => {
+    const baseURL = testInfo.project.use.baseURL;
+    test.skip(
+      baseURL !== undefined &&
+        new URL(baseURL).hostname === "utsavvy.vercel.app",
+      "Creates an Event, so it runs on PR previews and locally only.",
+    );
+    test.setTimeout(120_000);
     await page.route("**/embed/**", stubEmbedPages);
     await signIn();
-    await page.goto("/events/smoke-test-event");
-    await page.getByRole("button", { name: "Add Inspiration" }).click();
 
+    // An Event of our own, with its Inspirations Section.
+    await page.goto("/events");
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByRole("button", { name: "New Event" }).click();
+    const dialog = page.getByRole("dialog", { name: "New Event" });
+    await dialog.getByLabel("Event name").fill(`E2E references ${Date.now()}`);
+    await dialog.getByRole("radio", { name: /Host/ }).check();
+    await dialog.getByRole("button", { name: "Create Event" }).click();
+    await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Add Inspiration" }).click();
     const form = page.locator("[data-paste-link]");
     await expect(
       form.getByRole("heading", { name: "Paste a link" }),
@@ -103,12 +128,13 @@ test.describe("references", () => {
       form.getByRole("link", { name: "Open on Pinterest" }),
     ).toHaveAttribute("href", PIN);
     await expect(form.getByText("What do you like in this?")).toBeVisible();
-    await form.getByRole("button", { name: "colours" }).click();
-    await expect(form.getByRole("button", { name: "colours" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await expect(form.getByRole("button", { name: "Save" })).toBeEnabled();
+    const colours = form.getByRole("button", { name: "colours" });
+    await colours.click();
+    await expect(colours).toHaveAttribute("aria-pressed", "true");
+
+    // A different link starts with no chips tapped.
+    await link.fill("https://www.instagram.com/p/fA9uwTtkSN/");
+    await expect(colours).toHaveAttribute("aria-pressed", "false");
 
     await link.fill("https://pin.it/AbC123");
     await expect(
@@ -123,6 +149,13 @@ test.describe("references", () => {
       page.locator('script[src*="pinterest"], script[src*="instagram"]'),
     ).toHaveCount(0);
     await expectNoSeriousA11yViolations(page);
+
+    await link.fill(PIN);
+    await colours.click();
+    await form.getByLabel("Anything else?").fill("the yellow drapes");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(form.getByText("Saved to Inspirations.")).toBeVisible();
+    await expect(link).toHaveValue("");
     expect(cspViolations).toEqual([]);
   });
 });

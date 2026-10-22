@@ -12,6 +12,7 @@ import {
   REFERENCE_NOTE_MAX,
   composeNote,
   noteChips,
+  noteTooLong,
 } from "@/lib/references/note";
 import {
   parseReferenceUrl,
@@ -49,7 +50,7 @@ function saveError(error: unknown): string {
         : "You're no longer part of this Event.";
     if (data?.kind === "ReferenceUrlRefused") return URL_ERRORS.notSupported;
     if (data?.kind === "ReferenceNoteTooLong")
-      return `Keep the note under ${REFERENCE_NOTE_MAX} characters.`;
+      return `A note can be up to ${REFERENCE_NOTE_MAX} characters.`;
   }
   return "Couldn't save this link. Check your connection and try again.";
 }
@@ -73,7 +74,7 @@ export function PasteLinkForm({ eventId, onSaved }: PasteLinkFormProps) {
   const chips =
     reference === null ? [] : noteChips(reference.urlKind, themeWords ?? []);
   const note = composeNote(picked, text);
-  const tooLong = (note?.length ?? 0) > REFERENCE_NOTE_MAX;
+  const tooLong = noteTooLong(note);
 
   function toggle(chip: string, on: boolean) {
     setPicked((current) =>
@@ -133,7 +134,16 @@ export function PasteLinkForm({ eventId, onSaved }: PasteLinkFormProps) {
             placeholder="https://www.pinterest.com/pin/…"
             value={link}
             onChange={(event) => {
-              setLink(event.currentTarget.value);
+              const next = event.currentTarget.value;
+              const nextParsed =
+                next.trim() === "" ? null : parseReferenceUrl(next);
+              const nextUrl =
+                nextParsed !== null && !("error" in nextParsed)
+                  ? nextParsed.url
+                  : null;
+              // Chips belong to one link: a new link starts with none tapped.
+              if (nextUrl !== (reference?.url ?? null)) setPicked([]);
+              setLink(next);
               setSaved(null);
               setError(null);
             }}
@@ -173,7 +183,7 @@ export function PasteLinkForm({ eventId, onSaved }: PasteLinkFormProps) {
               label="Anything else?"
               error={
                 tooLong
-                  ? `Keep the note under ${REFERENCE_NOTE_MAX} characters.`
+                  ? `A note can be up to ${REFERENCE_NOTE_MAX} characters.`
                   : undefined
               }
             >

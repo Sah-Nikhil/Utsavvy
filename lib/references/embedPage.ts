@@ -61,7 +61,7 @@ function pageScript(config: PageConfig): string {
   var fallback = document.getElementById("fallback");
   var settled = false;
   function post(message) {
-    if (window.parent !== window) window.parent.postMessage(message, "*");
+    if (window.parent !== window) window.parent.postMessage(message, location.origin);
   }
   function report() {
     post({ type: "${EMBED_HEIGHT_MESSAGE}", height: Math.ceil(document.body.getBoundingClientRect().height) });
@@ -147,18 +147,35 @@ body { font: 15px/1.45 system-ui, sans-serif; color: CanvasText; overflow: hidde
 </html>`;
 }
 
-/** The Pinterest page: Pinterest's own `embedPin` or `embedBoard` widget for a full Pin or board link. */
-export function pinterestEmbedPage(url: string | null): string {
+/**
+ * Whether the request is the card's iframe loading the page. Opened any other
+ * way (a link, a new tab), the page loads no platform script and shows only
+ * the link, so Pinterest's and Instagram's scripts never run as a top-level
+ * page on our origin. A browser that sends no `Sec-Fetch-Dest` gets the link.
+ */
+export function isFramed(request: Request): boolean {
+  return request.headers.get("sec-fetch-dest") === "iframe";
+}
+
+/**
+ * The Pinterest page: Pinterest's own `embedPin` or `embedBoard` widget for a
+ * full Pin or board link inside the card's iframe, otherwise only the link.
+ */
+export function pinterestEmbedPage(
+  url: string | null,
+  options: { framed: boolean } = { framed: true },
+): string {
   const parsed = url === null ? null : parseReferenceUrl(url);
   if (
     parsed === null ||
     "error" in parsed ||
     parsed.platform !== "pinterest" ||
-    parsed.embedUrl === null
+    parsed.embedUrl === null ||
+    !options.framed
   ) {
     const link =
       parsed !== null && !("error" in parsed) && parsed.platform === "pinterest"
-        ? parsed.url
+        ? (parsed.embedUrl ?? parsed.url)
         : null;
     return page({
       title: "Pinterest preview",

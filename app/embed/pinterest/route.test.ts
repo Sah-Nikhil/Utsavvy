@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
 
-function open(url: string | null) {
+function open(url: string | null, dest: string | null = "iframe") {
   const query = url === null ? "" : `?url=${encodeURIComponent(url)}`;
-  return GET(new Request(`http://localhost:3000/embed/pinterest${query}`));
+  return GET(
+    new Request(`http://localhost:3000/embed/pinterest${query}`, {
+      headers: dest === null ? {} : { "sec-fetch-dest": dest },
+    }),
+  );
 }
 
 afterEach(() => {
@@ -54,4 +58,16 @@ describe("/embed/pinterest", () => {
     expect(html).not.toContain("alert(1)");
     expect(html).toContain('"script":null');
   });
+
+  it.each([null, "document", "empty"])(
+    "loads no Pinterest script when the request's sec-fetch-dest is %s, not iframe",
+    async (dest) => {
+      const html = await (
+        await open("https://www.pinterest.com/pin/123456789/", dest)
+      ).text();
+      expect(html).not.toContain("<a data-pin-do");
+      expect(html).toContain('"script":null');
+      expect(html).toContain('href="https://www.pinterest.com/pin/123456789/"');
+    },
+  );
 });
