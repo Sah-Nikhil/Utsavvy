@@ -13,10 +13,11 @@ if (problems.length > 0) {
       `${p.path}: ${p.eol.toUpperCase()} line endings in the ${p.where}`,
     );
   console.error(
-    `\n${problems.length} file(s) need LF line endings. Working-tree only: run` +
-      " `git checkout-index --force -- <file>` on a file with no local changes" +
-      " to rewrite it from the index. In the index: convert the file to LF and" +
-      " stage it again.",
+    `\n${problems.length} file(s) need LF line endings.\n` +
+      "Working tree only (checked out before .gitattributes existed, or by an" +
+      " older Git with core.autocrlf=true): for a file with no local changes," +
+      " delete it and run `git checkout -- <file>`.\n" +
+      "In the index: convert the file to LF and stage it again.",
   );
   process.exit(1);
 }
