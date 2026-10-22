@@ -15,7 +15,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -336,7 +336,7 @@ function PersonActions({
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
         title={`Remove ${person.name}?`}
-        description={`Their access ends now and they can't rejoin by link until you or another ${roleLabel("owner", ownerLabel)} or ${coOwner} unblocks them. Everything they added stays, under their name.`}
+        description={`Their access ends now and they can't rejoin by link until the ${roleLabel("owner", ownerLabel)} or a ${coOwner} unblocks them. Everything they added stays, under their name.`}
         confirmLabel="Remove"
         onConfirm={async () => {
           await remove(args);
@@ -410,7 +410,9 @@ function InviteLink({
 }) {
   const resetLink = useMutation(api.people.resetLink);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const addressRef = useRef<HTMLInputElement>(null);
   const url =
     token && typeof window !== "undefined"
       ? `${window.location.origin}/join/${token}`
@@ -418,9 +420,18 @@ function InviteLink({
 
   async function copy() {
     if (!url) return;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyFailed(false);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard refused (permission, or not a secure context): select the
+      // address so the person can copy it themselves.
+      setCopyFailed(true);
+      addressRef.current?.focus();
+      addressRef.current?.select();
+    }
   }
 
   return (
@@ -434,6 +445,7 @@ function InviteLink({
       </div>
       <div className="flex items-center gap-2">
         <input
+          ref={addressRef}
           readOnly
           value={url}
           aria-label={`${title} address`}
@@ -460,6 +472,12 @@ function InviteLink({
           Reset
         </Button>
       </div>
+      {copyFailed ? (
+        <p role="alert" className="text-caption text-warn">
+          Your browser didn&apos;t allow copying. The address is selected: press
+          Ctrl+C (or long-press and Copy) to copy it.
+        </p>
+      ) : null}
       <span aria-live="polite" className="sr-only">
         {copied ? `${title} copied` : ""}
       </span>

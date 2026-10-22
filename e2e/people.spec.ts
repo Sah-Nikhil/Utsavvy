@@ -55,6 +55,17 @@ async function openPeople(page: Page) {
   await expect(page.locator('[data-mount="people-panel"]')).toBeVisible();
 }
 
+/**
+ * Production, where CI runs e2e after every push to `main`. The join flow
+ * creates an Event and a membership that nothing cleans up, so it runs only on
+ * PR previews and locally, never against the deployment judges use.
+ */
+const PRODUCTION_HOST = "utsavvy.vercel.app";
+
+function isProduction(baseURL: string | undefined): boolean {
+  return baseURL ? new URL(baseURL).hostname === PRODUCTION_HOST : false;
+}
+
 test.describe("people", () => {
   test("a Viewer joins by the Viewer link and shows in the people list", async ({
     page,
@@ -62,6 +73,10 @@ test.describe("people", () => {
     signIn,
     cspViolations,
   }, testInfo) => {
+    test.skip(
+      isProduction(testInfo.project.use.baseURL),
+      "Creates an Event, so it runs on PR previews and locally only.",
+    );
     test.setTimeout(120_000);
     const viewer = viewerEmail();
     await ensureClerkUser(process.env.E2E_CLERK_USER_EMAIL!, "Meera");
@@ -137,6 +152,7 @@ test.describe("people", () => {
       page.getByRole("heading", { name: "Terms and privacy" }),
     ).toBeVisible();
     for (const service of [
+      "Vercel",
       "Clerk",
       "Convex",
       "Anthropic",

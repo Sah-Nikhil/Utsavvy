@@ -1,11 +1,14 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
+
+/** How long to wait for sign-in to reach Convex before showing the failure. */
+const JOIN_TIMEOUT_MS = 20_000;
 
 type Outcome =
   | { kind: "joining" }
@@ -22,13 +25,23 @@ type Outcome =
 export function JoinEvent({ token }: { token: string }) {
   const router = useRouter();
   const join = useMutation(api.people.join);
-  // `join` needs the person's `users` row, which EnsureUser makes on sign-in.
-  const account = useQuery(api.users.me);
+  // `join` makes the person's `users` row itself if it isn't there yet, so it
+  // needs only Convex to hold the Clerk token.
+  const { isAuthenticated } = useConvexAuth();
   const [outcome, setOutcome] = useState<Outcome>({ kind: "joining" });
   const started = useRef(false);
 
   useEffect(() => {
-    if (!account || started.current) return;
+    if (isAuthenticated) return;
+    // Never authenticated (Clerk or Convex unreachable): don't spin forever.
+    const timer = setTimeout(() => {
+      if (!started.current) setOutcome({ kind: "failed" });
+    }, JOIN_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || started.current) return;
     started.current = true;
     join({ token })
       .then((result) => {
@@ -39,7 +52,7 @@ export function JoinEvent({ token }: { token: string }) {
         }
       })
       .catch(() => setOutcome({ kind: "failed" }));
-  }, [account, join, token, router]);
+  }, [isAuthenticated, join, token, router]);
 
   if (outcome.kind === "joining") {
     return (

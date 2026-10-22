@@ -8,6 +8,11 @@ export const metadata: Metadata = { title: "Terms and privacy" };
 
 const SERVICES: readonly { name: string; receives: ReactNode }[] = [
   {
+    name: "Vercel",
+    receives:
+      "Hosts the site, so it receives every request as part of serving it: your IP address, browser details and the pages you visit.",
+  },
+  {
     name: "Clerk",
     receives:
       "Signs you in and holds your name, email address and profile photo.",

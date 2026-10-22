@@ -146,7 +146,7 @@ describe("people.join", () => {
     const { eventId, viewerToken } = await meerasWedding(t);
     // Meera plus 22 joiners plus 2 pending email invites = 25.
     for (let i = 0; i < MAX_PEOPLE_PER_EVENT - 3; i++) {
-      await as(t, `Guest${i}`).mutation(api.people.join, {
+      await as(t, `Viewer${i}`).mutation(api.people.join, {
         token: viewerToken,
       });
     }
@@ -178,7 +178,7 @@ describe("people.join", () => {
     expect(await membershipCount(t, eventId)).toBe(before);
     // Someone already in still gets through a full Event.
     expect(
-      await as(t, "Guest0").mutation(api.people.join, { token: viewerToken }),
+      await as(t, "Viewer0").mutation(api.people.join, { token: viewerToken }),
     ).toMatchObject({ kind: "alreadyIn" });
   });
 
@@ -615,6 +615,193 @@ describe("people.me for a page address that isn't an Event", () => {
         eventId: "smoke-test-event",
       }),
     ).toEqual({ status: "denied", reason: "notAMember" });
+  });
+});
+
+describe("refusals the review asked to pin down", () => {
+  it("a membership from another Event is refused as wrongEvent by setRole, remove and unblock", async () => {
+    const t = setUp();
+    const { eventId } = await meerasWedding(t);
+    const other = await as(t, "Kabir").mutation(api.events.create, {
+      name: "Kabir's birthday",
+      eventType: "birthday",
+    });
+    const otherLinks = await as(t, "Kabir").query(api.people.links, {
+      eventId: other,
+    });
+    await as(t, "Isha").mutation(api.people.join, { token: otherLinks.member });
+    const isha = (
+      await as(t, "Kabir").query(api.people.list, { eventId: other })
+    ).people.find((p) => p.name === "Isha")!;
+    const target = { eventId, membershipId: isha.membershipId };
+
+    expect(
+      await denialOf(
+        as(t, "Meera").mutation(api.people.setRole, {
+          ...target,
+          role: "viewer",
+        }),
+      ),
+    ).toMatchObject({ reason: "wrongEvent" });
+    expect(
+      await denialOf(as(t, "Meera").mutation(api.people.remove, target)),
+    ).toMatchObject({ reason: "wrongEvent" });
+    expect(
+      await denialOf(as(t, "Meera").mutation(api.people.unblock, target)),
+    ).toMatchObject({ reason: "wrongEvent" });
+    const after = await as(t, "Kabir").query(api.people.list, {
+      eventId: other,
+    });
+    expect(after.people.find((p) => p.name === "Isha")).toMatchObject({
+      role: "member",
+      status: "active",
+      blocked: false,
+    });
+  });
+
+  it("someone not in the Event can't list people, read or reset links, or change anyone", async () => {
+    const t = setUp();
+    const { eventId, memberToken } = await meerasWedding(t);
+    await as(t, "Rohan").mutation(api.people.join, { token: memberToken });
+    const rohan = await membershipOf(t, eventId, "Rohan");
+    // Kabir has a users row (from his own Event) but no membership here.
+    await as(t, "Kabir").mutation(api.events.create, {
+      name: "Kabir's birthday",
+      eventType: "birthday",
+    });
+    const kabir = as(t, "Kabir");
+    const refusals = [
+      kabir.query(api.people.list, { eventId }),
+      kabir.query(api.people.links, { eventId }),
+      kabir.mutation(api.people.resetLink, { eventId, role: "member" }),
+      kabir.mutation(api.people.setRole, {
+        eventId,
+        membershipId: rohan.membershipId,
+        role: "viewer",
+      }),
+      kabir.mutation(api.people.remove, {
+        eventId,
+        membershipId: rohan.membershipId,
+      }),
+    ];
+    for (const refusal of refusals) {
+      expect(await denialOf(refusal)).toMatchObject({ reason: "notAMember" });
+    }
+    const links = await as(t, "Meera").query(api.people.links, { eventId });
+    expect(links.member).toBe(memberToken);
+    expect((await membershipOf(t, eventId, "Rohan")).role).toBe("member");
+  });
+
+  it("switching someone to Viewer cancels their queued runs in the same mutation", async () => {
+    const t = setUp();
+    const { eventId, memberToken } = await meerasWedding(t);
+    await as(t, "Rohan").mutation(api.people.join, { token: memberToken });
+    const rohan = await membershipOf(t, eventId, "Rohan");
+    const queued = await t.run((ctx) =>
+      ctx.db.insert("runs", {
+        eventId,
+        requestedBy: rohan.membershipId,
+        source: "chat",
+        messageId: null,
+        commentId: null,
+        status: "queued",
+        stoppedBy: null,
+        model: "claude-sonnet-5-5",
+        createdAt: 0,
+        startedAt: null,
+        endedAt: null,
+      }),
+    );
+    await as(t, "Meera").mutation(api.people.setRole, {
+      eventId,
+      membershipId: rohan.membershipId,
+      role: "viewer",
+    });
+    const run = await t.run((ctx) => ctx.db.get("runs", queued));
+    expect(run?.status).toBe("cancelled");
+  });
+
+  it("a Co-owner who left, or was removed and unblocked, rejoins with the link's role, never as Co-owner", async () => {
+    const t = setUp();
+    const { eventId, memberToken, viewerToken } = await meerasWedding(t);
+    for (const name of ["Rohan", "Aditi"]) {
+      await as(t, name).mutation(api.people.join, { token: memberToken });
+      await as(t, "Meera").mutation(api.people.setRole, {
+        eventId,
+        membershipId: (await membershipOf(t, eventId, name)).membershipId,
+        role: "coOwner",
+      });
+    }
+    await as(t, "Rohan").mutation(api.people.leave, { eventId });
+    const aditi = await membershipOf(t, eventId, "Aditi");
+    await as(t, "Meera").mutation(api.people.remove, {
+      eventId,
+      membershipId: aditi.membershipId,
+    });
+    await as(t, "Meera").mutation(api.people.unblock, {
+      eventId,
+      membershipId: aditi.membershipId,
+    });
+
+    expect(
+      await as(t, "Rohan").mutation(api.people.join, { token: viewerToken }),
+    ).toMatchObject({ kind: "joined", role: "viewer" });
+    expect(
+      await as(t, "Aditi").mutation(api.people.join, { token: memberToken }),
+    ).toMatchObject({ kind: "joined", role: "member" });
+    expect((await membershipOf(t, eventId, "Rohan")).role).toBe("viewer");
+    expect((await membershipOf(t, eventId, "Aditi")).role).toBe("member");
+  });
+
+  it("a Co-owner can't remove themselves (they leave instead)", async () => {
+    const t = setUp();
+    const { eventId, memberToken } = await meerasWedding(t);
+    await as(t, "Rohan").mutation(api.people.join, { token: memberToken });
+    const rohan = await membershipOf(t, eventId, "Rohan");
+    await as(t, "Meera").mutation(api.people.setRole, {
+      eventId,
+      membershipId: rohan.membershipId,
+      role: "coOwner",
+    });
+    // The Owner alone may remove a Co-owner, so Rohan is refused for the
+    // permission before the self-removal check is reached.
+    expect(
+      await denialOf(
+        as(t, "Rohan").mutation(api.people.remove, {
+          eventId,
+          membershipId: rohan.membershipId,
+        }),
+      ),
+    ).toMatchObject({ reason: "notAllowed" });
+    expect((await membershipOf(t, eventId, "Rohan")).status).toBe("active");
+  });
+
+  it("nobody changes the role of someone who left or was removed", async () => {
+    const t = setUp();
+    const { eventId, memberToken } = await meerasWedding(t);
+    await as(t, "Rohan").mutation(api.people.join, { token: memberToken });
+    await as(t, "Aditi").mutation(api.people.join, { token: memberToken });
+    await as(t, "Rohan").mutation(api.people.leave, { eventId });
+    const aditi = await membershipOf(t, eventId, "Aditi");
+    await as(t, "Meera").mutation(api.people.remove, {
+      eventId,
+      membershipId: aditi.membershipId,
+    });
+    for (const name of ["Rohan", "Aditi"]) {
+      const person = await membershipOf(t, eventId, name);
+      for (const role of ["viewer", "coOwner"] as const) {
+        expect(
+          await denialOf(
+            as(t, "Meera").mutation(api.people.setRole, {
+              eventId,
+              membershipId: person.membershipId,
+              role,
+            }),
+          ),
+        ).toMatchObject({ reason: "notAllowed" });
+      }
+      expect((await membershipOf(t, eventId, name)).role).toBe("member");
+    }
   });
 });
 

@@ -73,7 +73,7 @@ export function NewEventDialog() {
       </DialogTrigger>
       <DialogContent
         title="New Event"
-        description="You'll be its Owner. The Assistant asks about the rest once it opens."
+        description={`You'll run it as its ${ownerLabel === "host" ? "Host" : "Owner"}. The Assistant asks about the rest once it opens.`}
         className="w-[min(36rem,calc(100vw-2rem))]"
       >
         <form onSubmit={submit} className="mt-5 grid gap-5" noValidate>
