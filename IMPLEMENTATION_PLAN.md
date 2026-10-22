@@ -421,7 +421,7 @@ Decided with Sah-Nikhil on 2026-10-21 after a research pass that compared 8 comp
 | Canvas | React Flow, one custom node per Item kind, group nodes for Sections | `@xyflow/react@12.12.0` |
 | Motion | CSS transitions first; Motion only for Chat arrivals, Proposal cards and the pointing ring | `motion@14.5.0` |
 | Compact reordering | dnd kit, handle-only drag plus visible "Move up / Move down" actions | `@dnd-kit/react@0.5.1` |
-| Fonts | Anek Devanagari (text, Latin and Hindi), Fraunces (English display), Tiro Devanagari Hindi (Hindi display), self-hosted by `next/font/google` | none |
+| Fonts | Anek Devanagari (all product text, Latin and Hindi), Fraunces upright (English display and Section labels), Tiro Devanagari Hindi upright (standalone Hindi display only), self-hosted by `next/font/google` with no italic files | none |
 | Icons | Lucide for controls; original SVG illustrations for the Vendor categories | `lucide-react@1.61.0` |
 | Budget visuals | A real HTML table with labelled CSS bars; no chart library | none |
 
@@ -433,6 +433,7 @@ Rules for the build:
 - Motion runs 120 to 180 ms for control feedback and 220 to 300 ms for arrivals, with one easing curve, no bounce or confetti, and nothing for people who prefer reduced motion. The pointing ring is the one marigold animation.
 - Body text 14 to 15 px on desktop and 16 px on phones, tabular numerals for ₹ amounts and dates, line height about 1.55 for Devanagari, and `lang="hi"` on Hindi runs.
 - The font check before the contract merges: Hindi matras and conjuncts at 13, 16 and 32 px on Windows and Android, including mixed text such as "Mehendi के लिए ₹2,40,000". If Anek fails, Mukta is the fallback for text.
+- **Font roles, decided on 2026-10-22** after the font check, when Sah-Nikhil found Anek and Tiro both fine and asked for the choice to be analysed. Anek sets every piece of product text, including the Budget, chips and Chat, and the Hindi runs inside Hinglish sentences stay in Anek: at 13 px its even strokes read more clearly than Tiro's finer, higher-contrast ones, and switching faces mid-sentence changes the tone. Tiro sets only standalone Hindi display text, such as the landing headline, because at 32 px and above it pairs with Fraunces where Anek's Hindi beside Fraunces looks like an abrupt serif-to-sans switch. A Hindi phrase inside an English heading is wrapped in `<span lang="hi">` with the Hindi display face. Fraunces's `next/font` Latin subset has no ₹, so an amount inside display text is set in Anek with tabular digits by the shared money formatting. Hindi in headings, Section labels and Item titles gets line height of at least 1.4 to 1.5 (1.55 in text) and no clipping wrapper. Dropping the unused italic files and Tiro's Latin subset cuts the landing page's preloaded fonts from 8 files and about 744 KB to about 4 files and 487 KB; one Hindi family would save only another 64 KB.
 
 ### 7.2 Motion inspiration
 
