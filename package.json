@@ -11,7 +11,7 @@
     "dev": "convex dev --start \"next dev\"",
     "dev:next": "next dev",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . && prettier --check .",
+    "lint": "eslint . && prettier --check . && bun scripts/check-line-endings.ts",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
