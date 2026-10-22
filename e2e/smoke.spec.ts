@@ -47,6 +47,27 @@ test.describe("smoke", () => {
     expect(cspViolations).toEqual([]);
   });
 
+  test("a signed-out visit to /embed/* gets the page without Clerk's handshake", async ({
+    page,
+  }) => {
+    // Clerk's handshake is a navigation through *.clerk.accounts.dev.
+    const clerkRequests: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.isNavigationRequest() &&
+        /\.clerk\.accounts\.dev$/.test(new URL(request.url()).hostname)
+      )
+        clerkRequests.push(request.url());
+    });
+    const path = `/embed/pinterest?url=${encodeURIComponent("https://pin.it/AbC123")}`;
+    const response = await page.goto(path);
+    // X2's references spec checks the page itself (it arrives with #56); this
+    // checks only that the proxy lets the request straight through.
+    expect(response?.request().redirectedFrom()).toBeNull();
+    expect(new URL(page.url()).pathname).toBe("/embed/pinterest");
+    expect(clerkRequests).toEqual([]);
+  });
+
   for (const path of [
     "/events/some-event",
     // A dotted ID must not slip past the proxy's static-file exclusion.

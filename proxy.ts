@@ -22,8 +22,10 @@ export const config = {
     "/events/:path*",
     "/join/:path*",
     "/settings/:path*",
-    // Skip Next.js internals and static files, unless found in search params.
-    "/((?!_next|[^?]*\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // Skip Next.js internals, the two isolated embed pages (no Clerk inside the
+    // Pinterest and Instagram iframes, ADR 0014) and static files, unless found
+    // in search params. Other /embed paths keep Clerk: the app's 404 uses it.
+    "/((?!_next|embed/(?:pinterest|instagram)(?:[/?]|$)|[^?]*\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     // Always run for API routes.
     "/(api|trpc)(.*)",
   ],

@@ -130,7 +130,15 @@ const EMBEDS: Policy = {
     "https://widgets.pinterest.com",
     "https://www.instagram.com",
   ],
-  "img-src": ["https://i.pinimg.com", "https://log.pinterest.com", "data:"],
+  // s.pinimg.com: a board owner's picture. v1.pinimg.com: video Pins. Both
+  // found by X2's deployed check on 2026-10-23 (#82).
+  "img-src": [
+    "https://i.pinimg.com",
+    "https://s.pinimg.com",
+    "https://log.pinterest.com",
+    "data:",
+  ],
+  "media-src": ["https://v1.pinimg.com"],
   "frame-src": ["https://www.instagram.com"],
   "style-src": ["'unsafe-inline'"],
 };
