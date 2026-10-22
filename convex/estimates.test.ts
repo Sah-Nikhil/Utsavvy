@@ -68,21 +68,19 @@ type Answer = Omit<ResearchOutput["results"][number], "key"> & {
 
 /** A research stub that answers each line's call by its category, or finds nothing. */
 function researchBy(answers: Record<string, Answer>) {
-  return vi.fn(
-    async (input: ResearchInput): Promise<ResearchOutput | null> => {
-      const line = input.lines[0]!;
-      const answer = answers[line.category];
-      if (!answer) return null;
-      const { searchResultUrls = answer.sourceUrls, ...result } = answer;
-      return {
-        model: "claude-sonnet-5-5",
-        searchResultUrls,
-        searchesUsed: 1,
-        usage: [],
-        results: [{ key: line.key, ...result }],
-      };
-    },
-  );
+  return vi.fn(async (input: ResearchInput): Promise<ResearchOutput | null> => {
+    const line = input.lines[0]!;
+    const answer = answers[line.category];
+    if (!answer) return null;
+    const { searchResultUrls = answer.sourceUrls, ...result } = answer;
+    return {
+      model: "claude-sonnet-5-5",
+      searchResultUrls,
+      searchesUsed: 1,
+      usage: [],
+      results: [{ key: line.key, ...result }],
+    };
+  });
 }
 
 const cateringAnswer: Answer = {
@@ -489,16 +487,14 @@ describe("no silent failure (M1)", () => {
   it("reports a research call's own failure, such as hitting the pause cap", async () => {
     const { ctx, eventId } = await setup();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const research = vi.fn(
-      async (): Promise<ResearchOutput | null> => ({
-        model: "claude-sonnet-5-5",
-        searchResultUrls: [],
-        searchesUsed: 2,
-        usage: [],
-        results: [],
-        failure: { reason: "pauseCap", detail: "paused 3 times" },
-      }),
-    );
+    const research = vi.fn(async (): Promise<ResearchOutput | null> => ({
+      model: "claude-sonnet-5-5",
+      searchResultUrls: [],
+      searchesUsed: 2,
+      usage: [],
+      results: [],
+      failure: { reason: "pauseCap", detail: "paused 3 times" },
+    }));
     const { reports, onResearch } = reporter();
     await estimateLines(
       ctx,
@@ -789,9 +785,7 @@ describe("URLs only", () => {
       }),
     );
     expect(result!.basis.reasoning!.length).toBeLessThanOrEqual(200);
-    expect((await cacheRows(t))[0]!.reasoning.length).toBeLessThanOrEqual(
-      200,
-    );
+    expect((await cacheRows(t))[0]!.reasoning.length).toBeLessThanOrEqual(200);
   });
 
   it("stores no page text in the basis or the cache row", async () => {
