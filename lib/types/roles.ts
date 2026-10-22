@@ -17,6 +17,20 @@ export const inviteRoleValidator = v.union(
 );
 export type InviteRole = Infer<typeof inviteRoleValidator>;
 
+/**
+ * One invite link (table `inviteLinks`): a bearer token that lets whoever opens
+ * `/join/<token>` join the Event in `role`. Never part of the Event document,
+ * its history or a conflict payload; only the Owner and Co-owners read it.
+ */
+export const inviteLinkValidator = v.object({
+  eventId: v.id("events"),
+  role: inviteRoleValidator,
+  token: v.string(),
+  createdBy: v.id("memberships"),
+  createdAt: v.number(),
+});
+export type InviteLink = Infer<typeof inviteLinkValidator>;
+
 export const membershipStatusValidator = v.union(
   v.literal("active"),
   v.literal("left"),

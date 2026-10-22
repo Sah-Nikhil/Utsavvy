@@ -32,6 +32,7 @@ import {
   proposedChangeValidator,
 } from "../lib/types/proposals";
 import {
+  inviteLinkValidator,
   inviteRoleValidator,
   membershipStatusValidator,
   roleValidator,
@@ -48,6 +49,11 @@ export default defineSchema({
   users: defineTable({
     /** Clerk's user ID (the JWT subject). Seed personas use "seed:<name>", which can never sign in. */
     clerkId: v.string(),
+    /**
+     * Convex's stable identity key, the lookup key after sign-in. Absent for
+     * seed personas, and for demo judges until their first sign-in links the row.
+     */
+    tokenIdentifier: v.optional(v.string()),
     name: v.string(),
     /** Lowercase. */
     email: v.string(),
@@ -56,6 +62,7 @@ export default defineSchema({
     /** X4. */
     keepDontReplyOn: v.boolean(),
   })
+    .index("by_tokenIdentifier", ["tokenIdentifier"])
     .index("by_clerkId", ["clerkId"])
     .index("by_email", ["email"]),
 
@@ -97,16 +104,22 @@ export default defineSchema({
       mobilePointing: v.union(v.literal("jump"), v.literal("sheet")),
     }),
     startingSectionRenameBlocked: v.boolean(),
-    memberLinkToken: v.string(),
-    viewerLinkToken: v.string(),
     agentThreadId: v.union(v.string(), v.null()),
     demoKey: v.union(v.string(), v.null()),
     createdAt: v.number(),
     version: v.number(),
-  })
-    .index("by_memberLinkToken", ["memberLinkToken"])
-    .index("by_viewerLinkToken", ["viewerLinkToken"])
-    .index("by_demoKey", ["demoKey"]),
+  }).index("by_demoKey", ["demoKey"]),
+
+  /**
+   * The Event's two invite links, one per role (S1). Kept out of `events` so the
+   * bearer tokens never reach the versioned Event document, its `changes` rows
+   * or a `VersionConflict` payload, which Members and Viewers can read. Not
+   * versioned and never written through `convex/lib/write.ts`. Read and reset by
+   * the Owner and Co-owners only (`invite.links`).
+   */
+  inviteLinks: defineTable(inviteLinkValidator)
+    .index("by_token", ["token"])
+    .index("by_event_role", ["eventId", "role"]),
 
   /** Personal view state: written directly, not versioned, no history (section 4.4). */
   viewPrefs: defineTable({

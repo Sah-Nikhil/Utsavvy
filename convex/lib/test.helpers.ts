@@ -78,8 +78,6 @@ export async function insertEvent(
       mobilePointing: "jump",
     },
     startingSectionRenameBlocked: false,
-    memberLinkToken: `m-${name}`,
-    viewerLinkToken: `v-${name}`,
     agentThreadId: null,
     demoKey: null,
     createdAt: 0,
