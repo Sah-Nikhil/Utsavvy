@@ -530,23 +530,16 @@ async function research(
       });
 
     // Keep only URLs from this call's search results or this line's Listed
-    // prices, stored as the result's own URL, once.
-    const canonical = new Map<string, string>();
-    for (const url of [
-      ...output.searchResultUrls,
-      ...line.listedPrices.map((p) => p.url),
-    ]) {
-      const normal = normalizeUrl(url);
-      if (!canonical.has(normal)) canonical.set(normal, normal);
-    }
-    const sourceUrls = [
-      ...new Set(
-        result.sourceUrls.flatMap((url) => {
-          const match = canonical.get(normalizeUrl(url));
-          return match ? [match] : [];
-        }),
+    // prices, each stored once in its normalized form (no fragment, so no
+    // quoted page text).
+    const allowed = new Set(
+      [...output.searchResultUrls, ...line.listedPrices.map((p) => p.url)].map(
+        normalizeUrl,
       ),
-    ];
+    );
+    const sourceUrls = [...new Set(result.sourceUrls.map(normalizeUrl))].filter(
+      (url) => allowed.has(url),
+    );
     const unitLow = Math.round(result.unitLow);
     const unitHigh = Math.round(result.unitHigh);
     if (sourceUrls.length === 0) {
