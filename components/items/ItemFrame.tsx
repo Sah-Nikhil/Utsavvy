@@ -5,6 +5,7 @@ import {
   type FunctionIndex,
 } from "@/components/ui/function-marker";
 import { PointingRing } from "@/components/shell/PointingRing";
+import { hindiLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 
 /*
@@ -36,7 +37,7 @@ export type ItemFrameProps = {
   selected?: boolean;
   /** The Assistant is pointing at this Item (marigold ring). */
   pointed?: boolean;
-  /** The Function this Item belongs to, if any. The marker shows in looks d and bd. */
+  /** The Function this Item belongs to, if any; its marker shows the Function's colour. */
   functionIndex?: FunctionIndex;
   functionName?: string;
   className?: string;
@@ -88,7 +89,10 @@ export function ItemFrame({
           </span>
         ) : null}
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <Heading className="truncate font-display text-title text-ink">
+          <Heading
+            lang={hindiLang(title)}
+            className="truncate-line min-w-0 font-display text-title text-ink"
+          >
             {title}
           </Heading>
           <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-caption text-ink-3">

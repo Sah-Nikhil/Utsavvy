@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { hindiLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 
 /*
@@ -79,7 +80,16 @@ export function SectionFrame({
       )}
     >
       <div className="mb-3 flex items-center gap-2.5 pl-10">
-        <h2 className="font-display text-[15px] leading-tight font-medium! text-ink">
+        {/* A Hindi label stays in Anek at this small size; :lang(hi) gives it room for matras. */}
+        <h2
+          lang={hindiLang(label)}
+          className={cn(
+            "text-[15px] leading-tight text-ink",
+            hindiLang(label)
+              ? "font-text font-medium"
+              : "font-display font-medium!",
+          )}
+        >
           {label}
         </h2>
         {count ? (

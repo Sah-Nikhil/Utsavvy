@@ -23,12 +23,25 @@
 @theme {
   --color-*: initial;
 
-  /* Fonts, built from the next/font variables set on <html> in app/layout.tsx */
+  /*
+   * Fonts (IMPLEMENTATION_PLAN.md section 7.1), built from the next/font
+   * variables set on <html> in app/layout.tsx.
+   *   font-text        Anek Devanagari: all product text, Hindi and Hinglish runs included.
+   *   font-display     Fraunces, upright: English headings and Section labels.
+   *   font-display-hi  Tiro Devanagari Hindi, upright 400: standalone Hindi display only.
+   * Hindi inside an English heading goes in its own span, because a parent's
+   * `:lang(hi)` rule doesn't fire from a child:
+   *   <h1 className="font-display">Plan your <span lang="hi" className="font-display-hi">उत्सव</span></h1>
+   * Amounts in a display heading use <Money> (components/ui/money.tsx): the
+   * Fraunces subset has no ₹, so the amount is set in Anek with tabular figures.
+   */
   --font-text:
     var(--font-anek), "Nirmala UI", "Noto Sans Devanagari", system-ui,
     sans-serif;
-  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
-  --font-display-hi: var(--font-tiro), var(--font-anek), "Nirmala UI", serif;
+  --font-display: var(--font-fraunces), var(--font-anek), Georgia, serif;
+  --font-display-hi:
+    var(--font-tiro), var(--font-anek), "Nirmala UI", "Noto Sans Devanagari",
+    sans-serif;
   --font-sans: var(--font-text);
 
   /* Type scale for product UI (ratio about 1.15) */
@@ -283,11 +296,6 @@
     }
   }
 
-  /* Devanagari needs room for matras above and below the line */
-  :lang(hi) {
-    line-height: 1.55;
-  }
-
   h1,
   h2,
   h3,
@@ -334,17 +342,12 @@
  * Utilities
  * ------------------------------------------------------------------------- */
 
-/* English display face; switches to Tiro on Hindi runs */
+/* English display face (Fraunces). Hindi display: see the font notes in @theme. */
 @utility font-display {
   font-family: var(--font-display);
   font-weight: var(--display-weight);
   letter-spacing: var(--display-tracking);
   font-optical-sizing: auto;
-  &:lang(hi) {
-    font-family: var(--font-display-hi);
-    font-weight: 400;
-    letter-spacing: 0;
-  }
 }
 
 /* Tabular figures for ₹ amounts and dates */
@@ -413,4 +416,38 @@
     opacity: 0;
     box-shadow: 0 0 0 10px var(--point);
   }
+}
+
+/* ----------------------------------------------------------------------------
+ * Hindi line height and weight. Unlayered on purpose: unlayered rules beat
+ * every Tailwind layer, so `leading-tight`, `text-headline` (1.2) or
+ * `text-display` (1.12) on an element can't squeeze matras above and below the
+ * line. Mark Hindi with lang="hi" (lib/lang.ts `hindiLang` does it for text
+ * Members type).
+ * ------------------------------------------------------------------------- */
+:lang(hi) {
+  line-height: 1.55;
+}
+
+/* Tiro has one weight, 400; never fake a bold. */
+.font-display-hi,
+.font-display:lang(hi) {
+  font-family: var(--font-display-hi);
+  font-weight: 400;
+  font-synthesis-weight: none;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
+/*
+ * A single line cut with an ellipsis that clips only sideways, so matras that
+ * rise above or hang below the line box aren't cut off the way `truncate`
+ * (overflow: hidden) cuts them. `clip` doesn't make a scroll container, so
+ * a flex or grid item also needs `min-w-0` to shrink.
+ */
+@utility truncate-line {
+  overflow-x: clip;
+  overflow-y: visible;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
