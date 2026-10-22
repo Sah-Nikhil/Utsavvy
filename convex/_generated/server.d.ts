@@ -35,6 +35,7 @@ type Env = {
   readonly DEMO_JUDGE_MEMBER_ID: string | undefined;
   readonly DEMO_JUDGE_OWNER_ID: string | undefined;
   readonly DEMO_JUDGE_VIEWER_ID: string | undefined;
+  readonly FALLBACK_MODEL: string | undefined;
   readonly GEOAPIFY_API_KEY: string | undefined;
   readonly GOOGLE_GENERATIVE_AI_API_KEY: string | undefined;
   readonly HELPER_MODEL: string | undefined;

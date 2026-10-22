@@ -4,7 +4,8 @@ import {
   RetryError,
   TypeValidationError,
 } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { env as convexEnv } from "../_generated/server";
 import {
   claudeReachable,
   isFallbackError,
@@ -89,6 +90,22 @@ describe("modelChain", () => {
         FALLBACK_MODEL: "",
       }),
     ).toEqual(["claude-sonnet-5-5", "gemini-3.8-flash"]);
+  });
+
+  it("falls back to a set FALLBACK_MODEL instead of gemini-3.8-flash", () => {
+    // The deployment's typed `env` declares it (convex/convex.config.ts), so production calls see it.
+    expectTypeOf<typeof convexEnv>().toHaveProperty("FALLBACK_MODEL");
+    const env: ModelEnv = {
+      ...bothKeys,
+      FALLBACK_MODEL: "gemini-3.5-flash-lite",
+    };
+    expect(modelChain("assistant", env)).toEqual([
+      "claude-sonnet-5-5",
+      "gemini-3.5-flash-lite",
+    ]);
+    expect(
+      modelChain("helper", { ...env, ANTHROPIC_API_KEY: undefined }),
+    ).toEqual(["gemini-3.5-flash-lite"]);
   });
 
   it("skips Gemini when only the Anthropic key is set", () => {

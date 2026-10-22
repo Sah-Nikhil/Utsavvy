@@ -15,6 +15,8 @@ const app = defineApp({
     DEFAULT_MODEL: v.optional(v.string()),
     /** Helper model, `claude-haiku-5-5`. */
     HELPER_MODEL: v.optional(v.string()),
+    /** Automatic fallback model when Claude can't answer, `gemini-3.8-flash` (#75). */
+    FALLBACK_MODEL: v.optional(v.string()),
     ANTHROPIC_API_KEY: v.optional(v.string()),
     GOOGLE_GENERATIVE_AI_API_KEY: v.optional(v.string()),
     GEOAPIFY_API_KEY: v.optional(v.string()),
