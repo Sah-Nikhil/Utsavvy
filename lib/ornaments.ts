@@ -10,11 +10,21 @@ export const ORNAMENTS_STORAGE_KEY = "utsavvy.ornaments";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type RootLike = { dataset: Record<string, string | undefined> };
+/**
+ * The storage, or a function that reaches it. Pass `() => window.localStorage`:
+ * in blocked-storage contexts the getter itself throws, so it must be called
+ * inside the catch below.
+ */
+type StorageSource = StorageLike | undefined | (() => StorageLike | undefined);
+
+function reach(source: StorageSource): StorageLike | undefined {
+  return typeof source === "function" ? source() : source;
+}
 
 /** Whether this device shows ornaments. On unless the device stored "off". */
-export function readOrnaments(storage: StorageLike | undefined): boolean {
+export function readOrnaments(storage: StorageSource): boolean {
   try {
-    return storage?.getItem(ORNAMENTS_STORAGE_KEY) !== "off";
+    return reach(storage)?.getItem(ORNAMENTS_STORAGE_KEY) !== "off";
   } catch {
     // Storage can be blocked (private windows, strict cookie settings).
     return true;
@@ -22,10 +32,11 @@ export function readOrnaments(storage: StorageLike | undefined): boolean {
 }
 
 /** Remembers the choice on this device; on is the default, so it clears the key. */
-export function writeOrnaments(storage: StorageLike | undefined, on: boolean) {
+export function writeOrnaments(storage: StorageSource, on: boolean) {
   try {
-    if (on) storage?.removeItem(ORNAMENTS_STORAGE_KEY);
-    else storage?.setItem(ORNAMENTS_STORAGE_KEY, "off");
+    const store = reach(storage);
+    if (on) store?.removeItem(ORNAMENTS_STORAGE_KEY);
+    else store?.setItem(ORNAMENTS_STORAGE_KEY, "off");
   } catch {
     // The setting still applies to this page.
   }

@@ -38,7 +38,7 @@ export function AccountButton() {
           labelIcon={<Sparkles aria-hidden className="size-4" />}
           onClick={() => {
             applyOrnaments(document.documentElement, !on);
-            writeOrnaments(window.localStorage, !on);
+            writeOrnaments(() => window.localStorage, !on);
           }}
         />
       </UserButton.MenuItems>

@@ -70,6 +70,23 @@ describe("writeOrnaments", () => {
   it("does not throw when storage is unavailable", () => {
     expect(() => writeOrnaments(failingStorage, false)).not.toThrow();
   });
+
+  it("does not throw when merely reaching storage throws", () => {
+    // In blocked-storage contexts the `window.localStorage` getter itself
+    // throws a SecurityError, before any method is called.
+    const blocked = () => {
+      throw new Error("SecurityError");
+    };
+    expect(() => writeOrnaments(blocked, false)).not.toThrow();
+    expect(readOrnaments(blocked)).toBe(true);
+  });
+
+  it("takes storage lazily, as the account menu passes it", () => {
+    const storage = memoryStorage();
+    writeOrnaments(() => storage, false);
+    expect(storage.values.get(ORNAMENTS_STORAGE_KEY)).toBe("off");
+    expect(readOrnaments(() => storage)).toBe(false);
+  });
 });
 
 describe("applyOrnaments", () => {
