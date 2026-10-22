@@ -91,8 +91,7 @@ export function Gallery() {
             <code className="rounded-xs bg-surface-sunk px-1 text-label">
               app/globals.css
             </code>
-            . Flip the look with the switch at the bottom left. Development
-            only.
+            . Turn ornaments off or on from the account menu. Development only.
           </p>
         </header>
 
@@ -384,11 +383,7 @@ function BudgetItem({
             <th
               scope="rowgroup"
               colSpan={3}
-              className={cn(
-                "px-2 py-1.5 text-left text-label font-semibold text-ink",
-                "look-ledger:border-b look-ledger:border-ink-3 look-ledger:px-0 look-ledger:font-display look-ledger:font-medium look-ledger:italic",
-                "look-fn:rounded-xs",
-              )}
+              className="rounded-xs px-2 py-1.5 text-left text-label font-semibold text-ink"
             >
               <span className="inline-flex items-center gap-2">
                 <FunctionMarker index={3} />
@@ -406,7 +401,7 @@ function BudgetItem({
             >
               <th
                 scope="row"
-                className="py-2 pr-2 pl-2 text-left font-normal text-ink look-ledger:pl-0"
+                className="py-2 pr-2 pl-2 text-left font-normal text-ink"
               >
                 {entry.label}
                 {entry.detail ? (
@@ -545,7 +540,7 @@ function ChipsDemo() {
         ))}
         <Chip disabled>Daily aarti</Chip>
       </Row>
-      <Row label="Function row bands (d and bd)" className="grid gap-1">
+      <Row label="Function row bands" className="grid gap-1">
         {FUNCTIONS.map((fn) => (
           <div
             key={fn.index}

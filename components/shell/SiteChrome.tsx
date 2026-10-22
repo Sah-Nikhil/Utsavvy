@@ -1,7 +1,8 @@
-import { Show, UserButton } from "@clerk/nextjs";
+import { Show } from "@clerk/nextjs";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { AccountButton } from "./AccountButton";
 
 /** The wordmark: Utsavvy in Fraunces, with its Devanagari root beside it. */
 export function Wordmark({ className }: { className?: string }) {
@@ -73,7 +74,7 @@ export function SiteChrome({
               >
                 Your Events
               </Link>
-              <UserButton />
+              <AccountButton />
             </Show>
             <Show when="signed-out">
               <Link

@@ -2,50 +2,29 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /*
- * Section decoration is one component (IMPLEMENTATION_PLAN.md section 7.4), so
- * swapping looks is a token change, not a rewrite. Both drawings render and CSS
- * shows the one that matches html[data-look], so the dev switch needs no rerender:
+ * Section decoration is one component (IMPLEMENTATION_PLAN.md section 7.4): the
+ * ornamental corner pieces of look D, Contemporary rangoli. They are purely
+ * decorative, so they are hidden from assistive technology and follow the
+ * personal Ornaments setting (lib/ornaments.ts). They are absolutely positioned,
+ * so turning them off moves nothing else.
  *
- *   b, bd  a thin diamond chain beside the Section label (textile and rangoli
- *          geometry, drawn for Utsavvy)
- *   d      ornamental corner pieces on the Section frame
- *
- * Place <SectionOrnament /> inside the label row. The corner pieces position
+ * Place <SectionOrnament /> inside the Section frame. The corner pieces position
  * themselves against the nearest positioned ancestor, which should be the
  * Section frame (SectionFrame below does both).
  */
 export function SectionOrnament({ className }: { className?: string }) {
   return (
-    <>
-      <svg
-        aria-hidden
-        focusable="false"
-        viewBox="0 0 82 10"
-        width="82"
-        height="10"
-        className={cn(
-          "hidden shrink-0 text-motif look-ledger:block",
-          className,
-        )}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1"
-      >
-        <path d="M0 5h82" strokeOpacity="0.55" />
-        <path d="M10 1.5 13.5 5 10 8.5 6.5 5Z" fill="var(--canvas)" />
-        <path d="M28 2.5 30.5 5 28 7.5 25.5 5Z" fill="var(--canvas)" />
-        <path d="M41 0.5 45.5 5 41 9.5 36.5 5Z" fill="var(--canvas)" />
-        <circle cx="41" cy="5" r="1" fill="currentColor" stroke="none" />
-        <path d="M54 2.5 56.5 5 54 7.5 51.5 5Z" fill="var(--canvas)" />
-        <path d="M72 1.5 75.5 5 72 8.5 68.5 5Z" fill="var(--canvas)" />
-        <circle cx="19" cy="5" r="0.9" fill="currentColor" stroke="none" />
-        <circle cx="63" cy="5" r="0.9" fill="currentColor" stroke="none" />
-      </svg>
-      <span aria-hidden className="pointer-events-none hidden look-d:contents">
-        <Corner className="absolute -top-1.5 -left-1.5" />
-        <Corner className="absolute -right-1.5 -bottom-1.5 rotate-180" />
-      </span>
-    </>
+    <span
+      aria-hidden
+      data-ornament="section-corners"
+      className={cn(
+        "pointer-events-none contents ornaments-off:hidden",
+        className,
+      )}
+    >
+      <Corner className="absolute -top-1.5 -left-1.5" />
+      <Corner className="absolute -right-1.5 -bottom-1.5 rotate-180" />
+    </span>
   );
 }
 
@@ -85,10 +64,7 @@ export type SectionFrameProps = {
   className?: string;
 };
 
-/**
- * A Section's frame and label in every look: a ruled ledger heading in b and bd,
- * a softly filled region with corner pieces in d.
- */
+/** A Section's frame and label: a softly filled region with corner pieces. */
 export function SectionFrame({
   label,
   count,
@@ -98,20 +74,16 @@ export function SectionFrame({
   return (
     <section
       className={cn(
-        "relative px-4 pt-3 pb-4",
-        "look-ledger:border-t look-ledger:border-item-line",
-        "look-d:rounded-xl look-d:bg-surface/40 look-d:px-5 look-d:pt-4 look-d:pb-7",
+        "relative rounded-xl bg-surface/40 px-5 pt-4 pb-7",
         className,
       )}
     >
-      <div className="mb-3 flex items-center gap-2.5 look-d:pl-10">
-        <h2 className="font-display text-[15px] leading-tight font-medium! text-ink look-ledger:italic">
+      <div className="mb-3 flex items-center gap-2.5 pl-10">
+        <h2 className="font-display text-[15px] leading-tight font-medium! text-ink">
           {label}
         </h2>
         {count ? (
-          <span className="font-display text-label text-ink-3 look-ledger:italic">
-            {count}
-          </span>
+          <span className="font-display text-label text-ink-3">{count}</span>
         ) : null}
         <SectionOrnament />
       </div>

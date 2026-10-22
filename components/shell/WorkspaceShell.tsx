@@ -1,6 +1,5 @@
 "use client";
 
-import { UserButton } from "@clerk/nextjs";
 import { ArrowLeft, History, ImagePlus, Settings, Users } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -23,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip } from "@/components/ui/tooltip";
+import { AccountButton } from "./AccountButton";
 import { SelectionProvider } from "./selection";
 
 /**
@@ -129,7 +129,7 @@ function WorkspaceHeader({ eventId }: { eventId: string }) {
         </PanelButton>
       </div>
       <div className="pl-1">
-        <UserButton />
+        <AccountButton />
       </div>
     </header>
   );

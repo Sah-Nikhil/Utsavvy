@@ -8,21 +8,14 @@
  * semantic tokens below through Tailwind utilities (bg-surface, text-ink,
  * border-rule, bg-function-3 ...) or var(--token) in inline styles.
  *
- * Three looks ship behind a development-only switch (components/shell/LookSwitch.tsx):
- *   html[data-look="b"]   Ivory ledger
- *   html[data-look="d"]   Contemporary rangoli
- *   html[data-look="bd"]  Ivory ledger with D's per-Function colours (the default)
- * The contract PR keeps only the chosen set before it merges.
+ * The look is D, Contemporary rangoli (picked at the contract review, 22 Oct).
+ * Its purely decorative ornaments (the Section corner pieces) follow a personal
+ * "Ornaments" setting: html[data-ornaments="off"] hides them without moving
+ * anything else (lib/ornaments.ts).
  */
 
-/* Look variants: `look-b:hidden`, `look-d:block` ... */
-@custom-variant look-b (&:where(html[data-look="b"] *));
-@custom-variant look-d (&:where(html[data-look="d"] *));
-@custom-variant look-bd (&:where(html[data-look="bd"] *));
-/* "Has the Ivory ledger ground" (b and bd) */
-@custom-variant look-ledger (&:where(html[data-look="b"] *, html[data-look="bd"] *));
-/* "Shows per-Function colours" (d and bd) */
-@custom-variant look-fn (&:where(html[data-look="d"] *, html[data-look="bd"] *));
+/* `ornaments-off:hidden` hides a decorative ornament when the setting is off. */
+@custom-variant ornaments-off (&:where(html[data-ornaments="off"] *));
 
 /* ----------------------------------------------------------------------------
  * Tailwind theme: stock colours are removed so only semantic tokens exist.
@@ -52,7 +45,7 @@
   --text-display: 2rem;
   --text-display--line-height: 1.12;
 
-  /* Shape scale (MD3 corner families); values change per look below */
+  /* Shape scale (MD3 corner families); the values are set in :root below */
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -134,7 +127,7 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Shared colours (section 7.3), the same in every look.
+ * Colours (section 7.3).
  * ------------------------------------------------------------------------- */
 :root {
   --ink: #252631;
@@ -184,86 +177,10 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Look B, Ivory ledger. Also the base for "bd" and for :root.
+ * Look D, Contemporary rangoli: sand ground, white cards, per-Function colours.
  * ------------------------------------------------------------------------- */
-:root,
-html[data-look="b"],
-html[data-look="bd"] {
-  --canvas: #f6f1e8;
-  --canvas-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .3 0 0 0 0 .22 0 0 0 .045 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
-  --surface: #fffdf8;
-  --surface-raised: #fffefb;
-  --surface-sunk: #f3ede2;
-  --surface-header: #fffdf8;
-  --rule: #e2dbcf;
-  --rule-strong: #948d7f;
-  --item-line: #d7d2c8;
-  --item-shadow: 0 1px 0 rgb(37 38 49 / 0.03);
-  --overlay-shadow:
-    0 2px 4px rgb(60 48 30 / 0.06), 0 12px 32px -12px rgb(60 48 30 / 0.22);
-  --sheet-shadow:
-    0 0 0 1px rgb(60 48 30 / 0.08), 0 24px 60px -24px rgb(60 48 30 / 0.3);
-
-  --price-listed: #4a4c5c;
-  --price-listed-bg: #efeae0;
-  --price-listed-line: #d7d2c8;
-  --warn: #a3361f;
-  --warn-soft: #f7e5de;
-
-  --motif: #a8946a;
-  --motif-2: #fffdf8;
-
-  /* B keeps Function rows neutral; the vars still exist */
-  --function-1: #6f6a5e;
-  --function-2: #6f6a5e;
-  --function-3: #6f6a5e;
-  --function-4: #6f6a5e;
-  --function-5: #6f6a5e;
-  --function-6: #6f6a5e;
-  --function-7: #6f6a5e;
-  --function-8: #6f6a5e;
-
-  /* Vendor map (section 7.5): warm paper land, soft water, quiet labels */
-  --map-land: #f2ece0;
-  --map-water: #cadbdd;
-  --map-park: #e2e6d0;
-  --map-road: #fffdf8;
-  --map-road-major: #e9dcc0;
-  --map-building: #e6dfd1;
-  --map-label: #5d5a54;
-  --map-label-halo: #f6f1e8;
-  --map-boundary: #b8ad9c;
-
-  --radius-xs: 4px;
-  --radius-sm: 7px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-
-  --section-label-style: italic;
-  --section-label-weight: 500;
-  --display-weight: 600;
-  --display-tracking: -0.01em;
-}
-
-/* "bd": Ivory ledger ground and labels, D's Function colours, no corner pieces */
-html[data-look="bd"] {
-  --function-1: #a08a24;
-  --function-2: #55743a;
-  --function-3: #7e4c86;
-  --function-4: #7a2e3b;
-  --function-5: #3f6e8c;
-  --function-6: #8a6440;
-  --function-7: #a4506a;
-  --function-8: #5f6470;
-}
-
-/* ----------------------------------------------------------------------------
- * Look D, Contemporary rangoli.
- * ------------------------------------------------------------------------- */
-html[data-look="d"] {
+:root {
   --canvas: #f3eadb;
-  --canvas-texture: none;
   --surface: #ffffff;
   --surface-raised: #ffffff;
   --surface-sunk: #faf5ec;
@@ -356,8 +273,6 @@ html[data-look="d"] {
   body {
     min-height: 100dvh;
     background-color: var(--canvas);
-    background-image: var(--canvas-texture);
-    background-size: 180px 180px;
     font-size: 1rem;
     line-height: 1.5;
   }

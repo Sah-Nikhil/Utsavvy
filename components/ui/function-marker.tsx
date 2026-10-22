@@ -14,9 +14,9 @@ const fill: Record<FunctionIndex, string> = {
 };
 
 /**
- * The per-Function diamond (section 7.3, Contemporary rangoli). Shown in looks
- * d and bd, hidden in b, where Function rows stay neutral. Decorative: the
- * Function's name is always written next to it.
+ * The per-Function diamond (section 7.3, Contemporary rangoli). It carries the
+ * Function's colour, so it stays when ornaments are off. Hidden from assistive
+ * technology: the Function's name is always written next to it.
  */
 export function FunctionMarker({
   index,
@@ -30,7 +30,7 @@ export function FunctionMarker({
       aria-hidden
       data-function={index}
       className={cn(
-        "inline-block size-2 shrink-0 rotate-45 rounded-[1.5px] look-b:hidden",
+        "inline-block size-2 shrink-0 rotate-45 rounded-[1.5px]",
         fill[index],
         className,
       )}
@@ -38,14 +38,14 @@ export function FunctionMarker({
   );
 }
 
-/** Classes for a Function's tinted row band (looks d and bd), for tables and lists. */
+/** Classes for a Function's tinted row band, for tables and lists. */
 export const functionBand: Record<FunctionIndex, string> = {
-  1: "look-fn:bg-function-1/10",
-  2: "look-fn:bg-function-2/10",
-  3: "look-fn:bg-function-3/10",
-  4: "look-fn:bg-function-4/10",
-  5: "look-fn:bg-function-5/10",
-  6: "look-fn:bg-function-6/10",
-  7: "look-fn:bg-function-7/10",
-  8: "look-fn:bg-function-8/10",
+  1: "bg-function-1/10",
+  2: "bg-function-2/10",
+  3: "bg-function-3/10",
+  4: "bg-function-4/10",
+  5: "bg-function-5/10",
+  6: "bg-function-6/10",
+  7: "bg-function-7/10",
+  8: "bg-function-8/10",
 };
