@@ -27,7 +27,13 @@ import {
   internalQuery,
   type QueryCtx,
 } from "./_generated/server";
-import { defaultModel, isClaude, MODELS } from "./lib/models";
+import {
+  claudeReachable,
+  defaultModel,
+  isClaude,
+  modelChain,
+  withModelFallback,
+} from "./lib/models";
 import { ESTIMATE_LIMITS } from "./lib/settings";
 
 /**
@@ -740,28 +746,14 @@ async function liveResearch(
   };
 }
 
-/**
- * The models to try for the knowledge call, in order: the default model, then
- * the fallback, skipping any whose provider key isn't set.
- * TODO(#75): replace with `modelChain` and `withModelFallback` from
- * `convex/lib/models.ts` once that contract change merges.
- */
-function knowledgeModels(): { id: string; model: LanguageModel }[] {
-  const chain: { id: string; model: LanguageModel }[] = [];
-  const anthropicKey = env.ANTHROPIC_API_KEY;
-  const googleKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
-  for (const id of [defaultModel(), MODELS.fallback]) {
-    if (chain.some((m) => m.id === id)) continue;
-    if (isClaude(id) && anthropicKey) {
-      chain.push({ id, model: createAnthropic({ apiKey: anthropicKey })(id) });
-    } else if (id.startsWith("gemini-") && googleKey) {
-      chain.push({
-        id,
-        model: createGoogleGenerativeAI({ apiKey: googleKey })(id),
-      });
-    }
+/** An AI SDK model for a Claude or Gemini model name, on the app's own key. */
+function languageModel(id: string): LanguageModel {
+  if (isClaude(id)) {
+    return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(id);
   }
-  return chain;
+  return createGoogleGenerativeAI({
+    apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+  })(id);
 }
 
 const KNOWLEDGE_SYSTEM = `You estimate current prices for events in India from your own knowledge, with no sources.
@@ -774,24 +766,20 @@ async function liveKnowledge(
   const prompt = `Event type: ${input.eventType}\nCity: ${input.city}, India\n\nBudget lines:\n${input.lines
     .map((l) => `- key ${l.key}: ${l.label} (${unitWords(l.unit)})`)
     .join("\n")}`;
-  let lastError: unknown = null;
-  for (const { id, model } of knowledgeModels()) {
-    try {
-      const result = await generateText({
-        model,
+  // The default model, falling back to Gemini when Claude can't answer (#75).
+  const { result, model } = await withModelFallback(
+    modelChain("assistant", env),
+    (id) =>
+      generateText({
+        model: languageModel(id),
         system: KNOWLEDGE_SYSTEM,
         prompt,
         output: Output.object({
           schema: z.object({ estimates: z.array(knowledgeEstimateSchema) }),
         }),
-      });
-      return { model: id, results: result.output.estimates };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (lastError) throw lastError;
-  return null;
+      }),
+  );
+  return { model, results: result.output.estimates };
 }
 
 /** The real calls, configured from the deployment's environment. */
@@ -799,9 +787,8 @@ export function liveEstimateDeps(): EstimateDeps {
   return {
     research: liveResearch,
     knowledge: liveKnowledge,
-    // TODO(#75): `claudeReachable(env)` from `convex/lib/models.ts`.
-    claudeReachable: () =>
-      isClaude(defaultModel()) && Boolean(env.ANTHROPIC_API_KEY),
+    // Research runs on the default model, so it also needs that model to be Claude.
+    claudeReachable: () => claudeReachable(env) && isClaude(defaultModel()),
     now: () => Date.now(),
     limits: ESTIMATE_LIMITS,
   };

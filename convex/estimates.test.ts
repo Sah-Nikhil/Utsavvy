@@ -21,6 +21,7 @@ import {
   buildResearchCall,
   cachedOrTableEstimate,
   estimateLines,
+  liveEstimateDeps,
   researchPrompt,
   stubEstimateDeps,
 } from "./estimates";
@@ -444,6 +445,19 @@ describe("the cascade's fallback order", () => {
     );
     expect(research).not.toHaveBeenCalled();
     expect(result?.basis.kind).toBe("referenceTable");
+  });
+});
+
+describe("liveEstimateDeps: research only when Claude is reachable", () => {
+  it("skips research without an Anthropic key or when the default model isn't Claude", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("DEFAULT_MODEL", undefined);
+    expect(liveEstimateDeps().claudeReachable()).toBe(false);
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    expect(liveEstimateDeps().claudeReachable()).toBe(true);
+    vi.stubEnv("DEFAULT_MODEL", "gemini-3.8-flash");
+    expect(liveEstimateDeps().claudeReachable()).toBe(false);
+    vi.unstubAllEnvs();
   });
 });
 
