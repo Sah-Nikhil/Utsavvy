@@ -7,6 +7,9 @@ const cspEnv: CspEnvironment = {
 };
 
 const nextConfig: NextConfig = {
+  // `next dev` would otherwise append its own block to AGENTS.md, which is the
+  // orchestrator's file; agent instructions live in CLAUDE.md.
+  agentRules: false,
   // The first `convex dev` wrote CONVEX_URL before Next.js existed; Vercel's
   // `convex deploy --cmd` sets NEXT_PUBLIC_CONVEX_URL itself.
   env: {
