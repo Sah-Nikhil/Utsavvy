@@ -1,31 +1,50 @@
 "use client";
 
-import { SectionFrame } from "@/components/shell/SectionOrnament";
-import { MountPlaceholder } from "@/components/shell/MountPlaceholder";
+import { Component, type ReactNode } from "react";
+import { Canvas } from "./Canvas";
 
-// S2 (the freeform Canvas) owns this folder and replaces this mount point with
-// the React Flow Canvas (ADR 0010). Until then it shows the four starting Sections.
+export { Canvas } from "./Canvas";
+export { useFunctionFilter } from "./FunctionFilter";
 
 export type CanvasViewProps = { eventId: string };
 
-const STARTING_SECTIONS = [
-  "Money and dates",
-  "Vendors",
-  "Inspirations",
-  "Notes",
-];
-
-export function CanvasView(_props: CanvasViewProps) {
+/**
+ * The shell's Canvas mount point (components/shell/WorkspaceShell.tsx). A
+ * Canvas that can't open, because the Event doesn't exist or this person
+ * isn't in it, says so instead of breaking the workspace.
+ */
+export function CanvasView({ eventId }: CanvasViewProps) {
   return (
-    <div className="grid gap-6 p-6 md:grid-cols-2">
-      {STARTING_SECTIONS.map((name) => (
-        <SectionFrame key={name} label={name}>
-          <MountPlaceholder
-            title="No Items yet"
-            slice="S2 and the plan slices"
-          />
-        </SectionFrame>
-      ))}
-    </div>
+    <CanvasErrorBoundary key={eventId}>
+      <Canvas eventId={eventId} />
+    </CanvasErrorBoundary>
   );
+}
+
+class CanvasErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="flex size-full min-h-[320px] items-center justify-center p-6">
+        <div role="alert" className="grid max-w-sm gap-1.5 text-center">
+          <p className="font-display text-title text-ink">
+            This Canvas can&apos;t be opened
+          </p>
+          <p className="text-label text-ink-2">
+            The Event may not exist, or you may no longer be in it. Go back to
+            your Events and open it from there.
+          </p>
+        </div>
+      </div>
+    );
+  }
 }
