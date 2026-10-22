@@ -48,7 +48,7 @@ Go to **Google Maps Platform > APIs & Services** (or **APIs & Services > Library
 1. Go to **Google Maps Platform > Keys & Credentials > Create credentials > API key**. Name it `Utsavvy browser`.
 2. Under **Application restrictions**, choose **Websites** and add these entries. Each site needs two lines, one without and one with `/*`:
    - `http://localhost:3000` and `http://localhost:3000/*`
-   - The production URL, once Vercel is connected: `https://<project>.vercel.app` and `https://<project>.vercel.app/*`, using the exact host Vercel shows on the project page.
+   - The production URL: `https://utsavvy.vercel.app` and `https://utsavvy.vercel.app/*`.
    - S20's preview, when its PR opens: the branch URL from the Vercel deployment page, which looks like `https://utsavvy-git-build-66-google-places-<your-scope>.vercel.app`, both forms. It stays the same for every push to that branch. Remove it after S20 merges.
 3. Under **API restrictions**, choose **Restrict key** and tick **Maps JavaScript API**. If the console lists a separate Places UI Kit entry, tick it too. If the S20 spike finds the list won't load with only Maps JavaScript API ticked, add the UI Kit entry then.
 4. **Save.**

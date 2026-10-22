@@ -573,7 +573,7 @@ The days, waves and exit criteria are in [ROADMAP.md](ROADMAP.md), and every iss
 
 | When | Task | Time |
 |---|---|---|
-| 21 Oct | Give the go for GitHub setup and the build issues; connect Vercel; create the Clerk development instance (Consumer type) and activate its Convex integration; put `ANTHROPIC_API_KEY` and `GEOAPIFY_API_KEY` in the Convex dashboard | 30 min |
+| 21 Oct | Give the go for GitHub setup and the build issues; connect Vercel; create the Clerk development instance (Consumer type) and activate its Convex integration; put `ANTHROPIC_API_KEY` and `GEOAPIFY_API_KEY` in the Convex dashboard (all done 22 Oct except `ANTHROPIC_API_KEY`) | 30 min |
 | 22 Oct | Hand-curate and approve the stock library photos (288 after the second pass, 12 per set for the vibe pick) and their tags with D1 (done 22 Oct) | 2 h |
 | 22 Oct | Fill any starter-set category gap with an Instagram-only Vendor, checked by hand on its public profile (D2) | 20 min, if needed |
 | By 23 Oct | Follow [docs/setup/google-cloud.md](docs/setup/google-cloud.md): the Google Cloud project with a billing account (Free Trial, not upgraded, if offered), Maps JavaScript and the Places UI Kit enabled, the browser key with website and API restrictions, the Map ID, daily caps where offered, a ₹100 budget alert, and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` in `.env.local` and the Vercel dashboard (S20 starts on 24 Oct) | 30 min |
