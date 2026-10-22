@@ -111,7 +111,7 @@ test.describe("chat", () => {
       ).toContainText("Plan the sangeet");
     }
     await expect(chat(aditi).locator("[data-replying]")).toContainText(
-      /Utsavvy is replying to S+/,
+      /Utsavvy is replying to \S+/,
       { timeout: 20_000 },
     );
     for (const viewer of [page, aditi]) {
