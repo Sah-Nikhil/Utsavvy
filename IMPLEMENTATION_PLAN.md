@@ -220,7 +220,7 @@ AES-256-GCM with Node's `crypto` in a Node action, a random 12-byte IV per key, 
 | `NEXT_PUBLIC_CONVEX_URL`, `CONVEX_DEPLOYMENT` | Next.js | Convex client |
 | `CONVEX_DEPLOY_KEY` | Vercel (production and preview keys) | `bunx convex deploy` in the Vercel build |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Next.js | Clerk |
-| `CLERK_JWT_ISSUER_DOMAIN` | Convex | Verifying Clerk tokens |
+| `CLERK_FRONTEND_API_URL` | Convex | Verifying Clerk tokens: `convex/auth.config.ts` uses it as the provider `domain` with `applicationID: "convex"`, per [Clerk's Convex guide](https://clerk.com/docs/guides/development/integrations/databases/convex). Set with `bunx convex env set`, not in `.env.local` (set 2026-10-22) |
 | `ANTHROPIC_API_KEY` | Convex | Default model, helper model, Chat web search and Estimate research |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Convex | Fallback model |
 | `DEFAULT_MODEL`, `HELPER_MODEL` | Convex | `claude-sonnet-5-5`, `claude-haiku-5-5` |
@@ -573,7 +573,7 @@ The days, waves and exit criteria are in [ROADMAP.md](ROADMAP.md), and every iss
 
 | When | Task | Time |
 |---|---|---|
-| 21 Oct | Give the go for GitHub setup and the build issues; connect Vercel; create the Clerk development instance and its Convex JWT template; put `ANTHROPIC_API_KEY` and `GEOAPIFY_API_KEY` in the Convex dashboard | 30 min |
+| 21 Oct | Give the go for GitHub setup and the build issues; connect Vercel; create the Clerk development instance (Consumer type) and activate its Convex integration; put `ANTHROPIC_API_KEY` and `GEOAPIFY_API_KEY` in the Convex dashboard | 30 min |
 | 22 Oct | Hand-curate and approve the stock library photos (288 after the second pass, 12 per set for the vibe pick) and their tags with D1 (done 22 Oct) | 2 h |
 | 22 Oct | Fill any starter-set category gap with an Instagram-only Vendor, checked by hand on its public profile (D2) | 20 min, if needed |
 | By 23 Oct | Follow [docs/setup/google-cloud.md](docs/setup/google-cloud.md): the Google Cloud project with a billing account (Free Trial, not upgraded, if offered), Maps JavaScript and the Places UI Kit enabled, the browser key with website and API restrictions, the Map ID, daily caps where offered, a ₹100 budget alert, and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` in `.env.local` and the Vercel dashboard (S20 starts on 24 Oct) | 30 min |
