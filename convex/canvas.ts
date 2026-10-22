@@ -523,13 +523,18 @@ const CHECK_FUNCTIONS = [
 
 /**
  * Makes an Event with the starting Sections, four Functions and `items` mixed
- * Items, with the person signed in as `email` as its Owner, for the browser
+ * Items, with the person signed in as `email` as its Owner and each of
+ * `memberEmails` as a Member, for the browser
  * checks in e2e/canvas.spec.ts and the React Flow check (ADR 0010). Refuses
  * on anything but a local deployment. S1's `api.events.create` replaces it for
  * real Events.
  */
 export const seedLocalCheck = internalMutation({
-  args: { email: v.string(), items: v.number() },
+  args: {
+    email: v.string(),
+    memberEmails: v.optional(v.array(v.string())),
+    items: v.number(),
+  },
   returns: v.id("events"),
   handler: async (ctx, args) => {
     refuseOutsideLocal();
@@ -576,6 +581,24 @@ export const seedLocalCheck = internalMutation({
       joinedAt: Date.now(),
       endedAt: null,
     });
+    for (const memberEmail of args.memberEmails ?? []) {
+      const member = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", memberEmail.toLowerCase()))
+        .first();
+      if (member === null)
+        throw new Error(`Sign in as ${memberEmail} once before seeding`);
+      await ctx.db.insert("memberships", {
+        eventId,
+        userId: member._id,
+        role: "member",
+        status: "active",
+        blocked: false,
+        displayName: member.name,
+        joinedAt: Date.now(),
+        endedAt: null,
+      });
+    }
     const actor = { kind: "member" as const, membershipId };
     await createStartingSections(ctx, eventId, actor);
     for (const [order, fn] of CHECK_FUNCTIONS.entries()) {
@@ -720,5 +743,46 @@ export const pointForLocalCheck = internalMutation({
       })),
       expiresAt: Date.now() + 30_000,
     });
+  },
+});
+
+/**
+ * Adds a Note the way any slice adds an Item, through `placeNewItem`, as the
+ * Event's Owner. Local browser checks only.
+ */
+export const addNoteForLocalCheck = internalMutation({
+  args: { eventId: v.id("events"), text: v.string() },
+  returns: v.id("items"),
+  handler: async (ctx, args) => {
+    refuseOutsideLocal();
+    const owner = (
+      await ctx.db
+        .query("memberships")
+        .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+        .take(50)
+    ).find((m) => m.role === "owner");
+    if (!owner) throw new Error("That Event has no Owner");
+    const size = { w: 300, h: 200 };
+    const { sectionId, position } = await placeNewItem(ctx, {
+      eventId: args.eventId,
+      kind: "note",
+      size,
+    });
+    const actor = { kind: "member" as const, membershipId: owner._id };
+    const { id } = await memberInsert(ctx, {
+      table: "items",
+      value: {
+        eventId: args.eventId,
+        sectionId,
+        position,
+        size,
+        functionKey: null,
+        createdBy: actor,
+        kind: "note",
+        data: { text: args.text, citations: [] },
+      },
+      actor,
+    });
+    return id;
   },
 });

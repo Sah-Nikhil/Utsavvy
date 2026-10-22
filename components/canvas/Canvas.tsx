@@ -14,7 +14,7 @@ import {
   type NodeTypes,
   type Viewport,
 } from "@xyflow/react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { FolderPlus, Maximize, Minus, Plus } from "lucide-react";
 import {
   useCallback,
@@ -89,9 +89,12 @@ function prefersReducedMotion(): boolean {
 }
 
 export function Canvas({ eventId }: { eventId: string }) {
-  const data = useQuery(api.canvas.get, {
-    eventId: eventId as Id<"events">,
-  });
+  // Wait for Clerk's token to reach Convex, or the query is refused as signed out.
+  const { isAuthenticated } = useConvexAuth();
+  const data = useQuery(
+    api.canvas.get,
+    isAuthenticated ? { eventId: eventId as Id<"events"> } : "skip",
+  );
   if (data === undefined) {
     return (
       <div
@@ -551,7 +554,7 @@ function CanvasFlow({
             </Button>
           ) : null}
         </Panel>
-        <Panel position="bottom-left" className="m-3!">
+        <Panel position="bottom-right" className="m-3!">
           <ZoomControls />
         </Panel>
         {sections.length === 0 ? (

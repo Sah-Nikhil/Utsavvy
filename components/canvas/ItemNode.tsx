@@ -77,6 +77,7 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
     <div
       ref={contentRef}
       data-item-id={item._id}
+      data-selected={isSelected ? "" : undefined}
       onMouseUp={(event) => selectFrom(event.target)}
       onKeyUp={(event) => {
         if (event.key === "Shift" || event.key.startsWith("Arrow"))
@@ -99,6 +100,7 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
   return (
     <div
       data-canvas-item={item.kind}
+      data-function-key={item.functionKey ?? undefined}
       data-arrived={arrived ? "" : undefined}
       data-dimmed={dimmed ? "" : undefined}
       className={cn(
