@@ -190,3 +190,14 @@ export function mainPolicy(env: CspEnvironment): string {
 export function embedPolicy(env: CspEnvironment): string {
   return serialize(merge(base(env), EMBEDS, { "frame-ancestors": ["'self'"] }));
 }
+
+/**
+ * The policy for `/embed/pinterest`: the `/embed` policy plus a CSP sandbox
+ * with the card iframe's own flags, so the page keeps an opaque origin even
+ * when opened directly rather than in its card (#82, review of PR #78).
+ * Instagram's page can't take it: Instagram's own iframe inherits the sandbox
+ * and stays blank.
+ */
+export function pinterestEmbedPolicy(env: CspEnvironment): string {
+  return `${embedPolicy(env)}; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox`;
+}

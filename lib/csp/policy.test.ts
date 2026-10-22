@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { embedPolicy, mainPolicy, type CspEnvironment } from "./policy";
+import {
+  embedPolicy,
+  mainPolicy,
+  pinterestEmbedPolicy,
+  type CspEnvironment,
+} from "./policy";
 
 const ENVIRONMENTS: CspEnvironment[] = [
   { development: false, vercelPreview: false },
@@ -31,5 +36,30 @@ describe("the main policy", () => {
     const policy = mainPolicy(env);
     expect(policy).not.toContain("pinimg.com");
     expect(policy).not.toContain("pinterest.com");
+  });
+});
+
+describe("the /embed/pinterest policy", () => {
+  it.each(ENVIRONMENTS)(
+    "is the /embed policy plus an opaque-origin sandbox (%o)",
+    (env) => {
+      const policy = pinterestEmbedPolicy(env);
+      expect(policy.startsWith(embedPolicy(env))).toBe(true);
+      expect(sources(policy, "sandbox")).toEqual([
+        "allow-scripts",
+        "allow-popups",
+        "allow-popups-to-escape-sandbox",
+      ]);
+      expect(policy).not.toContain("allow-same-origin");
+    },
+  );
+
+  it("leaves the other /embed pages without a sandbox", () => {
+    expect(
+      sources(
+        embedPolicy({ development: false, vercelPreview: false }),
+        "sandbox",
+      ),
+    ).toEqual([]);
   });
 });

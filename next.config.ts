@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
-import { embedPolicy, mainPolicy, type CspEnvironment } from "./lib/csp/policy";
+import {
+  embedPolicy,
+  mainPolicy,
+  pinterestEmbedPolicy,
+  type CspEnvironment,
+} from "./lib/csp/policy";
 
 const cspEnv: CspEnvironment = {
   development: process.env.NODE_ENV === "development",
@@ -30,6 +35,16 @@ const nextConfig: NextConfig = {
         source: "/embed/:path*",
         headers: [
           { key: "Content-Security-Policy", value: embedPolicy(cspEnv) },
+        ],
+      },
+      // Listed last so it replaces the /embed policy on this one page.
+      {
+        source: "/embed/pinterest",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: pinterestEmbedPolicy(cspEnv),
+          },
         ],
       },
     ];

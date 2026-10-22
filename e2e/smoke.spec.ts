@@ -21,6 +21,22 @@ test.describe("smoke", () => {
     expect(embed.headers()["content-security-policy"]).toContain(
       "https://assets.pinterest.com",
     );
+    // /embed/pinterest keeps an opaque origin even when opened directly; one
+    // policy only, so the sandbox replaces rather than adds to the /embed one.
+    const pinterestPolicies = embed
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "content-security-policy");
+    expect(pinterestPolicies).toHaveLength(1);
+    expect(pinterestPolicies[0]!.value).toMatch(
+      /; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox$/,
+    );
+    const instagram = await request.get("/embed/instagram");
+    expect(instagram.headers()["content-security-policy"]).toContain(
+      "https://www.instagram.com",
+    );
+    expect(instagram.headers()["content-security-policy"]).not.toContain(
+      "sandbox",
+    );
   });
 
   test("the landing renders in the three fonts", async ({
