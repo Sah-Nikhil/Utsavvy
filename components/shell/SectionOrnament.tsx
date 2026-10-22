@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
  * ornamental corner pieces of look D, Contemporary rangoli. They are purely
  * decorative, so they are hidden from assistive technology and follow the
  * personal Ornaments setting (lib/ornaments.ts). They are absolutely positioned,
- * so turning them off moves nothing else.
+ * so turning them off moves no Section or Item; only the Section label drops
+ * the indent kept for the top corner piece and lines up with the Items.
  *
  * Place <SectionOrnament /> inside the Section frame. The corner pieces position
  * themselves against the nearest positioned ancestor, which should be the
@@ -79,7 +80,7 @@ export function SectionFrame({
         className,
       )}
     >
-      <div className="mb-3 flex items-center gap-2.5 pl-10">
+      <div className="mb-3 flex items-center gap-2.5 pl-10 ornaments-off:pl-0">
         {/* A Hindi label stays in Anek at this small size; :lang(hi) gives it room for matras. */}
         <h2
           lang={hindiLang(label)}

@@ -4,7 +4,8 @@ import { expect, test, type Page } from "./fixtures";
 /**
  * The personal Ornaments setting (lib/ornaments.ts): turned off from the account
  * menu, it hides look D's Section corner pieces, survives a reload without a
- * flash, and moves nothing else on the page.
+ * flash, and moves no Section frame. Only the Section label shifts, dropping
+ * the indent kept for the corner piece to line up with the Section's Items.
  */
 
 const corners = '[data-ornament="section-corners"] svg';
@@ -18,7 +19,22 @@ async function toggleOrnaments(page: Page, label: string) {
     .click();
 }
 
-/** Positions of the Section frames, to check nothing moves between states. */
+/**
+ * How far the first Section's label sits right of its content's left edge:
+ * indented for the corner piece when ornaments are on, aligned when off.
+ */
+function labelIndent(page: Page) {
+  return page
+    .locator('[data-mount="canvas"] section')
+    .first()
+    .evaluate((section) => {
+      const label = section.querySelector("h2")!.getBoundingClientRect();
+      const content = section.lastElementChild!.getBoundingClientRect();
+      return Math.round(label.left - content.left);
+    });
+}
+
+/** Positions of the Section frames, to check no Section moves between states. */
 function sectionBoxes(page: Page) {
   return page.locator('[data-mount="canvas"] section').evaluateAll((sections) =>
     sections.map((s) => {
@@ -28,7 +44,7 @@ function sectionBoxes(page: Page) {
   );
 }
 
-test("ornaments turn off and on from the account menu, without a flash or layout shift", async ({
+test("ornaments turn off and on from the account menu, without a flash or moving any Section", async ({
   page,
   signIn,
   cspViolations,
@@ -56,10 +72,12 @@ test("ornaments turn off and on from the account menu, without a flash or layout
   await expect(page.locator(corners).first()).toBeVisible();
   const before = await sectionBoxes(page);
   expect(before.length).toBeGreaterThan(0);
+  expect(await labelIndent(page)).toBeGreaterThan(0);
 
   await toggleOrnaments(page, "Turn ornaments off");
   await expect(page.locator(corners).first()).toBeHidden();
   expect(await sectionBoxes(page)).toEqual(before);
+  expect(await labelIndent(page)).toBe(0);
   await expectNoSeriousA11yViolations(page);
 
   await page.reload();
@@ -68,6 +86,8 @@ test("ornaments turn off and on from the account menu, without a flash or layout
 
   await toggleOrnaments(page, "Turn ornaments on");
   await expect(page.locator(corners).first()).toBeVisible();
+  expect(await sectionBoxes(page)).toEqual(before);
+  expect(await labelIndent(page)).toBeGreaterThan(0);
   await expectNoSeriousA11yViolations(page);
 
   await page.reload();
