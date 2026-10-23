@@ -74,6 +74,13 @@ test("lists changes with who made them, Restores a deleted Section and highlight
   await expect(panel.locator("[data-change]").first()).toContainText(
     'Restored the Section "Sangeet night"',
   );
+  // Restoring that row would delete the Section again, so it offers no Restore.
+  await expect(
+    panel
+      .locator("[data-change]")
+      .first()
+      .getByRole("button", { name: /^Restore/ }),
+  ).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(sangeet).toBeVisible({ timeout: 5_000 });
 
