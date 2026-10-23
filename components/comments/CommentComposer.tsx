@@ -77,8 +77,10 @@ export function CommentComposer({
     setSending(true);
     setError(null);
     try {
-      await onSubmit(body);
-      setBody("");
+      const sent = body;
+      await onSubmit(sent);
+      // Keep anything typed while it was sending.
+      setBody((current) => (current === sent ? "" : current));
     } catch (err) {
       setError(commentErrorText(err));
     } finally {
