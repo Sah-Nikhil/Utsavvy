@@ -20,7 +20,7 @@ export const MODELS = {
 
 /** The model the Assistant answers with: `DEFAULT_MODEL`, else `claude-sonnet-5-5`. */
 export function defaultModel(): string {
-  return env.DEFAULT_MODEL ?? MODELS.default;
+  return env.DEFAULT_MODEL || MODELS.default;
 }
 
 /** The helper model for descriptions and extraction: `HELPER_MODEL`, else `claude-haiku-5-5`. */
