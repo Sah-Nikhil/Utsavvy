@@ -60,20 +60,35 @@ describe("runNotice", () => {
 });
 
 describe("stopState", () => {
+  const rohan = { membershipId: "rohan", canPost: true };
+  const aditi = { membershipId: "aditi", canPost: true };
+
   it("lets the asker stop at once", () => {
-    expect(stopState(base, "rohan", 1_500)).toEqual({
+    expect(stopState(base, rohan, 1_500)).toEqual({
+      visible: true,
       allowed: true,
       secondsLeft: 0,
     });
   });
 
   it("makes other Members wait until 30 seconds have passed", () => {
-    expect(stopState(base, "aditi", 21_000)).toEqual({
+    expect(stopState(base, aditi, 21_000)).toEqual({
+      visible: true,
       allowed: false,
       secondsLeft: 10,
     });
-    expect(stopState(base, "aditi", 31_000)).toEqual({
+    expect(stopState(base, aditi, 31_000)).toEqual({
+      visible: true,
       allowed: true,
+      secondsLeft: 0,
+    });
+  });
+
+  it("gives a Viewer no Stop at all, even after 30 seconds (L7)", () => {
+    const papa = { membershipId: "papa", canPost: false };
+    expect(stopState(base, papa, 31_000)).toEqual({
+      visible: false,
+      allowed: false,
       secondsLeft: 0,
     });
   });
