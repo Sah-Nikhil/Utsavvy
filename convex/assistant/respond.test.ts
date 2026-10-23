@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { saveMessage } from "@convex-dev/agent";
 import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -604,6 +605,54 @@ describe(
       );
       const reply = docs.page.find((doc) => doc.message?.role === "assistant");
       expect(reply?.model).toBe("stub-gemini");
+    });
+
+    it("counts only Chat text toward the 60-message window, not tool messages", async () => {
+      const s = await setUp(STUB_MODEL);
+      for (let i = 0; i < 5; i += 1) {
+        await say(s.asRohan, s.eventId, `older ${i}`, true);
+      }
+      const threadId = (await messages(s)).details.threadId!;
+      // An earlier reply's tool loop: 35 tool calls and their results.
+      await s.t.run(async (ctx) => {
+        for (let i = 0; i < 35; i += 1) {
+          await saveMessage(ctx, components.agent, {
+            threadId,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolCallId: `call-${i}`,
+                  toolName: "addItem",
+                  input: {},
+                },
+              ],
+            },
+          });
+          await saveMessage(ctx, components.agent, {
+            threadId,
+            message: {
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: `call-${i}`,
+                  toolName: "addItem",
+                  output: { type: "text", value: "added" },
+                },
+              ],
+            },
+          });
+        }
+      });
+      const { messageId } = await say(s.asAditi, s.eventId, "Plan it", true);
+      const runId = await parkRun(s, s.aditi, messageId);
+      await s.t.action(internal.assistant.agent.respond, { runId });
+      await s.t.finishInProgressScheduledFunctions();
+
+      const { text } = lastPromptTurn();
+      for (let i = 0; i < 5; i += 1) expect(text).toContain(`older ${i}`);
     });
   },
 );
