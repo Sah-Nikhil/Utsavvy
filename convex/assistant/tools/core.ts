@@ -74,7 +74,7 @@ import {
   exceedsProposalThresholds,
   type ThresholdChange,
 } from "../amounts";
-import { wrapOutside } from "../outside";
+import { escapeData, inert, wrapOutside } from "../outside";
 
 /*
  * S7: the Assistant's Canvas tools (IMPLEMENTATION_PLAN.md section 6,
@@ -613,7 +613,7 @@ async function readDocuments(
   for (const id of ids.slice(0, MAX_READ_IDS)) {
     const itemId = ctx.db.normalizeId("items", id);
     if (itemId) {
-      const item = await ctx.db.get("items", itemId);
+      const item = inert(await ctx.db.get("items", itemId));
       if (item && item.eventId === eventId && item.deletedAt === null) {
         const data =
           item.kind === "inspiration" && item.data.seen
@@ -634,7 +634,7 @@ async function readDocuments(
     }
     const entryId = ctx.db.normalizeId("entries", id);
     if (entryId) {
-      const entry = await ctx.db.get("entries", entryId);
+      const entry = inert(await ctx.db.get("entries", entryId));
       if (entry && entry.eventId === eventId && entry.deletedAt === null) {
         documents.push({
           ...(entrySummary(entry) as object),
@@ -647,7 +647,7 @@ async function readDocuments(
     }
     const sectionId = ctx.db.normalizeId("sections", id);
     if (sectionId) {
-      const section = await ctx.db.get("sections", sectionId);
+      const section = inert(await ctx.db.get("sections", sectionId));
       if (
         section &&
         section.eventId === eventId &&
@@ -668,7 +668,9 @@ async function readDocuments(
 export const readCanvasForRun = internalQuery({
   args: { ...runRef, ids: v.optional(v.array(v.string())) },
   handler: async (ctx, args): Promise<ToolResult> => {
-    const { event } = await gate(ctx, args);
+    // Members write every string here, so each reaches the model escaped:
+    // a Note can't open a fake <request> or close the quoted Chat.
+    const event = inert((await gate(ctx, args)).event);
     if (args.ids && args.ids.length > 0) {
       return {
         ok: true,
@@ -676,11 +678,11 @@ export const readCanvasForRun = internalQuery({
       };
     }
 
-    const functions = (
+    const functions = inert(
       await ctx.db
         .query("eventFunctions")
         .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-        .take(50)
+        .take(50),
     )
       .sort((a, b) => a.order - b.order)
       .map((fn) => ({
@@ -690,11 +692,11 @@ export const readCanvasForRun = internalQuery({
         guests: fn.guests,
       }));
 
-    const sections = (
+    const sections = inert(
       await ctx.db
         .query("sections")
         .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-        .take(100)
+        .take(100),
     )
       .filter((s) => s.deletedAt === null)
       .sort((a, b) => a.order - b.order)
@@ -705,18 +707,19 @@ export const readCanvasForRun = internalQuery({
         version: s.version,
       }));
 
-    const items = (
+    const items = inert(
       await ctx.db
         .query("items")
         .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-        .take(300)
+        .take(300),
     ).filter((i) => i.deletedAt === null);
 
+    // The plan Items by their own index, so a busy Canvas can't hide them.
     const plan = async (kind: "budget" | "timeline" | "checklist") => {
-      const item = items.find((i) => i.kind === kind);
+      const item = await planItemOf(ctx, args.eventId, kind);
       if (!item) return null;
-      const entries = await liveEntriesOf(ctx, item._id);
-      return { item, entries };
+      const entries = inert(await liveEntriesOf(ctx, item._id));
+      return { item: inert(item), entries };
     };
     const budget = await plan("budget");
     const timeline = await plan("timeline");
@@ -733,13 +736,13 @@ export const readCanvasForRun = internalQuery({
         )
       : null;
 
-    const openProposals = (
+    const openProposals = inert(
       await ctx.db
         .query("proposals")
         .withIndex("by_event_status", (q) =>
           q.eq("eventId", args.eventId).eq("status", "open"),
         )
-        .take(10)
+        .take(10),
     ).map((p) => ({ proposalId: p._id, summary: p.summary }));
 
     const planKinds: ItemKind[] = ["budget", "timeline", "checklist"];
@@ -842,7 +845,12 @@ export const readChatForRun = internalQuery({
         const generated = doc.finishReason !== undefined && annotation === null;
         messages.push(
           generated
-            ? { messageId: doc._id, kind: "assistant", from: "Utsavvy", text }
+            ? {
+                messageId: doc._id,
+                kind: "assistant",
+                from: "Utsavvy",
+                text: escapeData(text),
+              }
             : {
                 messageId: doc._id,
                 kind: "notice",
@@ -861,7 +869,7 @@ export const readChatForRun = internalQuery({
       messages.push({
         messageId: doc._id,
         kind: "member",
-        from: name,
+        from: escapeData(name),
         dontReply: annotation?.dontReply ?? false,
         text: wrapOutside(text, { source: "Chat", addedBy: name }),
       });
