@@ -439,9 +439,7 @@ function BudgetRow({
                 className="text-label font-semibold text-ink"
               />
             )}
-            {fields.role === "line" &&
-            fields.plannedAmount !== null &&
-            fields.estimate !== null ? (
+            {fields.role === "line" && fields.plannedAmount !== null ? (
               <span className="text-caption text-ink-3">Your amount</span>
             ) : null}
           </span>

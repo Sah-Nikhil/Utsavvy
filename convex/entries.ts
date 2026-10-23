@@ -3,7 +3,6 @@ import { budgetRollup } from "../components/items/budget/rollup";
 import {
   checklistStatus,
   type ChecklistStatus,
-  type VendorLinkStatus,
 } from "../components/items/checklist/status";
 import { can } from "../lib/access/permissions";
 import {
@@ -44,8 +43,14 @@ export type {
 type Ctx = QueryCtx | MutationCtx;
 type PlanKind = EntryKind;
 
-/** The most live Entries one Item reads; deleted ones are skipped, not counted. */
+/** The most live Entries one Item shows. */
 const MAX_ENTRIES = 500;
+/** The most Entry rows, live or deleted, one Item's read scans. */
+const MAX_ENTRY_ROWS = 2000;
+/** The most Vendor links read per checklist Entry. */
+const MAX_LINKS_PER_ENTRY = 20;
+/** The most Items of one kind read when looking for the live plan Item. */
+const MAX_PLAN_ITEMS = 50;
 const MAX_LABEL = 120;
 const MAX_NOTE = 500;
 /** ₹100 crore: far above any Event, low enough to catch a typo of extra zeros. */
@@ -149,15 +154,16 @@ async function liveEntries(
   ctx: Ctx,
   itemId: Id<"items">,
 ): Promise<Doc<"entries">[]> {
-  const live: Doc<"entries">[] = [];
-  for await (const entry of ctx.db
+  // Bounded: deleted rows count towards the read too, so many deletes can't
+  // make one Item's read unbounded.
+  const rows = await ctx.db
     .query("entries")
-    .withIndex("by_item", (q) => q.eq("itemId", itemId))) {
-    if (entry.deletedAt !== null) continue;
-    live.push(entry);
-    if (live.length >= MAX_ENTRIES) break;
-  }
-  return live.sort((a, b) => a.order - b.order);
+    .withIndex("by_item", (q) => q.eq("itemId", itemId))
+    .take(MAX_ENTRY_ROWS);
+  return rows
+    .filter((entry) => entry.deletedAt === null)
+    .slice(0, MAX_ENTRIES)
+    .sort((a, b) => a.order - b.order);
 }
 
 /** The order after every Entry of the Item, so a new Entry goes last. */
@@ -175,31 +181,26 @@ export async function planItemOf(
   eventId: Id<"events">,
   kind: PlanKind,
 ): Promise<Doc<"items"> | null> {
-  for await (const item of ctx.db
+  const items = await ctx.db
     .query("items")
     .withIndex("by_event_kind", (q) =>
       q.eq("eventId", eventId).eq("kind", kind),
-    )) {
-    if (item.deletedAt === null) return item;
-  }
-  return null;
+    )
+    .take(MAX_PLAN_ITEMS);
+  return items.find((item) => item.deletedAt === null) ?? null;
 }
 
 async function checklistStatuses(
   ctx: Ctx,
-  eventId: Id<"events">,
   entries: readonly Doc<"entries">[],
 ): Promise<Record<string, ChecklistStatus>> {
-  const links = new Map<string, VendorLinkStatus[]>();
-  for (const entry of entries) links.set(entry._id, []);
-  for await (const link of ctx.db
-    .query("vendorLinks")
-    .withIndex("by_event", (q) => q.eq("eventId", eventId))) {
-    links.get(link.checklistEntryId)?.push(link.status);
-  }
   const statuses: Record<string, ChecklistStatus> = {};
-  for (const [entryId, found] of links) {
-    statuses[entryId] = checklistStatus(found);
+  for (const entry of entries) {
+    const links = await ctx.db
+      .query("vendorLinks")
+      .withIndex("by_entry", (q) => q.eq("checklistEntryId", entry._id))
+      .take(MAX_LINKS_PER_ENTRY);
+    statuses[entry._id] = checklistStatus(links.map((link) => link.status));
   }
   return statuses;
 }
@@ -273,9 +274,7 @@ export const forItem = query({
         budgetCheck: event.budgetCheck,
       },
       checklistStatus:
-        item.kind === "checklist"
-          ? await checklistStatuses(ctx, item.eventId, entries)
-          : {},
+        item.kind === "checklist" ? await checklistStatuses(ctx, entries) : {},
       bookBy: item.kind === "checklist" ? await bookByDates(ctx, entries) : {},
       canEdit: can(membership.role, "canvas.edit"),
     };
@@ -408,10 +407,36 @@ export const add = mutation({
   },
 });
 
+/*
+ * The pricing step's rounding (IMPLEMENTATION_PLAN.md section 4.14), the same
+ * rules as `amountAt` and `amountAtMost` in lib/pricing/pricePlan.ts. Those
+ * aren't exported, and that file is S3's, so these mirror them until it
+ * exports them; then call those and delete these.
+ */
+function amountAt(unit: string, unitPrice: number, quantity: number): number {
+  if (unit === "per_plate") return Math.round(unitPrice / 10) * 10 * quantity;
+  return Math.round((unitPrice * quantity) / 1000) * 1000;
+}
+
+/** Rounded down instead, so a line never shows more than its own high. */
+function amountAtMost(
+  unit: string,
+  unitPrice: number,
+  quantity: number,
+): number {
+  const floorTo = (amount: number, step: number) =>
+    Math.floor(amount / step + 1e-9) * step;
+  if (unit === "per_plate") return floorTo(unitPrice, 10) * quantity;
+  const line = unitPrice * quantity;
+  return floorTo(line, line >= 1000 ? 1000 : 100);
+}
+
 /**
  * An Estimate moved to a new quantity at the same price per unit: low and
- * high from its per-unit range, the amount at the price per unit it had
- * (per-plate prices to ₹10, other lines to ₹1,000), never above the high.
+ * high from its per-unit range, the amount at the price per unit it had,
+ * rounded as the pricing step rounds. When that passes the new high, it
+ * rounds down instead (per-plate prices to ₹10, other lines to ₹1,000, or
+ * ₹100 under ₹1,000), so it never shows more than its high.
  */
 export function rescaleEstimate(
   estimate: PricedEstimate,
@@ -421,14 +446,9 @@ export function rescaleEstimate(
 ): PricedEstimate {
   const { low, high } = lineRange(estimate.basis, to);
   const unitPrice = estimate.amount / from;
-  let amount: number;
-  if (unit === "per_plate") amount = Math.round(unitPrice / 10) * 10 * to;
-  else {
-    const line = unitPrice * to;
-    const step = line >= 1000 ? 1000 : 100;
-    amount = Math.round(line / step) * step;
-  }
-  return { ...estimate, low, high, amount: Math.min(amount, high) };
+  let amount = amountAt(unit, unitPrice, to);
+  if (amount > high) amount = amountAtMost(unit, estimate.basis.unitHigh, to);
+  return { ...estimate, low, high, amount };
 }
 
 const patchValidator = v.union(
@@ -588,8 +608,8 @@ export const confirmAssumption = mutation({
   returns: v.null(),
   handler: async (ctx, { entryId, field }) => {
     const { entry, actor } = await editableEntry(ctx, entryId);
-    if (!entry.assumed.includes(field))
-      invalid("That value isn't an Assumption.", "notAssumed");
+    // Already confirmed (another Member tapped first): nothing to do.
+    if (!entry.assumed.includes(field)) return null;
     await memberWrite(ctx, {
       table: "entries",
       id: entryId,

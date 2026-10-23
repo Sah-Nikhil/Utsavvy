@@ -6,6 +6,7 @@ import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { createStartingSections } from "./canvas";
+import { rescaleEstimate } from "./entries";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 
 type Role = Doc<"memberships">["role"];
@@ -218,15 +219,18 @@ describe("entries.confirmAssumption", () => {
     });
   });
 
-  it("refuses a field that isn't assumed", async () => {
+  it("is a no-op when the field is already confirmed, so two Members tapping at once both succeed", async () => {
     const { t, plan, meera } = await setUp();
-    const id = await insertBudgetEntry(t, plan, cateringFields(), []);
-    await expect(
+    const id = await insertBudgetEntry(t, plan, cateringFields(), ["quantity"]);
+    const confirm = () =>
       meera.mutation(api.entries.confirmAssumption, {
         entryId: id,
         field: "quantity",
-      }),
-    ).rejects.toThrow(/InvalidInput/);
+      });
+    await confirm();
+    await expect(confirm()).resolves.toBeNull();
+    expect((await entry(t, id)).assumed).toEqual([]);
+    expect(await changesFor(t, id)).toHaveLength(1);
   });
 });
 
@@ -514,4 +518,218 @@ describe("entries.forItem", () => {
         .query(api.entries.forItem, { itemId: plan.items.budget }),
     ).rejects.toThrow(/AccessDenied/);
   });
+});
+
+describe("rescaleEstimate at the high edge", () => {
+  // A range whose high isn't on a rounding step (X tier ×1.25, or researched).
+  const perDay = (amount: number, days: number) => ({
+    low: 40_000 * days,
+    high: 60_500 * days,
+    amount,
+    label: "Estimate" as const,
+    basis: {
+      ...referenceTableBasis({
+        unit: "per_day",
+        unitLow: 40_000,
+        unitHigh: 60_500,
+        tier: "X",
+      }),
+    },
+  });
+
+  it("a per-day line at its high, 2 → 3 days, rounds down to ₹1,81,000", () => {
+    const after = rescaleEstimate(perDay(121_000, 2), "per_day", 2, 3);
+    expect(after.high).toBe(181_500);
+    expect(after.amount).toBe(181_000);
+  });
+
+  it("a per-plate line at its high rounds its plate price down to ₹10", () => {
+    const estimate = {
+      low: 1_375 * 200,
+      high: 2_375 * 200,
+      amount: 2_375 * 200,
+      label: "Estimate" as const,
+      basis: referenceTableBasis({
+        unit: "per_plate",
+        unitLow: 1_375,
+        unitHigh: 2_375,
+        tier: "X",
+      }),
+    };
+    const after = rescaleEstimate(estimate, "per_plate", 200, 300);
+    expect(after.high).toBe(712_500);
+    // ₹2,375 a plate rounds to ₹2,380, above the high, so it floors to ₹2,370.
+    expect(after.amount).toBe(2_370 * 300);
+  });
+
+  it("a line under ₹1,000 floors to ₹100, not to zero", () => {
+    const estimate = {
+      low: 450,
+      high: 950,
+      amount: 950,
+      label: "Estimate" as const,
+      basis: referenceTableBasis({
+        unit: "per_card",
+        unitLow: 45,
+        unitHigh: 95,
+        tier: "Y",
+      }),
+    };
+    const after = rescaleEstimate(estimate, "per_card", 10, 9);
+    expect(after.high).toBe(855);
+    expect(after.amount).toBe(800);
+  });
+});
+
+describe("every S4 write refuses Viewers and people outside the Event", () => {
+  type Caller = ReturnType<T["withIdentity"]>;
+  async function fixture() {
+    const t = newTest();
+    const plan = await t.run((ctx) => setUpPlan(ctx, "member"));
+    const ids = await t.run(async (ctx) => {
+      await seedMembership(ctx, {
+        clerkId: "papa",
+        role: "viewer",
+        eventId: plan.eventId,
+      });
+      await seedMembership(ctx, { clerkId: "stranger" });
+      const timelineEntry = await ctx.db.insert("entries", {
+        eventId: plan.eventId,
+        itemId: plan.items.timeline,
+        kind: "timeline",
+        order: 0,
+        functionKey: null,
+        fields: {
+          title: "Book Venues",
+          date: "2026-10-30",
+          time: null,
+          leadKey: null,
+          priority: null,
+          late: false,
+          note: null,
+          vendorCategory: null,
+          done: false,
+        },
+        assumed: ["date"],
+        createdBy: plan.actor,
+        version: 1,
+        deletedAt: null,
+      });
+      const suggestion = await ctx.db.insert("items", {
+        eventId: plan.eventId,
+        sectionId: plan.sections.notes,
+        kind: "suggestion",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: {
+          title: "Safa tying corner",
+          body: "For the baraat.",
+          costCategory: null,
+          quantity: null,
+          estimate: null,
+          status: "open",
+        },
+        createdBy: plan.actor,
+        version: 1,
+        deletedAt: null,
+      });
+      const note = await ctx.db.insert("items", {
+        eventId: plan.eventId,
+        sectionId: plan.sections.notes,
+        kind: "note",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: { text: "Ask about parking", citations: [] },
+        createdBy: plan.actor,
+        version: 1,
+        deletedAt: null,
+      });
+      return { timelineEntry, suggestion, note };
+    });
+    const writes: [string, (who: Caller) => Promise<unknown>][] = [
+      [
+        "entries.add",
+        (who) =>
+          who.mutation(api.entries.add, {
+            itemId: plan.items.budget,
+            functionKey: null,
+            input: { kind: "budget", label: "Hall", amount: null },
+          }),
+      ],
+      [
+        "entries.update",
+        (who) =>
+          who.mutation(api.entries.update, {
+            entryId: ids.timelineEntry,
+            patch: { kind: "timeline", title: "x" },
+          }),
+      ],
+      [
+        "entries.tick",
+        (who) =>
+          who.mutation(api.entries.tick, {
+            entryId: ids.timelineEntry,
+            done: true,
+          }),
+      ],
+      [
+        "entries.remove",
+        (who) =>
+          who.mutation(api.entries.remove, { entryId: ids.timelineEntry }),
+      ],
+      [
+        "entries.confirmAssumption",
+        (who) =>
+          who.mutation(api.entries.confirmAssumption, {
+            entryId: ids.timelineEntry,
+            field: "date",
+          }),
+      ],
+      [
+        "suggestions.addToPlan",
+        (who) =>
+          who.mutation(api.suggestions.addToPlan, { itemId: ids.suggestion }),
+      ],
+      [
+        "suggestions.dismiss",
+        (who) =>
+          who.mutation(api.suggestions.dismiss, { itemId: ids.suggestion }),
+      ],
+      [
+        "notes.add",
+        (who) =>
+          who.mutation(api.notes.add, {
+            eventId: plan.eventId,
+            text: "Hi",
+            functionKey: null,
+          }),
+      ],
+      [
+        "notes.update",
+        (who) =>
+          who.mutation(api.notes.update, { itemId: ids.note, text: "z" }),
+      ],
+    ];
+    return { t, plan, ids, writes };
+  }
+
+  for (const who of ["papa", "stranger"] as const) {
+    it(`refuses ${who === "papa" ? "a Viewer" : "someone outside the Event"} on every write and changes nothing`, async () => {
+      const { t, plan, ids, writes } = await fixture();
+      const caller = t.withIdentity(identityFor(who));
+      for (const [name, write] of writes) {
+        await expect(write(caller), name).rejects.toThrow(/AccessDenied/);
+      }
+      expect((await entry(t, ids.timelineEntry)).version).toBe(1);
+      const changes = await t.run((ctx) =>
+        ctx.db
+          .query("changes")
+          .withIndex("by_event_at", (q) => q.eq("eventId", plan.eventId))
+          .collect(),
+      );
+      expect(changes.filter((c) => c.table !== "sections")).toEqual([]);
+    });
+  }
 });

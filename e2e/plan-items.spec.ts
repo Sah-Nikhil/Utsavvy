@@ -168,6 +168,8 @@ test.describe("plan items", () => {
     });
     await expect(theirs).toContainText("₹18,000");
     await expect(theirs).toContainText("No Estimate yet");
+    // A Member's own amount is labelled even with no Estimate beside it.
+    await expect(theirs.getByText("Your amount")).toBeVisible();
 
     await theirs.getByTitle("Change the amount for Favours").click();
     const amount = theirs.getByRole("textbox", { name: "Amount for Favours" });
