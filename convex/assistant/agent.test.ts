@@ -1,12 +1,20 @@
 import { mockModel } from "@convex-dev/agent";
-import { APICallError, simulateReadableStream, streamText } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import {
+  APICallError,
+  simulateReadableStream,
+  stepCountIs,
+  streamText,
+  tool,
+} from "ai";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   assistantChain,
   chainedModel,
-  labelled,
   STUB_FALLBACK_MODEL,
   STUB_MODEL,
+  webSearchBudget,
   type ChainLink,
 } from "./agent";
 
@@ -78,12 +86,20 @@ function rejecting(id: string, error: unknown) {
   return { id, model };
 }
 
-async function reply(links: ChainLink[], abortSignal?: AbortSignal) {
+async function reply(
+  links: ChainLink[],
+  abortSignal?: AbortSignal,
+  firstOutputMs?: number,
+) {
   const answered: string[] = [];
   const result = streamText({
-    model: chainedModel(links, (id) => {
-      answered.push(id);
-    }),
+    model: chainedModel(
+      links,
+      (id) => {
+        answered.push(id);
+      },
+      { firstOutputMs },
+    ),
     prompt: "Plan the sangeet",
     maxRetries: 0,
     abortSignal,
@@ -239,23 +255,244 @@ describe("assistantChain", () => {
   });
 });
 
-describe("labelled", () => {
-  const rohan = {
-    messageId: "m1",
-    authorName: "Rohan",
-    dontReply: false,
-    pointing: [],
-  };
+/** A model whose stream starts but sends nothing until the call is aborted. */
+function hanging(id: string, calls: CallOptions[] = []) {
+  const model = mockModel({
+    modelId: id,
+    doGenerate: () => Promise.reject(new Error("not used")),
+    doStream: async (options) => {
+      calls.push(options);
+      return {
+        stream: new ReadableStream<Part>({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] });
+            options.abortSignal?.addEventListener("abort", () =>
+              controller.error(options.abortSignal?.reason),
+            );
+          },
+        }),
+      };
+    },
+  }) as Model;
+  return { id, model };
+}
 
-  it("names the author", () => {
-    expect(labelled("Plan the sangeet", rohan)).toBe(
-      "[Rohan]: Plan the sangeet",
-    );
+/** A model that streams `steps[n]` on its n-th call, or rejects with it. */
+function stepping(
+  id: string,
+  steps: (Part[] | Error)[],
+  calls: CallOptions[] = [],
+) {
+  const model = mockModel({
+    modelId: id,
+    doGenerate: () => Promise.reject(new Error("not used")),
+    doStream: async (options) => {
+      calls.push(options);
+      const step = steps[calls.length - 1] ?? steps.at(-1)!;
+      if (step instanceof Error) throw step;
+      return { stream: simulateReadableStream({ chunks: step }) };
+    },
+  }) as Model;
+  return { id, model };
+}
+
+const finishToolCalls: Part = {
+  type: "finish",
+  usage,
+  finishReason: { unified: "tool-calls", raw: "tool_use" },
+};
+
+function clientToolCall(id: string): Part {
+  return { type: "tool-call", toolCallId: id, toolName: "lookup", input: "{}" };
+}
+
+function searchParts(id: string): Part[] {
+  return [
+    {
+      type: "tool-call",
+      toolCallId: id,
+      toolName: "webSearch",
+      input: JSON.stringify({ query: "per plate prices Pune" }),
+      providerExecuted: true,
+    },
+    {
+      type: "tool-result",
+      toolCallId: id,
+      toolName: "webSearch",
+      result: [{ url: "https://example.com", title: "Prices" }],
+    } as Part,
+  ];
+}
+
+describe("chainedModel, edge cases", () => {
+  it("never records a model that failed before any output, even the last one", async () => {
+    const { text, error, answered } = await reply([
+      streaming("gemini-3.8-flash", [
+        { type: "stream-start", warnings: [] },
+        {
+          type: "error",
+          error: { type: "overloaded_error", message: "Overloaded" },
+        },
+      ]),
+    ]);
+    expect(text).toBe("");
+    expect(error).not.toBeNull();
+    expect(answered).toEqual([]);
   });
 
-  it("marks a Don't-reply message as background", () => {
-    expect(
-      labelled("Mom says absolutely no DJ", { ...rohan, dontReply: true }),
-    ).toBe("[Rohan, Don't reply]: Mom says absolutely no DJ");
+  it("doesn't fall back on a bad-request error part, and records no model", async () => {
+    const gemini: CallOptions[] = [];
+    const { error, answered } = await reply([
+      streaming("claude-sonnet-5-5", [
+        { type: "stream-start", warnings: [] },
+        {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message: "messages: roles must alternate",
+          },
+        },
+      ]),
+      streaming("gemini-3.8-flash", textParts("Hello"), gemini),
+    ]);
+    expect(error).not.toBeNull();
+    expect(answered).toEqual([]);
+    expect(gemini).toHaveLength(0);
+  });
+
+  it("keeps a later step on the model that answered, with no fallback", async () => {
+    const gemini: CallOptions[] = [];
+    const result = streamText({
+      model: chainedModel(
+        [
+          stepping("claude-sonnet-5-5", [
+            [
+              { type: "stream-start", warnings: [] },
+              clientToolCall("call-1"),
+              finishToolCalls,
+            ],
+            apiError(529, "Overloaded"),
+          ]),
+          streaming("gemini-3.8-flash", textParts("Hello"), gemini),
+        ],
+        () => {},
+      ),
+      prompt: "Plan the sangeet",
+      maxRetries: 0,
+      tools: {
+        lookup: tool({ inputSchema: z.object({}), execute: async () => "ok" }),
+      },
+      stopWhen: stepCountIs(3),
+    });
+    let error: unknown = null;
+    for await (const part of result.fullStream) {
+      if (part.type === "error") error = part.error;
+    }
+    expect(error).toBeInstanceOf(APICallError);
+    expect(gemini).toHaveLength(0);
+  });
+
+  it("stops without falling back when the Member stops it before the first token", async () => {
+    const claude: CallOptions[] = [];
+    const gemini: CallOptions[] = [];
+    const abort = new AbortController();
+    setTimeout(
+      () => abort.abort(new DOMException("Stopped by a Member", "AbortError")),
+      50,
+    );
+    const { text, answered } = await reply(
+      [
+        hanging("claude-sonnet-5-5", claude),
+        streaming("gemini-3.8-flash", textParts("Hello"), gemini),
+      ],
+      abort.signal,
+    );
+    expect(text).toBe("");
+    expect(answered).toEqual([]);
+    expect(claude).toHaveLength(1);
+    expect(gemini).toHaveLength(0);
+  });
+
+  it("falls back when the first model sends nothing before the first-token timeout", async () => {
+    const claude: CallOptions[] = [];
+    const { text, answered } = await reply(
+      [
+        hanging("claude-sonnet-5-5", claude),
+        streaming("gemini-3.8-flash", textParts("Hello from Gemini")),
+      ],
+      undefined,
+      50,
+    );
+    expect(text).toBe("Hello from Gemini");
+    expect(answered).toEqual(["gemini-3.8-flash"]);
+    // The silent call is cancelled, not left running.
+    expect(claude[0]?.abortSignal?.aborted).toBe(true);
+  });
+});
+
+describe("webSearchBudget", () => {
+  const anthropic = createAnthropic({ apiKey: "test" });
+  const tools = {
+    webSearch: anthropic.tools.webSearch_20250305({ maxUses: 3 }),
+    lookup: tool({ inputSchema: z.object({}), execute: async () => "ok" }),
+  };
+
+  function searchTool(options: CallOptions | undefined) {
+    return options?.tools?.find(
+      (candidate) =>
+        candidate.type === "provider" &&
+        candidate.id === "anthropic.web_search_20250305",
+    ) as { args: { maxUses?: number } } | undefined;
+  }
+
+  it("caps searches per reply across steps, even after a client tool call", async () => {
+    const calls: CallOptions[] = [];
+    const budget = webSearchBudget(
+      Object.keys(tools) as (keyof typeof tools)[],
+    );
+    const result = streamText({
+      model: chainedModel(
+        [
+          stepping(
+            "claude-sonnet-5-5",
+            [
+              [
+                { type: "stream-start", warnings: [] },
+                ...searchParts("s1"),
+                ...searchParts("s2"),
+                clientToolCall("c1"),
+                finishToolCalls,
+              ],
+              [
+                { type: "stream-start", warnings: [] },
+                ...searchParts("s3"),
+                clientToolCall("c2"),
+                finishToolCalls,
+              ],
+              textParts("Here are the prices."),
+            ],
+            calls,
+          ),
+        ],
+        () => {},
+        { prepareCall: budget.prepareCall },
+      ),
+      prompt: "Per-plate prices in Pune?",
+      maxRetries: 0,
+      tools,
+      prepareStep: budget.prepareStep,
+      stopWhen: stepCountIs(5),
+    });
+    await result.consumeStream();
+
+    expect(calls).toHaveLength(3);
+    expect(searchTool(calls[0])?.args.maxUses).toBe(3);
+    // Two searches ran in step 1, so step 2 may run only one more.
+    expect(searchTool(calls[1])?.args.maxUses).toBe(1);
+    // Three have run: step 3 gets no web search at all.
+    expect(searchTool(calls[2])).toBeUndefined();
+    expect(calls[2]?.tools?.map((candidate) => candidate.name)).toEqual([
+      "lookup",
+    ]);
   });
 });
