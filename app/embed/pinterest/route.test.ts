@@ -70,4 +70,39 @@ describe("/embed/pinterest", () => {
       expect(html).toContain('href="https://www.pinterest.com/pin/123456789/"');
     },
   );
+
+  describe("the board's scroll height", () => {
+    const BOARD = "https://www.pinterest.com/meera/haldi-decor/";
+    async function heightFor(height: string | null) {
+      const query = height === null ? "" : `&height=${height}`;
+      const html = await (
+        await GET(
+          new Request(
+            `http://localhost:3000/embed/pinterest?url=${encodeURIComponent(BOARD)}${query}`,
+            { headers: { "sec-fetch-dest": "iframe" } },
+          ),
+        )
+      ).text();
+      return /"boardHeight":(\d+)/.exec(html)?.[1];
+    }
+
+    it("stays 240 px when the page isn't asked for a height", async () => {
+      expect(await heightFor(null)).toBe("240");
+    });
+
+    it("takes a height between 240 and 900 px", async () => {
+      expect(await heightFor("600")).toBe("600");
+    });
+
+    it.each([
+      ["100", "240"],
+      ["5000", "900"],
+      ["abc", "240"],
+      ["600.7", "600"],
+      ["-1", "240"],
+      ["", "240"],
+    ])("clamps %s to %s", async (height, expected) => {
+      expect(await heightFor(height)).toBe(expected);
+    });
+  });
 });
