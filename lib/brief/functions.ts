@@ -762,6 +762,15 @@ export function cityAssumption(city: string): Assumption | null {
 // ---------------------------------------------------------------------------
 // Budget lines
 
+/** The Brief's budget lines by Function, in the shape `pricePlan` reads. */
+export type BriefLines = PlanLines & {
+  functions: {
+    key: string;
+    guests: number;
+    budgetEntries: DraftBudgetLine[];
+  }[];
+};
+
 function line(
   category: string,
   quantity: number,
@@ -894,7 +903,7 @@ export function briefLines(input: {
   functions: BriefFunction[];
   assumptions: Assumption[];
   guests: number;
-}): PlanLines & { functions: { key: string; guests: number }[] } {
+}): BriefLines {
   const { functions, assumptions, guests } = input;
   if (input.eventType === "birthday") {
     const childParty = assumptions.some((a) => a.field === "children");
