@@ -1,18 +1,14 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import {
   Agent,
   listMessages,
-  mockModel,
   stepCountIs,
   type ContextHandler,
   type MessageDoc,
   type ToolCtx,
 } from "@convex-dev/agent";
 import {
-  APICallError,
   StreamProviderError,
-  type LanguageModel,
   type ModelMessage,
   type StopCondition,
   type ToolSet,
@@ -24,9 +20,12 @@ import { env, internalAction, type ActionCtx } from "../_generated/server";
 import {
   isClaude,
   isFallbackError,
+  languageModel,
   modelChain,
+  type ModelCallOptions,
   type ModelEnv,
   type ModelId,
+  type ModelV4,
 } from "../lib/models";
 import { looksLikeAssistant } from "../chat";
 import { ASSISTANT_TOOLS } from "./tools";
@@ -39,129 +38,26 @@ import { ASSISTANT_TOOLS } from "./tools";
  */
 
 // ---------------------------------------------------------------------------
-// Model types, derived from the AI SDK so we don't import @ai-sdk/provider.
+// Model types and the model chain. The stub models live in ../lib/models, so
+// every model call honours them, not only the Chat (#87, L8).
 
-type ModelV4 = Extract<LanguageModel, { specificationVersion: "v4" }>;
-type CallOptions = Parameters<ModelV4["doStream"]>[0];
+type CallOptions = ModelCallOptions;
 type StreamResult = Awaited<ReturnType<ModelV4["doStream"]>>;
 type StreamPart =
   StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
 
-// ---------------------------------------------------------------------------
-// The stub models for e2e, previews and tests: no network, no credits.
-
-/**
- * Setting `DEFAULT_MODEL` to this answers every message with a fixed reply
- * streamed word by word, so browser tests spend no credits.
- */
-export const STUB_MODEL = "stub-utsavvy";
-/**
- * Setting `DEFAULT_MODEL` to this makes a stub "Claude" fail before its first
- * token and a stub "Gemini" answer, to see the fallback in the browser.
- */
-export const STUB_FALLBACK_MODEL = "stub-utsavvy-fallback";
-
-export const STUB_REPLY =
-  "Namaste! This is Utsavvy's test model, so no real model was called and this reply costs nothing. In a real Event I would read your Canvas, plan with you and point at what I changed.";
-
-/** The last calls the stub models received, newest last, for tests. */
-export const stubCalls: CallOptions[] = [];
-let stubCallTotal = 0;
-
-/** How many calls the stub models have received in all; it never caps. */
-export function stubCallCount(): number {
-  return stubCallTotal;
-}
-
-function recordStubCall(options: CallOptions) {
-  stubCallTotal += 1;
-  stubCalls.push(options);
-  if (stubCalls.length > 20) stubCalls.shift();
-}
-
-/**
- * The stub's pace: 250 ms a word, about 8 seconds for the whole reply, so a
- * browser test can reload mid-reply or press Stop. Unit tests make it short
- * with {@link setStubChunkDelayMs}.
- */
-const STUB_CHUNK_DELAY_MS = 250;
-let stubChunkDelay = STUB_CHUNK_DELAY_MS;
-
-/** For tests: the stub's delay between words; `undefined` restores 250 ms. */
-export function setStubChunkDelayMs(ms: number | undefined): void {
-  stubChunkDelay = ms ?? STUB_CHUNK_DELAY_MS;
-}
-
-function stubChunkDelayMs(): number {
-  return stubChunkDelay;
-}
-
-function stubModel(modelId: ModelId): ModelV4 {
-  const model = mockModel({
-    provider: "stub",
-    modelId,
-    content: [{ type: "text", text: STUB_REPLY }],
-    chunkDelayInMs: stubChunkDelayMs(),
-  });
-  const doStream = model.doStream;
-  model.doStream = async (options) => {
-    recordStubCall(options);
-    return await doStream(options);
-  };
-  return model as ModelV4;
-}
-
-/** A stub that fails like Anthropic's 529 "Overloaded" before streaming anything. */
-function failingStubModel(modelId: ModelId): ModelV4 {
-  const overloaded = () =>
-    new APICallError({
-      message: "Overloaded",
-      url: "https://api.anthropic.com/v1/messages",
-      requestBodyValues: {},
-      statusCode: 529,
-      isRetryable: true,
-    });
-  return mockModel({
-    provider: "stub",
-    modelId,
-    doGenerate: () => Promise.reject(overloaded()),
-    doStream: () => Promise.reject(overloaded()),
-  }) as ModelV4;
-}
-
-// ---------------------------------------------------------------------------
-// The model chain.
-
 export type ChainLink = { id: ModelId; model: ModelV4 };
 
-/** An AI SDK model for a Claude or Gemini model name, on the app's own key. */
-function providerModel(id: ModelId, source: ModelEnv): ModelV4 {
-  if (isClaude(id)) {
-    return createAnthropic({ apiKey: source.ANTHROPIC_API_KEY })(id);
-  }
-  return createGoogleGenerativeAI({
-    apiKey: source.GOOGLE_GENERATIVE_AI_API_KEY,
-  })(id) as ModelV4;
-}
-
 /**
- * The models a reply tries, in order: the stubs when `DEFAULT_MODEL` names
- * one, otherwise `modelChain("assistant", env)` (Claude, then Gemini; the
- * Event key's model joins first with X3a).
+ * The models a reply tries, in order: `modelChain("assistant", env)`, which is
+ * the stub alone (or the failing stub Claude, then the stub Gemini) when
+ * `DEFAULT_MODEL` names one, and otherwise Claude, then Gemini (the Event
+ * key's model joins first with X3a).
  */
 export function assistantChain(source: ModelEnv): ChainLink[] {
-  if (source.DEFAULT_MODEL === STUB_MODEL) {
-    return [{ id: STUB_MODEL, model: stubModel(STUB_MODEL) }];
-  }
-  if (source.DEFAULT_MODEL === STUB_FALLBACK_MODEL) {
-    return [
-      { id: "stub-claude", model: failingStubModel("stub-claude") },
-      { id: "stub-gemini", model: stubModel("stub-gemini") },
-    ];
-  }
   return modelChain("assistant", source).map((id) => ({
     id,
-    model: providerModel(id, source),
+    model: languageModel(id, source),
   }));
 }
 

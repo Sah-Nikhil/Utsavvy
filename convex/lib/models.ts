@@ -1,9 +1,13 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import {
   APICallError,
   LoadAPIKeyError,
   NoSuchModelError,
   RetryError,
+  simulateReadableStream,
   StreamProviderError,
+  type LanguageModel,
 } from "ai";
 import { env } from "../_generated/server";
 
@@ -95,6 +99,10 @@ function hasAppKey(model: ModelId, source: ModelEnv): boolean {
  * each model appears once. With no Event key and neither `ANTHROPIC_API_KEY`
  * nor `GOOGLE_GENERATIVE_AI_API_KEY`, nothing can answer, so this throws.
  *
+ * On the stub (`DEFAULT_MODEL` starting with `stub-utsavvy`, see
+ * {@link isStubSetting}) the chain is the stub alone for every kind of call,
+ * with or without keys, so a preview never calls a real model.
+ *
  * @example modelChain("assistant", env, eventKey?.model)
  */
 export function modelChain(
@@ -102,6 +110,7 @@ export function modelChain(
   source: ModelEnv,
   eventKeyModel?: ModelId,
 ): ModelId[] {
+  if (isStubSetting(source)) return stubChain(source);
   const configured =
     kind === "assistant"
       ? source.DEFAULT_MODEL || MODELS.default
@@ -183,7 +192,7 @@ export function isFallbackError(error: unknown): boolean {
  * @example
  * const { result, model } = await withModelFallback(
  *   modelChain("helper", env),
- *   (model) => generateText({ model: languageModel(model), prompt }),
+ *   (model) => generateText({ model: languageModel(model, env), prompt }),
  * );
  */
 export async function withModelFallback<T>(
@@ -210,5 +219,274 @@ export async function withModelFallback<T>(
  * instead of waiting out its 20-second limit.
  */
 export function claudeReachable(source: ModelEnv): boolean {
-  return Boolean(source.ANTHROPIC_API_KEY);
+  // Never on the stub: previews don't spend web searches.
+  return Boolean(source.ANTHROPIC_API_KEY) && !isStubSetting(source);
+}
+
+// ---------------------------------------------------------------------------
+// The stub models (#87, L8): previews, e2e and tests, with no network and no
+// credits. Every model call that resolves its models through `modelChain` and
+// `languageModel` honours them: the Chat, helper jobs, structured output and
+// S3's knowledge call. Estimate research stays off (`claudeReachable`).
+
+/** An AI SDK 7 language model object (derived so we don't import @ai-sdk/provider). */
+export type ModelV4 = Extract<LanguageModel, { specificationVersion: "v4" }>;
+/** The options one model call receives. */
+export type ModelCallOptions = Parameters<ModelV4["doStream"]>[0];
+type StreamPart =
+  Awaited<ReturnType<ModelV4["doStream"]>>["stream"] extends ReadableStream<
+    infer P
+  >
+    ? P
+    : never;
+
+/**
+ * `DEFAULT_MODEL=stub-utsavvy`: every call answers from the stub. Convex
+ * preview deployments have it as a project default (section 4.11), so no
+ * preview ever calls a real model.
+ */
+export const STUB_MODEL = "stub-utsavvy";
+/** `DEFAULT_MODEL=stub-utsavvy-fallback`: a stub "Claude" fails before its first token and a stub "Gemini" answers. */
+export const STUB_FALLBACK_MODEL = "stub-utsavvy-fallback";
+const STUB_PREFIX = "stub-utsavvy";
+
+/** The stub's text reply. */
+export const STUB_REPLY =
+  "Namaste! This is Utsavvy's test model, so no real model was called and this reply costs nothing. In a real Event I would read your Canvas, plan with you and point at what I changed.";
+
+/** Whether this deployment runs on the stub: `DEFAULT_MODEL` starts with `stub-utsavvy`. Never on otherwise. */
+export function isStubSetting(source: ModelEnv): boolean {
+  return (source.DEFAULT_MODEL ?? "").startsWith(STUB_PREFIX);
+}
+
+function stubChain(source: ModelEnv): ModelId[] {
+  return source.DEFAULT_MODEL === STUB_FALLBACK_MODEL
+    ? ["stub-claude", "stub-gemini"]
+    : [STUB_MODEL];
+}
+
+/** The last calls the stub models received, newest last, for tests. */
+export const stubCalls: ModelCallOptions[] = [];
+let stubCallTotal = 0;
+
+/** How many calls the stub models have received in all; it never caps. */
+export function stubCallCount(): number {
+  return stubCallTotal;
+}
+
+function recordStubCall(options: ModelCallOptions) {
+  stubCallTotal += 1;
+  stubCalls.push(options);
+  if (stubCalls.length > 20) stubCalls.shift();
+}
+
+/**
+ * The stub's pace: 250 ms a word, about 8 seconds for the whole reply, so a
+ * browser test can reload mid-reply or press Stop. Unit tests make it short
+ * with {@link setStubChunkDelayMs}.
+ */
+const STUB_CHUNK_DELAY_MS = 250;
+let stubChunkDelay = STUB_CHUNK_DELAY_MS;
+
+/** For tests: the stub's delay between words; `undefined` restores 250 ms. */
+export function setStubChunkDelayMs(ms: number | undefined): void {
+  stubChunkDelay = ms ?? STUB_CHUNK_DELAY_MS;
+}
+
+type StubObject = {
+  /** Matches the structured output's name, e.g. `Output.object({ name: "BriefExtraction" })`. */
+  name?: string;
+  /** Matches when the prompt contains this phrase. */
+  promptIncludes?: string;
+  object: unknown;
+};
+const stubObjects: StubObject[] = [];
+
+/**
+ * Registers a canned structured-output object for the stub, picked by the
+ * output's name or a phrase in the prompt; the newest match wins. Without a
+ * match the stub returns the schema's emptiest valid object (nulls, empty
+ * arrays and strings, false, 0, the first enum value). S11 registers its
+ * `BriefExtraction` examples here so previews walk the first Brief.
+ */
+export function registerStubObject(entry: StubObject): void {
+  stubObjects.unshift(entry);
+}
+
+/** For tests: forget every registered canned object. */
+export function clearStubObjects(): void {
+  stubObjects.length = 0;
+}
+
+type JsonSchema = {
+  type?: string | string[];
+  properties?: Record<string, JsonSchema>;
+  enum?: unknown[];
+  const?: unknown;
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
+  default?: unknown;
+};
+
+/** The emptiest value that satisfies a JSON schema. */
+function emptyFromSchema(schema: JsonSchema | undefined): unknown {
+  if (schema === undefined) return null;
+  if (schema.const !== undefined) return schema.const;
+  if (schema.default !== undefined) return schema.default;
+  if (schema.enum?.length)
+    return schema.enum.includes(null) ? null : schema.enum[0];
+  const options = schema.anyOf ?? schema.oneOf;
+  if (options?.length) {
+    const nullable = options.find((option) => option.type === "null");
+    return nullable ? null : emptyFromSchema(options[0]);
+  }
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  if (types.includes("null")) return null;
+  switch (types[0]) {
+    case "object":
+      return Object.fromEntries(
+        Object.entries(schema.properties ?? {}).map(([key, value]) => [
+          key,
+          emptyFromSchema(value),
+        ]),
+      );
+    case "array":
+      return [];
+    case "string":
+      return "";
+    case "number":
+    case "integer":
+      return 0;
+    case "boolean":
+      return false;
+    default:
+      return null;
+  }
+}
+
+function promptText(options: ModelCallOptions): string {
+  return options.prompt
+    .flatMap((message) =>
+      typeof message.content === "string"
+        ? [message.content]
+        : message.content.map((part) =>
+            part.type === "text" ? part.text : "",
+          ),
+    )
+    .join("\n");
+}
+
+/** The stub's answer to one call: canned JSON for structured output, else the reply. */
+function stubText(options: ModelCallOptions): string {
+  const format = options.responseFormat;
+  if (format?.type !== "json") return STUB_REPLY;
+  const prompt = promptText(options);
+  const match = stubObjects.find(
+    (entry) =>
+      (entry.name !== undefined && entry.name === format.name) ||
+      (entry.promptIncludes !== undefined &&
+        prompt.includes(entry.promptIncludes)),
+  );
+  return JSON.stringify(
+    match ? match.object : emptyFromSchema(format.schema as JsonSchema),
+  );
+}
+
+const STUB_USAGE = {
+  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 0, text: 0, reasoning: 0 },
+};
+const STUB_FINISH = { unified: "stop", raw: "stop" } as const;
+
+function answeringStub(modelId: ModelId): ModelV4 {
+  return {
+    specificationVersion: "v4",
+    provider: "stub",
+    modelId,
+    supportedUrls: {},
+    async doGenerate(options) {
+      recordStubCall(options);
+      return {
+        content: [{ type: "text", text: stubText(options) }],
+        finishReason: STUB_FINISH,
+        usage: STUB_USAGE,
+        warnings: [],
+      };
+    },
+    async doStream(options) {
+      recordStubCall(options);
+      const text = stubText(options);
+      // The reply streams word by word; structured output arrives at once.
+      const words =
+        options.responseFormat?.type === "json"
+          ? [text]
+          : text.split(" ").map((word, i) => (i ? ` ${word}` : word));
+      const parts: StreamPart[] = [
+        { type: "stream-start", warnings: [] },
+        { type: "text-start", id: "stub" },
+        ...words.map((delta): StreamPart => ({
+          type: "text-delta",
+          id: "stub",
+          delta,
+        })),
+        { type: "text-end", id: "stub" },
+        { type: "finish", usage: STUB_USAGE, finishReason: STUB_FINISH },
+      ];
+      return {
+        stream: simulateReadableStream({
+          chunks: parts,
+          chunkDelayInMs: stubChunkDelay,
+        }),
+      };
+    },
+  };
+}
+
+/** A stub that fails like Anthropic's 529 "Overloaded" before answering anything. */
+function failingStub(modelId: ModelId): ModelV4 {
+  const overloaded = () =>
+    new APICallError({
+      message: "Overloaded",
+      url: "https://api.anthropic.com/v1/messages",
+      requestBodyValues: {},
+      statusCode: 529,
+      isRetryable: true,
+    });
+  return {
+    specificationVersion: "v4",
+    provider: "stub",
+    modelId,
+    supportedUrls: {},
+    doGenerate: async (options) => {
+      recordStubCall(options);
+      throw overloaded();
+    },
+    doStream: async (options) => {
+      recordStubCall(options);
+      throw overloaded();
+    },
+  };
+}
+
+/**
+ * The AI SDK model for a name from {@link modelChain}: a stub, or Claude or
+ * Gemini on the app's own key. `fetch` is for tests of the real providers.
+ */
+export function languageModel(
+  id: ModelId,
+  source: ModelEnv,
+  options: { fetch?: typeof globalThis.fetch } = {},
+): ModelV4 {
+  if (id === "stub-claude") return failingStub(id);
+  if (id === STUB_MODEL || id === "stub-gemini") return answeringStub(id);
+  if (isClaude(id)) {
+    return createAnthropic({
+      apiKey: source.ANTHROPIC_API_KEY,
+      fetch: options.fetch,
+    })(id);
+  }
+  return createGoogleGenerativeAI({
+    apiKey: source.GOOGLE_GENERATIVE_AI_API_KEY,
+    fetch: options.fetch,
+  })(id) as ModelV4;
 }
