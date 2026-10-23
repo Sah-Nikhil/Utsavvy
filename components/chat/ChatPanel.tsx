@@ -19,6 +19,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ChatRow } from "./ChatMessages";
+import { announce, type AnnouncerState } from "./announcer";
 import { Composer } from "./Composer";
 import {
   modelCaption,
@@ -26,7 +27,7 @@ import {
   type ChatDetails,
   type RunSummary,
 } from "./runState";
-import { buildTimeline, hasText, historyRange, withHistory } from "./timeline";
+import { buildTimeline, historyRange, withHistory } from "./timeline";
 
 export type ChatPanelProps = { eventId: string };
 
@@ -210,7 +211,11 @@ function ChatBody({
           </ol>
         )}
       </div>
-      <ReplyAnnouncer messages={messages} details={full} />
+      <ReplyAnnouncer
+        messages={messages}
+        details={full}
+        loading={status === "LoadingFirstPage"}
+      />
       {active ? (
         <ReplyingBar
           run={active}
@@ -337,11 +342,14 @@ function ReplyingBar({
 function ReplyAnnouncer({
   messages,
   details,
+  loading,
 }: {
   messages: UIMessage[];
   details: ChatDetails;
+  /** The first page is still loading, so the Chat has no messages yet. */
+  loading: boolean;
 }) {
-  const seen = useRef<Set<string> | null>(null);
+  const state = useRef<AnnouncerState>(null);
   const [announcement, setAnnouncement] = useState("");
   const cardMessages = useMemo(
     () =>
@@ -354,28 +362,16 @@ function ReplyAnnouncer({
   );
 
   useEffect(() => {
-    const finished = messages.filter(
-      (message) =>
-        message.role === "assistant" &&
-        message.status !== "streaming" &&
-        message.status !== "pending" &&
-        hasText(message),
-    );
-    if (seen.current === null) {
-      // Replies already in the Chat when it opens aren't news.
-      seen.current = new Set(finished.map((message) => message.key));
-      return;
-    }
-    const fresh = finished.filter((message) => !seen.current!.has(message.key));
-    if (fresh.length === 0) return;
-    for (const message of fresh) seen.current.add(message.key);
-    const latest = fresh.at(-1)!;
+    const result = announce(state.current, messages, loading);
+    state.current = result.state;
+    const latest = result.latest;
+    if (latest === null) return;
     setAnnouncement(
       cardMessages.has(latest.id)
         ? `Utsavvy: ${latest.text}`
         : `Utsavvy replied: ${latest.text}`,
     );
-  }, [messages, cardMessages]);
+  }, [messages, cardMessages, loading]);
 
   return (
     <div
