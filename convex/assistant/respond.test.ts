@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "../_generated/api";
+import { saveMessage } from "@convex-dev/agent";
+import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
   identityFor,
@@ -552,3 +553,106 @@ describe("respond before it streams", { timeout: 20_000 }, () => {
     expect(stubCallCount()).toBe(calls);
   });
 });
+
+describe("#87 part 2", { timeout: 60_000 }, () => {
+  it("keeps the access-loss notice with its reply, above the next Member's message (L5)", async () => {
+    const s = await setUp(STUB_MODEL);
+    setStubChunkDelayMs(120);
+    const runId = await startRun(s, "Plan the sangeet");
+    await untilStreaming(s, runId);
+    // Aditi asks next while Rohan's reply streams, then Rohan leaves.
+    const { runId: next } = await say(
+      s.asAditi,
+      s.eventId,
+      "And the haldi?",
+      false,
+    );
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.rohan, { status: "left" }),
+    );
+    await untilEnded(s, runId);
+    await untilEnded(s, next!);
+
+    const { page } = await messages(s);
+    const texts = page.map((m) => m.text);
+    const notice = texts.findIndex((text) =>
+      text.startsWith("The Member who asked no longer has access"),
+    );
+    expect(notice).toBeGreaterThan(-1);
+    expect(notice).toBeLessThan(texts.indexOf("And the haldi?"));
+    // It shares the order of the request it ends.
+    const request = page.find((m) => m.text === "Plan the sangeet")!;
+    expect(page[notice]!.order).toBe(request.order);
+  });
+});
+
+describe(
+  "#87 part 2: what a reply saves and reads",
+  { timeout: 60_000 },
+  () => {
+    it("saves the model that answered on the reply message itself (L13)", async () => {
+      const s = await setUp(STUB_FALLBACK_MODEL);
+      const runId = await startRun(s, "Plan the sangeet");
+      await untilEnded(s, runId);
+      const threadId = (await messages(s)).details.threadId!;
+      const docs = await s.t.query(
+        components.agent.messages.listMessagesByThreadId,
+        {
+          threadId,
+          order: "asc",
+          paginationOpts: { numItems: 10, cursor: null },
+        },
+      );
+      const reply = docs.page.find((doc) => doc.message?.role === "assistant");
+      expect(reply?.model).toBe("stub-gemini");
+    });
+
+    it("counts only Chat text toward the 60-message window, not tool messages", async () => {
+      const s = await setUp(STUB_MODEL);
+      for (let i = 0; i < 5; i += 1) {
+        await say(s.asRohan, s.eventId, `older ${i}`, true);
+      }
+      const threadId = (await messages(s)).details.threadId!;
+      // An earlier reply's tool loop: 35 tool calls and their results.
+      await s.t.run(async (ctx) => {
+        for (let i = 0; i < 35; i += 1) {
+          await saveMessage(ctx, components.agent, {
+            threadId,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolCallId: `call-${i}`,
+                  toolName: "addItem",
+                  input: {},
+                },
+              ],
+            },
+          });
+          await saveMessage(ctx, components.agent, {
+            threadId,
+            message: {
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: `call-${i}`,
+                  toolName: "addItem",
+                  output: { type: "text", value: "added" },
+                },
+              ],
+            },
+          });
+        }
+      });
+      const { messageId } = await say(s.asAditi, s.eventId, "Plan it", true);
+      const runId = await parkRun(s, s.aditi, messageId);
+      await s.t.action(internal.assistant.agent.respond, { runId });
+      await s.t.finishInProgressScheduledFunctions();
+
+      const { text } = lastPromptTurn();
+      for (let i = 0; i < 5; i += 1) expect(text).toContain(`older ${i}`);
+    });
+  },
+);

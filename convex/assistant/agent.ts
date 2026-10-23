@@ -268,7 +268,11 @@ export function chainedModel(
   return {
     specificationVersion: "v4",
     provider: "utsavvy",
-    modelId: first.id,
+    // The model that answered, once one has: the Agent saves this on the
+    // reply message.
+    get modelId() {
+      return (answered ?? first).id;
+    },
     supportedUrls: first.model.supportedUrls,
 
     async doGenerate(options) {
@@ -656,6 +660,12 @@ function promptMessage(doc: MessageDoc): ChatPromptMessage | null {
   };
 }
 
+/** A Member's message or a reply with text: what the context window counts. */
+function isChatText(doc: MessageDoc): boolean {
+  const message = promptMessage(doc);
+  return message !== null && message.text.trim().length > 0;
+}
+
 /**
  * Replaces the Agent's default context with {@link chatPrompt}: the recent Chat
  * up to the message this run answers, as one turn.
@@ -668,33 +678,29 @@ function chatContext(
   const byMessage = new Map(labels.map((label) => [label.messageId, label]));
   return async (ctx, args): Promise<ModelMessage[]> => {
     // Page back until the message this run answers turns up: messages posted
-    // while it waited in the queue can push it out of the newest page.
+    // while it waited in the queue can push it out of the newest page. Then
+    // keep reading until the window holds CONTEXT_MESSAGES of Chat text before
+    // it; tool calls and results from earlier replies don't count toward it.
     const newestFirst: MessageDoc[] = [];
     let prompt: MessageDoc | undefined;
     let cursor: string | null = null;
-    for (let page = 0; page < CONTEXT_PAGES && prompt === undefined; page++) {
+    for (let page = 0; page <= CONTEXT_PAGES; page++) {
+      if (prompt === undefined && page === CONTEXT_PAGES) break;
       const result = await listMessages(ctx, components.agent, {
         threadId,
         paginationOpts: { numItems: CONTEXT_MESSAGES, cursor },
         statuses: ["success"],
       });
       newestFirst.push(...result.page);
-      prompt = result.page.find((doc) => doc._id === promptMessageId);
+      prompt ??= result.page.find((doc) => doc._id === promptMessageId);
       if (result.isDone) break;
       cursor = result.continueCursor;
-      // Found near the end of its page: read one more page so the reply still
-      // gets up to CONTEXT_MESSAGES of the Chat before it.
       if (prompt !== undefined) {
         const found = prompt;
-        const older = result.page.filter((doc) => doc.order < found.order);
-        if (older.length < CONTEXT_MESSAGES) {
-          const more = await listMessages(ctx, components.agent, {
-            threadId,
-            paginationOpts: { numItems: CONTEXT_MESSAGES, cursor },
-            statuses: ["success"],
-          });
-          newestFirst.push(...more.page);
-        }
+        const older = newestFirst.filter(
+          (doc) => doc.order < found.order && isChatText(doc),
+        );
+        if (older.length >= CONTEXT_MESSAGES) break;
       }
     }
     // Fail closed: if it still isn't found, answer it with no earlier Chat
@@ -717,7 +723,7 @@ function chatContext(
       doc.order < prompt.order ||
       (doc.order === prompt.order && doc.stepOrder < prompt.stepOrder);
     const earlier = newestFirst
-      .filter(before)
+      .filter((doc) => before(doc) && isChatText(doc))
       .slice(0, CONTEXT_MESSAGES)
       .reverse()
       .map(promptMessage)
@@ -736,12 +742,13 @@ function chatContext(
 const STOP_POLL_MS = 500;
 
 /** Aborts `abort` once the run is no longer `running` (Stop sets `stopping`). */
-function watchForStop(
+export function watchForStop(
   ctx: ActionCtx,
   runId: Id<"runs">,
   abort: AbortController,
 ): () => void {
   let done = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const check = async () => {
     if (done || abort.signal.aborted) return;
     try {
@@ -753,11 +760,12 @@ function watchForStop(
     } catch {
       // A failed check is retried on the next tick.
     }
-    if (!done) setTimeout(() => void check(), STOP_POLL_MS);
+    if (!done) timer = setTimeout(() => void check(), STOP_POLL_MS);
   };
-  setTimeout(() => void check(), STOP_POLL_MS);
+  timer = setTimeout(() => void check(), STOP_POLL_MS);
   return () => {
     done = true;
+    clearTimeout(timer);
   };
 }
 
@@ -849,13 +857,10 @@ export const respond = internalAction({
       stopWatching();
     }
 
-    await ctx.runMutation(internal.runs.finish, {
-      runId,
-      outcome: failed ? "failed" : "done",
-    });
-
     // The asker was removed or made a Viewer mid-reply (section 4.3): from
     // that moment their tools are refused, and the reply ends with a notice.
+    // It joins the reply's place in the thread and is posted before `finish`
+    // starts the next run, so it never lands below the next request.
     const after = await ctx.runQuery(internal.chat.runContext, { runId });
     if (after !== null && !after.askerActive) {
       await ctx.runMutation(internal.chat.postSystem, {
@@ -864,8 +869,14 @@ export const respond = internalAction({
         // No name here: the Chat already shows whom the reply was for, and a
         // display name is Member-written text.
         text: "The Member who asked no longer has access to this Event, so I stopped changing it.",
+        promptMessageId: context.promptMessageId,
       });
     }
+
+    await ctx.runMutation(internal.runs.finish, {
+      runId,
+      outcome: failed ? "failed" : "done",
+    });
     return null;
   },
 });

@@ -157,6 +157,23 @@ test.describe("chat", () => {
     ).toBeVisible({ timeout: 20_000 });
     await expect(chat(page).locator("[data-replying]")).toHaveCount(0);
 
+    // With a Canvas selection attached the message always asks Utsavvy, so
+    // Don't reply is off and disabled, and the composer says why (L12).
+    await page
+      .locator('[data-canvas-item="budget"]')
+      .click({ position: { x: 12, y: 12 } });
+    await expect(chat(page).getByText("Asking about an Item")).toBeVisible();
+    await expect(dontReply).toBeDisabled();
+    await expect(dontReply).not.toBeChecked();
+    await expect(chat(page).locator("[data-dont-reply-note]")).toHaveText(
+      "Utsavvy answers messages that point at the Canvas.",
+    );
+    await chat(page)
+      .getByRole("button", { name: "Don't attach the selection" })
+      .click();
+    await expect(dontReply).toBeEnabled();
+    await expect(chat(page).locator("[data-dont-reply-note]")).toHaveCount(0);
+
     await expectNoSeriousA11yViolations(page);
     await aditiContext.close();
     expect(cspViolations).toEqual([]);
