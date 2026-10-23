@@ -2,7 +2,6 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import {
   Agent,
-  docsToModelMessages,
   listMessages,
   mockModel,
   stepCountIs,

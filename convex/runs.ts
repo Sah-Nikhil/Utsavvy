@@ -63,6 +63,32 @@ export async function enqueueRun(
   return runId;
 }
 
+/** One Member may have this many messages waiting in the queue at once. */
+export const MAX_QUEUED_PER_MEMBER = 3;
+
+/** Refuses a request when its sender already has a full share of the queue. */
+export async function checkQueueRoom(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  membershipId: Id<"memberships">,
+): Promise<void> {
+  let waiting = 0;
+  for await (const run of ctx.db
+    .query("runs")
+    .withIndex("by_event_status", (q) =>
+      q.eq("eventId", eventId).eq("status", "queued"),
+    )) {
+    if (run.requestedBy !== membershipId) continue;
+    waiting += 1;
+    if (waiting >= MAX_QUEUED_PER_MEMBER) {
+      throw new ConvexError({
+        kind: "TooManyQueued",
+        max: MAX_QUEUED_PER_MEMBER,
+      });
+    }
+  }
+}
+
 /** Whether a membership may still have the Assistant answer it. */
 function canAsk(membership: Doc<"memberships"> | null): boolean {
   return (
@@ -132,6 +158,15 @@ export const startNext = internalMutation({
       await ctx.scheduler.runAfter(0, internal.assistant.agent.respond, {
         runId: run._id,
       });
+      // The watchdog: a streaming action that crashes or is abandoned must not
+      // leave the Event "replying" with its queue stuck behind it.
+      await ctx.scheduler.runAfter(
+        STALE_RUN_AFTER_MS,
+        internal.runs.reapStale,
+        {
+          runId: run._id,
+        },
+      );
       return run._id;
     }
     return null;
@@ -234,6 +269,28 @@ export const reap = internalMutation({
     if (run === null || run.status !== "stopping") return null;
     await ctx.db.patch("runs", runId, {
       status: "stopped",
+      endedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.runs.startNext, {
+      eventId: run.eventId,
+    });
+    return null;
+  },
+});
+
+/**
+ * Fails a run still `running` when its watchdog fires: its streaming action
+ * is gone (Convex actions stop after 10 minutes). The Chat then shows the
+ * failed-run notice and the next queued run starts.
+ */
+export const reapStale = internalMutation({
+  args: { runId: v.id("runs") },
+  returns: v.null(),
+  handler: async (ctx, { runId }) => {
+    const run = await ctx.db.get("runs", runId);
+    if (run === null || run.status !== "running") return null;
+    await ctx.db.patch("runs", runId, {
+      status: "failed",
       endedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.runs.startNext, {

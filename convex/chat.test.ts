@@ -369,3 +369,182 @@ describe("runs.cancelQueued", () => {
     expect((await runOf(s, aditi.runId!))?.status).toBe("queued");
   });
 });
+
+describe("chat.list", () => {
+  it("refuses another Event's thread to a Member of a different Event", async () => {
+    const s = await setUp();
+    await send(s.asRohan, s.eventId, "Plan the sangeet");
+    const threadId = (await s.asRohan.query(api.chat.details, {
+      eventId: s.eventId,
+    }))!.threadId!;
+    // Meera plans her own Event and tries to read Rohan's thread through it.
+    const meeraEvent = await s.t.run(async (ctx) => {
+      const { eventId } = await seedMembership(ctx, { clerkId: "Meera" });
+      return eventId;
+    });
+    const asMeera = s.t.withIdentity(identityFor("Meera"));
+    expect(
+      await denialOf(
+        asMeera.query(api.chat.list, {
+          eventId: meeraEvent,
+          threadId,
+          paginationOpts: { numItems: 10, cursor: null },
+        }),
+      ),
+    ).toMatchObject({ kind: "AccessDenied", reason: "wrongEvent" });
+    expect(
+      await denialOf(
+        asMeera.query(api.chat.list, {
+          eventId: s.eventId,
+          threadId,
+          paginationOpts: { numItems: 10, cursor: null },
+        }),
+      ),
+    ).toMatchObject({ kind: "AccessDenied", reason: "notAMember" });
+  });
+
+  it("lets a Viewer read the Chat", async () => {
+    const s = await setUp();
+    await send(s.asRohan, s.eventId, "Plan the sangeet");
+    const threadId = (await s.asPapa.query(api.chat.details, {
+      eventId: s.eventId,
+    }))!.threadId!;
+    const page = await s.asPapa.query(api.chat.list, {
+      eventId: s.eventId,
+      threadId,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(page.page.map((message) => message.text)).toEqual([
+      "Plan the sangeet",
+    ]);
+  });
+});
+
+describe("chat.send limits", () => {
+  it("refuses pointing at more than 5 things at once", async () => {
+    const s = await setUp();
+    const target = { kind: "item" as const, itemId: s.noteId };
+    expect(
+      await denialOf(
+        send(s.asRohan, s.eventId, "These?", {
+          pointing: Array.from({ length: 6 }, () => target),
+        }),
+      ),
+    ).toMatchObject({ kind: "TooManyPointed", max: 5 });
+  });
+
+  it("refuses a pointed passage longer than 500 characters", async () => {
+    const s = await setUp();
+    expect(
+      await denialOf(
+        s.asRohan.mutation(api.chat.send, {
+          eventId: s.eventId,
+          text: "This bit?",
+          dontReply: false,
+          pointing: [
+            {
+              kind: "passage",
+              itemId: s.noteId,
+              entryId: null,
+              field: "text",
+              start: 0,
+              end: 501,
+              quote: "a".repeat(501),
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({ kind: "QuoteTooLong", max: 500 });
+  });
+
+  it("refuses pointing at a deleted Entry", async () => {
+    const s = await setUp();
+    const entryId = await s.t.run((ctx) =>
+      ctx.db.insert("entries", {
+        eventId: s.eventId,
+        itemId: s.noteId,
+        kind: "checklist",
+        order: 0,
+        functionKey: null,
+        assumed: [],
+        createdBy: { kind: "member", membershipId: s.rohan },
+        version: 1,
+        deletedAt: 1,
+        fields: {
+          vendorCategory: "decorator",
+          freeLabel: null,
+          functionKeys: [],
+          bookByEntryId: null,
+          budgetEntryIds: [],
+        },
+      }),
+    );
+    expect(
+      await denialOf(
+        s.asRohan.mutation(api.chat.send, {
+          eventId: s.eventId,
+          text: "This one?",
+          dontReply: false,
+          pointing: [{ kind: "entry", itemId: s.noteId, entryId }],
+        }),
+      ),
+    ).toMatchObject({ kind: "AccessDenied", reason: "wrongEvent" });
+  });
+
+  it("keeps at most 3 queued messages per Member", async () => {
+    const s = await setUp();
+    for (const text of ["One", "Two", "Three"]) {
+      await send(s.asRohan, s.eventId, text);
+    }
+    expect(await denialOf(send(s.asRohan, s.eventId, "Four"))).toMatchObject({
+      kind: "TooManyQueued",
+      max: 3,
+    });
+    // A Don't-reply message queues nothing, so it still goes through.
+    const { runId } = await send(s.asRohan, s.eventId, "For the family", {
+      dontReply: true,
+    });
+    expect(runId).toBeNull();
+    // Someone else's request isn't held up by Rohan's.
+    expect((await send(s.asAditi, s.eventId, "Five")).runId).not.toBeNull();
+  });
+});
+
+describe("a run nobody finished", () => {
+  it("is watched from the moment it starts", async () => {
+    const s = await setUp();
+    const { runId } = await send(s.asRohan, s.eventId, "Plan the sangeet");
+    await s.t.mutation(internal.runs.startNext, { eventId: s.eventId });
+    const watchdogs = await s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name.includes("reapStale"),
+      ),
+    );
+    expect(watchdogs).toHaveLength(1);
+    expect(watchdogs[0]?.args).toEqual([{ runId }]);
+  });
+
+  it("is failed by the watchdog, and the next queued run starts", async () => {
+    const s = await setUp();
+    const rohan = await send(s.asRohan, s.eventId, "Plan the sangeet");
+    const aditi = await send(s.asAditi, s.eventId, "Find a mehendi artist");
+    await s.t.mutation(internal.runs.startNext, { eventId: s.eventId });
+
+    await s.t.mutation(internal.runs.reapStale, { runId: rohan.runId! });
+    expect((await runOf(s, rohan.runId!))?.status).toBe("failed");
+    await s.t.mutation(internal.runs.startNext, { eventId: s.eventId });
+    expect((await runOf(s, aditi.runId!))?.status).toBe("running");
+  });
+
+  it("leaves a run that already ended alone", async () => {
+    const s = await setUp();
+    const { runId } = await send(s.asRohan, s.eventId, "Plan the sangeet");
+    await s.t.mutation(internal.runs.startNext, { eventId: s.eventId });
+    await s.t.mutation(internal.runs.finish, {
+      runId: runId!,
+      outcome: "done",
+    });
+    await s.t.mutation(internal.runs.reapStale, { runId: runId! });
+    expect((await runOf(s, runId!))?.status).toBe("done");
+  });
+});

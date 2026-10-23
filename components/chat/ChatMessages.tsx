@@ -2,6 +2,7 @@
 
 import { useSmoothText, type UIMessage } from "@convex-dev/agent/react";
 import { useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import {
   CircleAlert,
   CircleStop,
@@ -10,7 +11,7 @@ import {
   Link as LinkIcon,
   MessageCircleOff,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CHAT_CARDS } from "@/components/chat/cards/registry";
 import { UndoAllButton } from "@/components/history/UndoAllButton";
 import { AssistantOrb } from "@/components/shell/AssistantOrb";
@@ -150,30 +151,56 @@ function RunLine({
   mine: boolean;
 }) {
   const cancel = useMutation(api.runs.cancelQueued);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  async function onCancel() {
+    setCancelError(null);
+    try {
+      await cancel({ runId: run._id });
+    } catch (caught) {
+      const kind =
+        caught instanceof ConvexError
+          ? (caught.data as { kind?: string }).kind
+          : undefined;
+      setCancelError(
+        kind === "RunNotQueued"
+          ? "Utsavvy already started on this."
+          : "Couldn't cancel it. Try again.",
+      );
+    }
+  }
+
   return (
-    <p
-      data-run-notice={notice.tone}
-      className={cn(
-        "flex items-center gap-1.5 px-1 text-caption font-medium",
-        notice.tone === "queued" && "text-action",
-        notice.tone === "stopped" && "text-ink-2",
-        notice.tone === "problem" && "text-warn",
-        notice.tone === "muted" && "text-ink-3",
-      )}
-    >
-      {noticeIcon[notice.tone]}
-      <span>{notice.text}</span>
-      {notice.tone === "queued" && mine ? (
-        <Button
-          variant="text"
-          size="sm"
-          className="-my-1 h-6 px-1.5 text-caption"
-          onClick={() => void cancel({ runId: run._id })}
-        >
-          Cancel
-        </Button>
+    <>
+      <p
+        data-run-notice={notice.tone}
+        className={cn(
+          "flex items-center gap-1.5 px-1 text-caption font-medium",
+          notice.tone === "queued" && "text-action",
+          notice.tone === "stopped" && "text-ink-2",
+          notice.tone === "problem" && "text-warn",
+          notice.tone === "muted" && "text-ink-3",
+        )}
+      >
+        {noticeIcon[notice.tone]}
+        <span>{notice.text}</span>
+        {notice.tone === "queued" && mine ? (
+          <Button
+            variant="text"
+            size="sm"
+            className="-my-1 h-6 px-1.5 text-caption"
+            onClick={() => void onCancel()}
+          >
+            Cancel
+          </Button>
+        ) : null}
+      </p>
+      {cancelError ? (
+        <p role="status" className="px-1 text-caption text-warn">
+          {cancelError}
+        </p>
       ) : null}
-    </p>
+    </>
   );
 }
 

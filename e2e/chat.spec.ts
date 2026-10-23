@@ -6,7 +6,7 @@ import { expect, test, type Page } from "./fixtures";
 // same streamed reply. The deployment under test answers with the stub model
 // (`DEFAULT_MODEL=stub-utsavvy` on its Convex deployment), so no credits are
 // spent; STUB_REPLY in convex/assistant/agent.ts is the text it streams.
-const STUB_REPLY_START = "Namaste! This is Utsavvy's test model";
+const STUB_REPLY_FULL = "point at what I changed.";
 
 /** A second test user on the e2e user's domain, made through Clerk's Backend API. */
 function memberEmail(): string {
@@ -114,10 +114,18 @@ test.describe("chat", () => {
       /Utsavvy is replying to \S+/,
       { timeout: 20_000 },
     );
+    // Aditi reloads mid-reply and catches up on the same stream.
+    await expect(
+      chat(aditi).locator('[data-chat-row="reply"]').first(),
+    ).toContainText("Namaste", { timeout: 20_000 });
+    await aditi.reload();
+    await expect(
+      chat(aditi).locator('[data-chat-row="reply"]').first(),
+    ).toContainText("Namaste", { timeout: 20_000 });
     for (const viewer of [page, aditi]) {
       await expect(
         chat(viewer).locator('[data-chat-row="reply"]').first(),
-      ).toContainText(STUB_REPLY_START, { timeout: 30_000 });
+      ).toContainText(STUB_REPLY_FULL, { timeout: 30_000 });
     }
     // The reply finishes, is announced politely, and the header names the model.
     await expect(chat(page).locator("[data-replying]")).toHaveCount(0, {

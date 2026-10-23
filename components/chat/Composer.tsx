@@ -29,6 +29,12 @@ function errorText(error: unknown): string {
     const data = error.data as { kind?: string; max?: number };
     if (data.kind === "MessageTooLong")
       return `That message is too long. Keep it under ${data.max ?? MAX_MESSAGE_LENGTH} characters.`;
+    if (data.kind === "TooManyQueued")
+      return `You already have ${data.max ?? 3} messages waiting for Utsavvy. Send this once one is answered, or turn on Don't reply.`;
+    if (data.kind === "TooManyPointed")
+      return `Point at ${data.max ?? 5} things or fewer in one message.`;
+    if (data.kind === "QuoteTooLong")
+      return `Select a shorter passage, up to ${data.max ?? 500} characters.`;
     if (data.kind === "AccessDenied")
       return "You can't post in this Chat anymore.";
   }

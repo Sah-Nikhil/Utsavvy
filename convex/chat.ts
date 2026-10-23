@@ -22,7 +22,7 @@ import {
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { defaultModel } from "./lib/models";
-import { enqueueRun } from "./runs";
+import { checkQueueRoom, enqueueRun } from "./runs";
 import schema from "./schema";
 
 /**
@@ -65,20 +65,35 @@ async function loadEvent(ctx: QueryCtx, eventId: Id<"events">) {
   return event;
 }
 
-/** Refuses pointing at anything outside this Event. */
+/** A message may point at this many things at once. */
+export const MAX_POINTED = 5;
+/** A pointed passage longer than this is refused; it goes into the prompt. */
+export const MAX_POINTED_QUOTE = 500;
+
+/** Refuses pointing at too much, or at anything outside this Event or deleted. */
 async function checkPointing(
   ctx: QueryCtx,
   eventId: Id<"events">,
   pointing: Doc<"chatAnnotations">["pointing"],
 ): Promise<void> {
+  if (pointing.length > MAX_POINTED) {
+    throw new ConvexError({ kind: "TooManyPointed", max: MAX_POINTED });
+  }
   for (const target of pointing) {
+    if (target.kind === "passage" && target.quote.length > MAX_POINTED_QUOTE) {
+      throw new ConvexError({ kind: "QuoteTooLong", max: MAX_POINTED_QUOTE });
+    }
     const item = await ctx.db.get("items", target.itemId);
     if (item === null || item.eventId !== eventId || item.deletedAt !== null) {
       throw new AccessDenied("wrongEvent", "chat.post");
     }
     if (target.kind !== "item" && target.entryId !== null) {
       const entry = await ctx.db.get("entries", target.entryId);
-      if (entry === null || entry.itemId !== item._id) {
+      if (
+        entry === null ||
+        entry.itemId !== item._id ||
+        entry.deletedAt !== null
+      ) {
         throw new AccessDenied("wrongEvent", "chat.post");
       }
     }
@@ -113,6 +128,8 @@ export const send = mutation({
       });
     }
     await checkPointing(ctx, eventId, pointing);
+    const replies = pointing.length > 0 || !dontReply;
+    if (replies) await checkQueueRoom(ctx, eventId, membership._id);
 
     const threadId = await ensureThread(ctx, await loadEvent(ctx, eventId));
     const { messageId } = await saveMessage(ctx, components.agent, {
@@ -131,7 +148,6 @@ export const send = mutation({
       card: null,
     });
 
-    const replies = pointing.length > 0 || !dontReply;
     const runId = replies
       ? await enqueueRun(ctx, {
           eventId,

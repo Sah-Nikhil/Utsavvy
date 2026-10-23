@@ -207,7 +207,11 @@ function ChatBody({
       </div>
       <ReplyAnnouncer messages={messages} details={details} />
       {active ? (
-        <ReplyingBar run={active} myMembershipId={details.me.membershipId} />
+        <ReplyingBar
+          run={active}
+          myMembershipId={details.me.membershipId}
+          canStop={details.me.canPost}
+        />
       ) : null}
       {details.me.canPost ? (
         <Composer eventId={eventId} />
@@ -248,15 +252,18 @@ function useNow(enabled: boolean): number {
 function ReplyingBar({
   run,
   myMembershipId,
+  canStop,
 }: {
   run: RunSummary;
   myMembershipId: string;
+  /** Viewers can't stop a reply, so they get no Stop button at all. */
+  canStop: boolean;
 }) {
   const stop = useMutation(api.runs.stop);
   const [error, setError] = useState<string | null>(null);
   const stopping = run.status === "stopping";
   const mine = run.requestedBy === myMembershipId;
-  const now = useNow(!stopping && !mine);
+  const now = useNow(canStop && !stopping && !mine);
   const { allowed, secondsLeft } = stopState(run, myMembershipId, now);
 
   async function onStop() {
@@ -303,7 +310,7 @@ function ReplyingBar({
           <span className="block text-caption text-warn">{error}</span>
         ) : null}
       </p>
-      {allowed || stopping ? (
+      {!canStop ? null : allowed || stopping ? (
         button
       ) : (
         <Tooltip
