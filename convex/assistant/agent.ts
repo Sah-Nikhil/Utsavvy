@@ -268,7 +268,11 @@ export function chainedModel(
   return {
     specificationVersion: "v4",
     provider: "utsavvy",
-    modelId: first.id,
+    // The model that answered, once one has: the Agent saves this on the
+    // reply message.
+    get modelId() {
+      return (answered ?? first).id;
+    },
     supportedUrls: first.model.supportedUrls,
 
     async doGenerate(options) {
