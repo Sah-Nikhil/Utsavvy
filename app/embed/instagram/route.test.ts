@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("/embed/instagram", () => {
-  it("asks only Meta's oEmbed endpoint and renders only its blockquote", async () => {
+  it("asks only Meta's oEmbed endpoint and renders its own blockquote", async () => {
     const fetchStub = stubMeta(
       Response.json({
         html: `${BLOCKQUOTE}<script async src="//www.instagram.com/embed.js"></script>`,
@@ -42,7 +42,11 @@ describe("/embed/instagram", () => {
     expect(new URL(calls[0]![0]).origin).toBe("https://graph.facebook.com");
     expect(response.headers.get("content-type")).toMatch(/text\/html/);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(html).toContain(BLOCKQUOTE);
+    // Utsavvy's own blockquote for the post, never Meta's HTML.
+    expect(html).toContain(
+      '<blockquote class="instagram-media" data-instgrm-permalink="https://www.instagram.com/p/fA9uwTtkSN/" data-instgrm-version="14" style="margin:1px auto;max-width:540px;min-width:326px;width:calc(100% - 2px)"><a href="https://www.instagram.com/p/fA9uwTtkSN/" target="_blank" rel="noopener noreferrer">View this post on Instagram</a></blockquote>',
+    );
+    expect(html).not.toContain("utm_source");
     expect(html).not.toContain('src="//www.instagram.com/embed.js"');
     expect(html).not.toContain("Teal drapes");
     expect(html).not.toContain("meera.decor");

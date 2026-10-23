@@ -194,9 +194,9 @@ export function pinterestEmbedPage(
 }
 
 /**
- * The Instagram page: Meta's blockquote (already reduced by
+ * The Instagram page: the blockquote Utsavvy builds for the post (see
  * `loadInstagramEmbed`) and Instagram's `embed.js`, or the link when Meta
- * had nothing to show.
+ * said the post can't be embedded.
  */
 export function instagramEmbedPage(args: {
   link: string | null;

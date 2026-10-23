@@ -26,10 +26,17 @@ const MIN_HEIGHT = 96;
 const MAX_HEIGHT = 1600;
 
 /**
- * Pinterest's widget works with an opaque origin, so its script can't reach
- * this document at all. Instagram's post iframe inherits the sandbox and stays
- * a blank placeholder without its origin (checked 2026-10-22), so the Instagram
- * page keeps ours; its script still runs only inside the embed page.
+ * The Pinterest frame is sandboxed with an opaque origin, so Pinterest's script
+ * can't reach this document at all.
+ *
+ * The Instagram frame is NOT isolated. Instagram's post iframe inherits the
+ * sandbox and stays a blank placeholder without an origin (checked
+ * 2026-10-22), so the frame keeps `allow-same-origin`. Because `/embed/instagram`
+ * is served from the app's own origin, Meta's `embed.js` runs with the app
+ * origin's privileges and could reach this document and the Member's session.
+ * Sah-Nikhil accepted this for v1 on 2026-10-23 (ADR 0014, Consequences). To
+ * keep that trust to Meta's script alone, the page renders a blockquote
+ * Utsavvy builds itself, never Meta's oEmbed HTML.
  */
 const SANDBOX: Record<ReferenceEmbedProps["platform"], string> = {
   pinterest: "allow-scripts allow-popups allow-popups-to-escape-sandbox",
