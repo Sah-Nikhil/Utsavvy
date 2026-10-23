@@ -7,6 +7,10 @@ const root = fileURLToPath(new URL("./", import.meta.url));
 export default defineConfig({
   resolve: { alias: { "@": root } },
   test: {
+    // 5 s isn't enough when the suite runs beside `next dev` and a local Convex
+    // backend on Windows: a cold convex-test import or the stock library's
+    // 288-file check can pass it, and the test fails only that once.
+    testTimeout: 20_000,
     projects: [
       {
         extends: true,
