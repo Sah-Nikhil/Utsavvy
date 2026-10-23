@@ -14,6 +14,7 @@ import {
 } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useFunctionFilter } from "@/components/canvas/FunctionFilter";
 import { PasteLinkForm } from "@/components/references/PasteLinkForm";
 import { ReferenceEmbed } from "@/components/references/ReferenceEmbed";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -77,18 +78,17 @@ export function usePinterestIdeas(): PinterestIdeasApi {
   return useContext(PinterestIdeasContext);
 }
 
-/** "Browse ideas on Pinterest", in the Add Inspiration panel. */
-export function PinterestIdeasButton({
-  functionKey,
-  className,
-}: {
-  functionKey?: string;
-  className?: string;
-}) {
+/**
+ * "Browse ideas on Pinterest", in the Inspirations Section's header and the Add
+ * Inspiration panel. On the Canvas it opens on the Function filter's choice.
+ */
+export function PinterestIdeasButton({ className }: { className?: string }) {
   const { open } = usePinterestIdeas();
+  const { functionKey } = useFunctionFilter();
   return (
     <Button
       variant="tonal"
+      size="sm"
       className={cn("justify-self-start", className)}
       onClick={() => open(functionKey ? { functionKey } : undefined)}
     >
@@ -97,6 +97,8 @@ export function PinterestIdeasButton({
     </Button>
   );
 }
+
+const BOARD_HEIGHT_FALLBACK = 480;
 
 export const NO_BOARDS = "No Pinterest boards for this kind of Event yet.";
 export const BOARD_NOTICE =
@@ -272,6 +274,13 @@ function BoardPanel({
   board: Board;
   children: ReactNode;
 }) {
+  // Read once, so resizing doesn't reload the board: most of the screen's
+  // height, leaving the board's header and the Paste a link form in reach.
+  const [boardHeight] = useState(() =>
+    typeof window === "undefined"
+      ? BOARD_HEIGHT_FALLBACK
+      : Math.min(900, Math.max(240, window.innerHeight - 340)),
+  );
   return (
     <section
       aria-labelledby={`board-${board.key}`}
@@ -298,7 +307,12 @@ function BoardPanel({
           <ExternalLink aria-hidden />
         </a>
       </header>
-      <ReferenceEmbed platform="pinterest" url={board.url} />
+      <ReferenceEmbed
+        platform="pinterest"
+        url={board.url}
+        showLink={false}
+        boardHeight={boardHeight}
+      />
       {children}
     </section>
   );

@@ -23,6 +23,13 @@ const weddingBoards = seed.filter((board) =>
   board.eventTypes.includes("wedding"),
 );
 
+/** The sheet's board frame: the board's link and a scroll height for the screen. */
+function boardSrc(url: string) {
+  // encodeURIComponent leaves only letters, digits, %, and - _ . ! ~ * ' ( ).
+  const escaped = encodeURIComponent(url).replace(/[.*()]/g, "\\$&");
+  return new RegExp(`^/embed/pinterest\\?url=${escaped}&height=\\d+$`);
+}
+
 /** Stands in for `/embed/pinterest`: reports a fixed height, as the real page does. */
 async function stubEmbedPage(route: Route) {
   await route.fulfill({
@@ -58,11 +65,19 @@ test.describe("pinterest ideas", () => {
     await dialog.getByRole("button", { name: "Create Event" }).click();
     await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
 
-    async function openSheet() {
-      await page.getByRole("button", { name: "Add Inspiration" }).click();
-      await page
-        .getByRole("button", { name: "Browse ideas on Pinterest" })
-        .click();
+    async function openSheet(from: "panel" | "section") {
+      if (from === "panel") {
+        await page.getByRole("button", { name: "Add Inspiration" }).click();
+        await page
+          .getByRole("dialog", { name: "Add Inspiration" })
+          .getByRole("button", { name: "Browse ideas on Pinterest" })
+          .click();
+      } else {
+        await page
+          .locator('[data-section-kind="inspirations"]')
+          .getByRole("button", { name: "Browse ideas on Pinterest" })
+          .click();
+      }
       const sheet = page.getByRole("dialog", {
         name: "Browse ideas on Pinterest",
       });
@@ -73,7 +88,7 @@ test.describe("pinterest ideas", () => {
       return sheet;
     }
 
-    let sheet = await openSheet();
+    let sheet = await openSheet("panel");
     if (weddingBoards.length === 0) {
       // Until Utsavvy's boards are in the seed, every Event has none.
       await expect(
@@ -103,7 +118,7 @@ test.describe("pinterest ideas", () => {
       ).toHaveAttribute("href", first.url);
       await expect(panel.locator("iframe")).toHaveAttribute(
         "src",
-        `/embed/pinterest?url=${encodeURIComponent(first.url)}`,
+        boardSrc(first.url),
       );
       await expect(
         panel.getByText(
@@ -131,10 +146,7 @@ test.describe("pinterest ideas", () => {
         await boards.getByRole("button", { name: second.label }).click();
         await expect(
           sheet.locator(`[data-pinterest-board="${second.key}"] iframe`),
-        ).toHaveAttribute(
-          "src",
-          `/embed/pinterest?url=${encodeURIComponent(second.url)}`,
-        );
+        ).toHaveAttribute("src", boardSrc(second.url));
       }
     }
     await expectNoSeriousA11yViolations(page, { exclude: ["iframe"] });
@@ -148,7 +160,8 @@ test.describe("pinterest ideas", () => {
       timeout: 20_000,
     });
     await page.goto(workspace);
-    sheet = await openSheet();
+    // This time from the Inspirations Section header on the Canvas.
+    sheet = await openSheet("section");
     if (weddingBoards.length > 0)
       await expect(
         sheet.getByRole("button", { name: weddingBoards[0]!.label }),
