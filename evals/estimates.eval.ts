@@ -15,12 +15,19 @@ import type { CityTier, EventType } from "../lib/types";
  * Scripted cases for live Estimate research (IMPLEMENTATION_PLAN.md section 8,
  * "Scripted Assistant cases"). They call `estimateLines` directly, in
  * `convex-test`, with the real research and knowledge calls, so they spend
- * API credits: run `bun run eval` with ANTHROPIC_API_KEY set (in the shell or
- * in `.env.local`, which Bun loads), plus GOOGLE_GENERATIVE_AI_API_KEY for the
- * fallback. Never in CI. Live prices vary, so they check tolerance bands, not
- * exact numbers: a researched per-unit range must sit inside a third of the
- * table row's low to three times its high.
+ * API credits. They run only when you ask, with the key given in the shell:
+ *
+ *   EVAL_LIVE=1 ANTHROPIC_API_KEY=... bun run eval
+ *
+ * (add GOOGLE_GENERATIVE_AI_API_KEY to try the fallback). The key never goes
+ * in `.env.local`: Bun loads that file on every run, and the Convex keys are
+ * set with `bunx convex env set`; `vitest.eval.config.ts` refuses a live run
+ * when `.env.local` holds one. Never in CI. Live prices vary, so a case checks
+ * that the line came back researched, with sources, rather than exact numbers.
  */
+
+const LIVE = process.env.EVAL_LIVE === "1";
+const KEY = Boolean(process.env.ANTHROPIC_API_KEY);
 
 /** Dollars per million tokens, from the Claude pricing table (checked 2026-10-23). */
 const TOKEN_PRICES: Record<string, { input: number; output: number }> = {
@@ -33,7 +40,7 @@ const SEARCH_DOLLARS = 10 / 1000;
 function dollars(report: ResearchReport): string {
   let total = report.searchesUsed * SEARCH_DOLLARS;
   let unpriced = false;
-  for (const u of report.usage) {
+  for (const u of [...report.usage, ...report.knowledgeUsage]) {
     const price = TOKEN_PRICES[u.model];
     if (!price) {
       unpriced = true;
@@ -42,7 +49,13 @@ function dollars(report: ResearchReport): string {
     total +=
       (u.inputTokens * price.input + u.outputTokens * price.output) / 1e6;
   }
-  return `${total.toFixed(4)}${unpriced ? " + unpriced model" : ""}`;
+  const notes = [
+    unpriced ? "unpriced model" : null,
+    report.inFlightAtDeadline > 0
+      ? `${report.inFlightAtDeadline} timed out, unpriced`
+      : null,
+  ].filter(Boolean);
+  return `${total.toFixed(4)}${notes.length ? ` + ${notes.join(" + ")}` : ""}`;
 }
 
 function models(usage: ModelUsage[]): string {
@@ -56,7 +69,7 @@ afterAll(() => {
   console.table(
     reports.map(({ name, report }) => ({
       case: name,
-      models: models(report.usage),
+      models: models([...report.usage, ...report.knowledgeUsage]),
       searches: report.searchesUsed,
       seconds: (report.ms / 1000).toFixed(1),
       dollars: dollars(report),
@@ -103,7 +116,13 @@ async function run(
   return result ?? null;
 }
 
-function expectInsideBand(
+/**
+ * The real check is that the line came back researched, with a source. The
+ * band asserts can't fail on their own: the cascade already rejects a range
+ * outside [row low / 3, row high × 3] and sends that line to the table, so an
+ * out-of-band answer shows up as `referenceTable` here.
+ */
+function expectResearched(
   result: Awaited<ReturnType<typeof run>>,
   category: string,
   unit: string,
@@ -128,7 +147,8 @@ describe("the eval harness", () => {
         quantity: 300,
         unit: "per_plate",
       },
-      stubEstimateDeps,
+      // The table path: research is skipped, so nothing is called or reported.
+      { ...stubEstimateDeps, claudeReachable: () => false },
     );
     expect(result).toMatchObject({
       unitLow: 1000,
@@ -138,59 +158,62 @@ describe("the eval harness", () => {
   });
 });
 
-describe.skipIf(!process.env.ANTHROPIC_API_KEY)(
-  "live Estimate research",
-  () => {
-    it("Jaipur wedding catering comes back researched, inside the band", async () => {
-      const result = await run(
-        "Jaipur wedding catering",
-        {
-          city: "Jaipur",
-          tier: "Y",
-          eventType: "wedding",
-          category: "catering_main",
-          quantity: 300,
-          unit: "per_plate",
-        },
-        liveEstimateDeps(),
-      );
-      expectInsideBand(result, "catering_main", "per_plate", "Y");
-    });
+describe.runIf(LIVE && !KEY)("live Estimate research, misconfigured", () => {
+  it("needs ANTHROPIC_API_KEY in the shell", () => {
+    throw new Error(
+      "EVAL_LIVE=1 is set but ANTHROPIC_API_KEY isn't: pass it in the shell, EVAL_LIVE=1 ANTHROPIC_API_KEY=... bun run eval",
+    );
+  });
+});
 
-    it("Pune Ganesh utsav pandal and decor comes back researched, inside the band", async () => {
-      const result = await run(
-        "Pune Ganesh utsav pandal and decor",
-        {
-          city: "Pune",
-          tier: "X",
-          eventType: "community",
-          category: "pandal_decor",
-          quantity: 1,
-          unit: "per_event",
-        },
-        liveEstimateDeps(),
-      );
-      expectInsideBand(result, "pandal_decor", "per_event", "X");
-    });
+describe.runIf(LIVE && KEY)("live Estimate research", () => {
+  it("Jaipur wedding catering comes back researched, inside the band", async () => {
+    const result = await run(
+      "Jaipur wedding catering",
+      {
+        city: "Jaipur",
+        tier: "Y",
+        eventType: "wedding",
+        category: "catering_main",
+        quantity: 300,
+        unit: "per_plate",
+      },
+      liveEstimateDeps(),
+    );
+    expectResearched(result, "catering_main", "per_plate", "Y");
+  });
 
-    it("a tent house in Jaipur comes back researched or the Assistant's own estimate", async () => {
-      const result = await run(
-        "Tent house in Jaipur",
-        {
-          city: "Jaipur",
-          tier: "Y",
-          eventType: "wedding",
-          category: "tent house",
-          quantity: 1,
-          unit: "per_function",
-        },
-        liveEstimateDeps(),
-      );
-      expect(["researched", "assistantKnowledge"]).toContain(
-        result?.basis.kind,
-      );
-      expect(result!.unitLow).toBeGreaterThan(0);
-      expect(result!.unitLow).toBeLessThanOrEqual(result!.unitHigh);
-    });
-  },
-);
+  it("Pune Ganesh utsav pandal and decor comes back researched, inside the band", async () => {
+    const result = await run(
+      "Pune Ganesh utsav pandal and decor",
+      {
+        city: "Pune",
+        tier: "X",
+        eventType: "community",
+        category: "pandal_decor",
+        quantity: 1,
+        unit: "per_event",
+      },
+      liveEstimateDeps(),
+    );
+    expectResearched(result, "pandal_decor", "per_event", "X");
+  });
+
+  it("a tent house in Jaipur comes back researched or the Assistant's own estimate", async () => {
+    const result = await run(
+      "Tent house in Jaipur",
+      {
+        city: "Jaipur",
+        tier: "Y",
+        eventType: "wedding",
+        category: "tent house",
+        quantity: 1,
+        unit: "per_function",
+      },
+      liveEstimateDeps(),
+    );
+    expect(["researched", "assistantKnowledge"]).toContain(result?.basis.kind);
+    expect(result!.unitLow).toBeGreaterThan(0);
+    expect(result!.unitLow).toBeLessThanOrEqual(result!.unitHigh);
+  });
+});

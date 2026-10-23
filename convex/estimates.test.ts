@@ -1,4 +1,4 @@
-import { APICallError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { formatLakh } from "../lib/format";
 import {
@@ -19,6 +19,7 @@ import {
   type EstimateCtx,
   type EstimateDeps,
   type EstimateLineInput,
+  type ModelUsage,
   type ResearchCalls,
   type ResearchInput,
   type ResearchOutput,
@@ -29,6 +30,7 @@ import {
   cachedOrTableEstimate,
   estimateLines,
   liveEstimateDeps,
+  liveResearchCalls,
   researchLine,
   researchPrompt,
   stubEstimateDeps,
@@ -1350,5 +1352,449 @@ describe("cachedOrTableEstimate (for queries)", () => {
       ),
     );
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 of #80 (review of PR #85).
+
+describe("nothing falls through silently (L1)", () => {
+  it("reports research that returned nothing", async () => {
+    const { ctx, eventId } = await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { reports, onResearch } = reporter();
+    const [result] = await estimateLines(
+      ctx,
+      args(eventId, [cateringLine]),
+      deps({ research: async () => null, onResearch }),
+    );
+    expect(result?.basis.kind).toBe("referenceTable");
+    expect(reports[0]!.failures).toEqual([
+      expect.objectContaining({
+        key: 0,
+        reason: "noOutput",
+        detail: "research returned nothing",
+      }),
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("research returned nothing"),
+    );
+  });
+
+  it("takes a call's only result even when the model got the key wrong", async () => {
+    const { ctx, eventId } = await setup();
+    const research = vi.fn(
+      async (input: ResearchInput): Promise<ResearchOutput | null> => ({
+        model: "claude-sonnet-5-5",
+        searchResultUrls: ["https://real.in"],
+        searchesUsed: 1,
+        usage: [],
+        results: [{ key: input.lines[0]!.key + 13, ...cateringAnswer }],
+      }),
+    );
+    const [, catering] = await estimateLines(
+      ctx,
+      args(eventId, [
+        { category: "dhol", quantity: 1, unit: "per_function" },
+        cateringLine,
+      ]),
+      deps({ research }),
+    );
+    expect(catering?.basis.kind).toBe("researched");
+  });
+
+  it("reports a call with no estimate for its line", async () => {
+    const { ctx, eventId } = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { reports, onResearch } = reporter();
+    await estimateLines(
+      ctx,
+      args(eventId, [cateringLine]),
+      deps({
+        onResearch,
+        research: async () => ({
+          model: "claude-sonnet-5-5",
+          searchResultUrls: [],
+          searchesUsed: 1,
+          usage: [],
+          results: [],
+        }),
+      }),
+    );
+    expect(reports[0]!.failures[0]).toMatchObject({
+      reason: "noOutput",
+      detail: "no estimate for key 0",
+    });
+  });
+
+  it("reports a missing Anthropic key from the live research call instead of returning nothing", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    const output = await liveEstimateDeps().research(
+      {
+        eventType: "wedding",
+        city: "Jaipur",
+        lines: [
+          {
+            key: 0,
+            label: "Catering",
+            category: "catering_main",
+            unit: "per_plate",
+            listedPrices: [],
+          },
+        ],
+        maxSearches: 1,
+        abortSignal: new AbortController().signal,
+      },
+      { searches: 0, usage: [] },
+    );
+    expect(output?.failure).toEqual({
+      reason: "noOutput",
+      detail: "ANTHROPIC_API_KEY isn't set, or the default model isn't Claude",
+    });
+  });
+});
+
+describe("the report counts what was spent (L2)", () => {
+  const turn = {
+    model: "claude-sonnet-5-5",
+    inputTokens: 900,
+    outputTokens: 80,
+  };
+
+  it("counts the finished turns of a line that then timed out, and says it was still in flight", async () => {
+    const { ctx, eventId } = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { reports, onResearch } = reporter();
+    await estimateLines(
+      ctx,
+      args(eventId, [cateringLine]),
+      deps({
+        onResearch,
+        limits: { ...stubEstimateDeps.limits, researchTimeLimitMs: 30 },
+        research: (_input, meter) => {
+          // One search turn finished and was billed, then the next never returns.
+          meter.searches += 1;
+          meter.usage.push(turn);
+          return new Promise<ResearchOutput | null>(() => {});
+        },
+      }),
+    );
+    expect(reports[0]).toMatchObject({
+      searchesUsed: 1,
+      usage: [turn],
+      inFlightAtDeadline: 1,
+      timedOut: true,
+    });
+  });
+
+  it("reports the Assistant's own estimate's usage", async () => {
+    const { ctx, eventId } = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { reports, onResearch } = reporter();
+    const knowledgeUsage = {
+      model: "claude-sonnet-5-5",
+      inputTokens: 120,
+      outputTokens: 40,
+    };
+    await estimateLines(
+      ctx,
+      args(eventId, [
+        { category: "tent house", quantity: 1, unit: "per_function" },
+      ]),
+      deps({
+        onResearch,
+        knowledge: async () => ({
+          model: "claude-sonnet-5-5",
+          usage: [knowledgeUsage],
+          results: [
+            { key: 0, unitLow: 20000, unitHigh: 60000, reasoning: "x" },
+          ],
+        }),
+      }),
+    );
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.knowledgeUsage).toEqual([knowledgeUsage]);
+  });
+});
+
+describe("the error detail keeps the status after the SDK's retries (L8)", () => {
+  it("unwraps a RetryError to its last API error", async () => {
+    const { ctx, eventId } = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const overloaded = new APICallError({
+      message: "Overloaded",
+      url: "https://api.anthropic.com/v1/messages",
+      requestBodyValues: {},
+      statusCode: 529,
+    });
+    const { reports, onResearch } = reporter();
+    await estimateLines(
+      ctx,
+      args(eventId, [cateringLine]),
+      deps({
+        onResearch,
+        research: async () => {
+          throw new RetryError({
+            message: "Failed after 3 attempts. Last error: Overloaded",
+            reason: "maxRetriesExceeded",
+            errors: [overloaded, overloaded, overloaded],
+          });
+        },
+      }),
+    );
+    expect(reports[0]!.failures[0]!.detail).toMatch(/HTTP 529/);
+  });
+});
+
+describe("a paused turn keeps its notes (L3)", () => {
+  const input: ResearchInput = {
+    eventType: "wedding",
+    city: "Jaipur",
+    lines: [
+      {
+        key: 0,
+        label: "Catering, main dinner",
+        category: "catering_main",
+        unit: "per_plate",
+        listedPrices: [],
+      },
+    ],
+    maxSearches: 1,
+    abortSignal: new AbortController().signal,
+  };
+  const usage = { model: "claude-sonnet-5-5", inputTokens: 1, outputTokens: 1 };
+  const estimate = {
+    key: 0,
+    unitLow: 1100,
+    unitHigh: 1900,
+    sourceUrls: ["https://a.in"],
+    reasoning: "x",
+  };
+
+  it("extracts from the notes so far when the line's search budget is spent", async () => {
+    const extract = vi.fn<ResearchCalls["extract"]>(async () => ({
+      estimates: [estimate],
+      usage,
+    }));
+    const output = await researchLine(input, {
+      search: async () => ({
+        text: "Caterer A lists ₹1,100 to ₹1,900.",
+        resultUrls: ["https://a.in"],
+        searches: 1,
+        paused: true,
+        continuation: [],
+        usage,
+      }),
+      extract,
+    });
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(output.results).toEqual([estimate]);
+    expect(output.failure).toBeUndefined();
+  });
+
+  it("names the spent budget and the pause cap as different reasons", async () => {
+    const paused = (searches: number) => async () => ({
+      text: "Nothing usable yet.",
+      resultUrls: [],
+      searches,
+      paused: true,
+      continuation: [],
+      usage,
+    });
+    const noRange = async () => ({ estimates: [], usage });
+    const spent = await researchLine(input, {
+      search: paused(1),
+      extract: noRange,
+    });
+    expect(spent.failure).toEqual({
+      reason: "pauseCap",
+      detail: "the line's 1 search was spent while the turn was paused",
+    });
+    const capped = await researchLine(
+      { ...input, maxSearches: 8 },
+      { search: paused(0), extract: noRange },
+    );
+    expect(capped.failure).toEqual({
+      reason: "pauseCap",
+      detail: `the search turn paused ${RESEARCH_PAUSE_CAP + 1} times`,
+    });
+  });
+});
+
+describe("both calls are tuned for the deadline (L4)", () => {
+  it("asks for low effort and caps the output", () => {
+    const input: ResearchInput = {
+      eventType: "wedding",
+      city: "Jaipur",
+      lines: [],
+      maxSearches: 1,
+      abortSignal: new AbortController().signal,
+    };
+    const search = buildSearchCall(input, [], {
+      model: "claude-sonnet-5-5",
+      apiKey: "test-key",
+      maxUses: 1,
+    });
+    const extract = buildExtractCall(input, "notes", []);
+    for (const call of [search, extract]) {
+      expect(call.providerOptions).toEqual({ anthropic: { effort: "low" } });
+      expect(call.maxOutputTokens).toBeGreaterThan(0);
+      expect(call.maxOutputTokens).toBeLessThanOrEqual(2000);
+    }
+  });
+});
+
+describe("the live calls against canned Anthropic responses (L7)", () => {
+  function message(
+    content: unknown[],
+    stopReason: string,
+    usage: Record<string, unknown>,
+  ) {
+    return {
+      id: `msg_${Math.random().toString(36).slice(2)}`,
+      type: "message",
+      role: "assistant",
+      model: "claude-sonnet-5-5",
+      content,
+      stop_reason: stopReason,
+      stop_sequence: null,
+      usage: { input_tokens: 100, output_tokens: 20, ...usage },
+    };
+  }
+
+  it("continues a paused search turn, reads the result URLs and the billed search count, then extracts", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "");
+    vi.stubEnv("HELPER_MODEL", undefined);
+    const bodies: Record<string, unknown>[] = [];
+    const searchReplies = [
+      message(
+        [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_1",
+            name: "web_search",
+            input: { query: "wedding catering per plate Jaipur" },
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_1",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://caterer-a.in/menu",
+                title: "Menu",
+                page_age: null,
+                encrypted_content: "abc",
+              },
+            ],
+          },
+          // A second search the API refused: it isn't billed.
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_2",
+            name: "web_search",
+            input: { query: "catering Jaipur" },
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_2",
+            content: {
+              type: "web_search_tool_result_error",
+              error_code: "max_uses_exceeded",
+            },
+          },
+        ],
+        "pause_turn",
+        { server_tool_use: { web_search_requests: 1 } },
+      ),
+      message(
+        [
+          {
+            type: "text",
+            text: "Caterer A lists ₹1,100 to ₹1,900 per plate (https://caterer-a.in/menu).",
+          },
+        ],
+        "end_turn",
+        { server_tool_use: { web_search_requests: 0 } },
+      ),
+    ];
+    const extractReply = message(
+      [
+        {
+          type: "text",
+          text: JSON.stringify({
+            estimates: [
+              {
+                key: 0,
+                unitLow: 1100,
+                unitHigh: 1900,
+                sourceUrls: ["https://caterer-a.in/menu"],
+                reasoning: "One caterer's own menu.",
+              },
+            ],
+          }),
+        },
+      ],
+      "end_turn",
+      {},
+    );
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      const reply = body.tools ? searchReplies.shift()! : extractReply;
+      return new Response(JSON.stringify(reply), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    const meter = { searches: 0, usage: [] as ModelUsage[] };
+    const output = await researchLine(
+      {
+        eventType: "wedding",
+        city: "Jaipur",
+        lines: [
+          {
+            key: 0,
+            label: "Catering, main dinner",
+            category: "catering_main",
+            unit: "per_plate",
+            listedPrices: [],
+          },
+        ],
+        maxSearches: 2,
+        abortSignal: new AbortController().signal,
+      },
+      liveResearchCalls("claude-sonnet-5-5", "test-key", { fetch }),
+      meter,
+    );
+
+    expect(bodies).toHaveLength(3);
+    // The continuation re-sends the paused turn's search blocks.
+    const resent = JSON.stringify(bodies[1]!.messages);
+    expect(resent).toContain("server_tool_use");
+    expect(resent).toContain("web_search_tool_result");
+    // The extraction call has no tools.
+    expect(bodies[2]!.tools).toBeUndefined();
+    expect(output).toMatchObject({
+      searchResultUrls: ["https://caterer-a.in/menu"],
+      searchesUsed: 1,
+      results: [
+        {
+          key: 0,
+          unitLow: 1100,
+          unitHigh: 1900,
+          sourceUrls: ["https://caterer-a.in/menu"],
+        },
+      ],
+    });
+    expect(output.failure).toBeUndefined();
+    expect(meter.searches).toBe(1);
+    expect(meter.usage.map((u) => u.model)).toEqual([
+      "claude-sonnet-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+    ]);
   });
 });
