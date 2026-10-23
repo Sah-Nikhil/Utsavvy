@@ -72,7 +72,7 @@ export function OpeningBox({ eventId }: { eventId: Id<"events"> }) {
         maxLength={MAX}
         onChange={(event) => setText(event.currentTarget.value)}
         onKeyDown={onKeyDown}
-        placeholder="My sister's wedding in Jaipur next February, around 300 people, budget 25 lakh"
+        placeholder="For example: my sister's wedding in Jaipur next February, around 300 people, budget 25 lakh"
         className={cn(
           "w-full resize-none bg-transparent px-1.5 py-1 text-body text-ink placeholder:text-ink-3",
           "focus-visible:outline-none",

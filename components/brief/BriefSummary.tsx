@@ -57,11 +57,11 @@ export function BriefSummary({
   return (
     <article
       aria-labelledby={`brief-${eventId}`}
-      className="relative flex flex-col gap-4 rounded-lg bg-surface-raised p-4 shadow-item"
+      className="relative flex flex-col gap-4 rounded-lg bg-surface-raised px-4 pt-4 pb-6 shadow-item"
       data-brief-summary
     >
       <SectionOrnament />
-      <header className="flex items-baseline justify-between gap-3">
+      <header className="flex items-baseline justify-between gap-3 pl-5 ornaments-off:pl-0">
         <h3
           id={`brief-${eventId}`}
           className="font-display text-title font-semibold tracking-[-0.01em] text-ink"
@@ -533,7 +533,7 @@ function FunctionsList({
             >
               <div className="flex items-center gap-2.5">
                 <FunctionMarker index={((index % 8) + 1) as FunctionIndex} />
-                <span className="min-w-0 flex-1 truncate text-body font-medium text-ink">
+                <span className="min-w-0 flex-1 text-body font-medium break-words text-ink">
                   {fn.name}
                 </span>
                 <span
@@ -565,6 +565,8 @@ function FunctionsList({
                   >
                     <Pencil />
                   </Button>
+                ) : editable ? (
+                  <span aria-hidden className="size-8 shrink-0" />
                 ) : null}
               </div>
               {isOpen ? (
