@@ -70,9 +70,12 @@ export function readCommentList(result: unknown): CommentList {
  * Every caller on one Item shares one subscription.
  */
 export function useCommentList(itemId: Id<"items">): CommentList {
-  const results = useQueries({
-    list: { query: api.comments.listForItem, args: { itemId } },
-  });
+  // useQueries resubscribes whenever this object changes, so keep it stable.
+  const queries = useMemo(
+    () => ({ list: { query: api.comments.listForItem, args: { itemId } } }),
+    [itemId],
+  );
+  const results = useQueries(queries);
   return readCommentList(results.list);
 }
 
