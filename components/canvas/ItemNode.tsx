@@ -9,6 +9,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import { ItemComments } from "@/components/comments/ItemComments";
 import { itemComponentFor } from "@/components/items/registry";
 import { PointingRing } from "@/components/shell/PointingRing";
 import { useSetSelection } from "@/components/shell/selection";
@@ -93,7 +94,9 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
       )}
     >
       <ItemErrorBoundary kind={KIND_NAMES[item.kind]}>
-        <Body item={item} />
+        <ItemComments itemId={item._id} itemLabel={KIND_NAMES[item.kind]}>
+          <Body item={item} />
+        </ItemComments>
       </ItemErrorBoundary>
     </div>
   );
