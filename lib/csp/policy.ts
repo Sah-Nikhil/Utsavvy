@@ -130,7 +130,15 @@ const EMBEDS: Policy = {
     "https://widgets.pinterest.com",
     "https://www.instagram.com",
   ],
-  "img-src": ["https://i.pinimg.com", "https://log.pinterest.com", "data:"],
+  // s.pinimg.com: a board owner's picture. v1.pinimg.com: video Pins. Both
+  // found by X2's deployed check on 2026-10-23 (#82).
+  "img-src": [
+    "https://i.pinimg.com",
+    "https://s.pinimg.com",
+    "https://log.pinterest.com",
+    "data:",
+  ],
+  "media-src": ["https://v1.pinimg.com"],
   "frame-src": ["https://www.instagram.com"],
   "style-src": ["'unsafe-inline'"],
 };
@@ -181,4 +189,15 @@ export function mainPolicy(env: CspEnvironment): string {
 /** The policy for `/embed/*`: the main list plus Pinterest's and Instagram's hosts. */
 export function embedPolicy(env: CspEnvironment): string {
   return serialize(merge(base(env), EMBEDS, { "frame-ancestors": ["'self'"] }));
+}
+
+/**
+ * The policy for `/embed/pinterest`: the `/embed` policy plus a CSP sandbox
+ * with the card iframe's own flags, so the page keeps an opaque origin even
+ * when opened directly rather than in its card (#82, review of PR #78).
+ * Instagram's page can't take it: Instagram's own iframe inherits the sandbox
+ * and stays blank.
+ */
+export function pinterestEmbedPolicy(env: CspEnvironment): string {
+  return `${embedPolicy(env)}; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox`;
 }

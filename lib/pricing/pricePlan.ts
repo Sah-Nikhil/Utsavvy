@@ -59,6 +59,11 @@ function roundTo(amount: number, step: number): number {
   return Math.round(amount / step) * step;
 }
 
+/** How much one rounding step moves a line: ₹10 a plate, else ₹1,000. */
+function roundingStep(unit: string, quantity: number): number {
+  return unit === "per_plate" ? 10 * quantity : 1000;
+}
+
 /**
  * A line's amount at a unit price: per-plate prices round to ₹10 and the line
  * stays as price × plates; every other line rounds to the nearest ₹1,000.
@@ -66,6 +71,25 @@ function roundTo(amount: number, step: number): number {
 function amountAt(unit: string, unitPrice: number, quantity: number): number {
   if (unit === "per_plate") return roundTo(unitPrice, 10) * quantity;
   return roundTo(unitPrice * quantity, 1000);
+}
+
+/**
+ * The same line rounded down instead, so it never exceeds its high: per-plate
+ * prices floor to ₹10, other lines to ₹1,000. The small allowance keeps an
+ * exact product such as 1.25 × ₹1,000 from flooring a whole step on float
+ * error.
+ */
+function amountAtMost(
+  unit: string,
+  unitPrice: number,
+  quantity: number,
+): number {
+  const floorTo = (amount: number, step: number) =>
+    Math.floor(amount / step + 1e-9) * step;
+  if (unit === "per_plate") return floorTo(unitPrice, 10) * quantity;
+  // A line whose high is under ₹1,000 rounds down to ₹100, not to ₹0.
+  const line = unitPrice * quantity;
+  return floorTo(line, line >= 1000 ? 1000 : 100);
 }
 
 /** A figure for a sentence: nearest ₹10,000 from ₹10L up, else nearest ₹1,000. */
@@ -143,7 +167,8 @@ export function pricePlan(
     if (!p) return null;
     const { range, line } = p;
     let amount: number;
-    if (band === "aboveHigh") amount = p.high;
+    if (band === "aboveHigh")
+      amount = amountAtMost(range.unit, range.unitHigh, line.quantity);
     else if (band === "belowMinimum")
       amount = amountAt(range.unit, range.unitLow * scale, line.quantity);
     else
@@ -152,6 +177,11 @@ export function pricePlan(
         range.unitLow + f * (range.unitHigh - range.unitLow),
         line.quantity,
       );
+    // Rounding to the nearest step can pass the high at f near 1; no Entry
+    // goes above its high.
+    if (amount > p.high) {
+      amount = amountAtMost(range.unit, range.unitHigh, line.quantity);
+    }
     return {
       low: p.low,
       high: p.high,
@@ -161,10 +191,32 @@ export function pricePlan(
     };
   });
 
-  const entriesTotal = entries.reduce((sum, e) => sum + (e?.amount ?? 0), 0);
+  // Rounding can overshoot the budget: take it back from the largest Entry,
+  // one rounding step at a time, so the Contingency never goes below zero.
+  const sum = () => entries.reduce((total, e) => total + (e?.amount ?? 0), 0);
+  while (sum() > budget) {
+    let largest = -1;
+    entries.forEach((e, i) => {
+      if (
+        e &&
+        e.amount > 0 &&
+        (largest < 0 || e.amount > entries[largest]!.amount)
+      )
+        largest = i;
+    });
+    if (largest < 0) break;
+    const entry = entries[largest]!;
+    const step = roundingStep(
+      priced[largest]!.range.unit,
+      priced[largest]!.line.quantity,
+    );
+    entry.amount = Math.max(0, entry.amount - step);
+  }
+
+  const entriesTotal = sum();
   const contingency =
     band === "aboveHigh"
-      ? Math.round(entriesTotal * share)
+      ? Math.min(Math.round(entriesTotal * share), budget - entriesTotal)
       : budget - entriesTotal;
   const unallocated = budget - entriesTotal - contingency;
 
@@ -181,7 +233,7 @@ export function pricePlan(
     );
   } else if (band === "aboveHigh") {
     notes.push(
-      `${formatLakh(budget)} is above the high end of ${formatLakh(about(high))} for this plan, so every Estimate sits at its high end and ${formatINR(unallocated)} is Unallocated.`,
+      `${formatLakh(budget)} is above the high end of ${formatLakh(about(high))} for this plan, so every Estimate sits at its high end${unallocated > 0 ? ` and ${formatINR(unallocated)} is Unallocated` : ""}.`,
     );
   }
   const missing = entries.filter((e) => e === null).length;

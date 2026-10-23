@@ -178,22 +178,118 @@ describe("rounding goes into the Contingency", () => {
 });
 
 describe("above high", () => {
-  it("puts every Entry at its high, the Contingency at 10% of them, the rest Unallocated", () => {
+  it("puts every Entry at its high, rounded down so none exceeds it, the Contingency at 10% of them, the rest Unallocated (L6)", () => {
     const result = pricePlan(
       plan(line("x", 1, "per_function"), line("cards", 150, "per_card")),
       [range("per_function", 100000, 200000), range("per_card", 80, 250)],
       { budget: 1000000, ...C },
     );
-    expect(result.entries.map((e) => e?.amount)).toEqual([200000, 37500]);
+    // 150 cards at ₹250 is ₹37,500, rounded down to ₹37,000.
+    expect(result.entries.map((e) => e?.amount)).toEqual([200000, 37000]);
     expect(result.budgetCheck).toMatchObject({
       band: "aboveHigh",
-      contingency: 23750,
-      unallocated: 738750,
+      contingency: 23700,
+      unallocated: 739300,
     });
     expect(total(result)).toBe(1000000);
     expect(result.note).toBe(
-      "₹10L is above the high end of ₹2.61L for this plan, so every Estimate sits at its high end and ₹7,38,750 is Unallocated.",
+      "₹10L is above the high end of ₹2.61L for this plan, so every Estimate sits at its high end and ₹7,39,300 is Unallocated.",
     );
+  });
+
+  it("floors a per-plate high to ₹10 a plate (L6)", () => {
+    // Tier X light catering tops out at ₹1,125 a plate: ₹1,120 × 60.
+    const result = pricePlan(
+      plan(line("catering", 60, "per_plate")),
+      [range("per_plate", 625, 1125)],
+      { budget: 500000, ...C },
+    );
+    expect(result.entries[0]?.amount).toBe(67200);
+    expect(total(result)).toBe(500000);
+  });
+
+  it("never puts an Entry above its high, even at f = 1 in the comfortable band", () => {
+    // Budget exactly at High: f = 1, and ₹37,500 must not round up to ₹38,000.
+    const result = pricePlan(
+      plan(line("cards", 150, "per_card")),
+      [range("per_card", 80, 250)],
+      { budget: 41250, ...C },
+    );
+    expect(result.budgetCheck.band).toBe("comfortable");
+    expect(result.entries[0]?.amount).toBe(37000);
+    expect(total(result)).toBe(41250);
+  });
+
+  it("keeps the total at the budget just above high", () => {
+    const result = pricePlan(
+      plan(line("cards", 150, "per_card")),
+      [range("per_card", 80, 250)],
+      { budget: 41251, ...C },
+    );
+    expect(result.budgetCheck).toMatchObject({
+      band: "aboveHigh",
+      contingency: 3700,
+      unallocated: 551,
+    });
+    expect(total(result)).toBe(41251);
+  });
+});
+
+describe("a line whose high is under ₹1,000 (N4)", () => {
+  it("rounds down to ₹100 above high instead of flooring to ₹0", () => {
+    // Prasad at ₹20 to ₹40 for 20 Guest-days: a high of ₹800.
+    const result = pricePlan(
+      plan(line("prasad", 20, "per_guest_day")),
+      [range("per_guest_day", 20, 40)],
+      { budget: 10000, ...C },
+    );
+    expect(result.budgetCheck.band).toBe("aboveHigh");
+    expect(result.entries[0]?.amount).toBe(800);
+    expect(total(result)).toBe(10000);
+  });
+
+  it("rounds down to ₹100 at f = 1 in the comfortable band", () => {
+    // ₹500 to ₹850; nearest-₹1,000 rounding would give ₹1,000, above the high.
+    const result = pricePlan(
+      plan(line("prasad", 20, "per_guest_day")),
+      [range("per_guest_day", 25, 42.5)],
+      { budget: 935, ...C },
+    );
+    expect(result.budgetCheck.band).toBe("comfortable");
+    expect(result.entries[0]?.amount).toBe(800);
+    expect(total(result)).toBe(935);
+  });
+
+  it("still floors to ₹1,000 when the high is ₹1,000 or more", () => {
+    const result = pricePlan(
+      plan(line("cards", 150, "per_card")),
+      [range("per_card", 80, 250)],
+      { budget: 1000000, ...C },
+    );
+    expect(result.entries[0]?.amount).toBe(37000);
+  });
+});
+
+describe("rounding never takes the Contingency below zero (L6)", () => {
+  it("reduces the largest Entry, a rounding step at a time, instead", () => {
+    // Three ₹2,400 lows scaled to ₹1,500 each round up to ₹2,000: ₹6,000 against ₹4,950.
+    const result = pricePlan(
+      plan(
+        line("a", 1, "per_function"),
+        line("b", 1, "per_function"),
+        line("c", 1, "per_function"),
+      ),
+      [
+        range("per_function", 2400, 3000),
+        range("per_function", 2400, 3000),
+        range("per_function", 2400, 3000),
+      ],
+      { budget: 4950, ...C },
+    );
+    expect(result.budgetCheck.band).toBe("belowMinimum");
+    expect(result.entries.map((e) => e?.amount)).toEqual([1000, 1000, 2000]);
+    expect(result.budgetCheck.contingency).toBe(950);
+    expect(total(result)).toBe(4950);
   });
 });
 
