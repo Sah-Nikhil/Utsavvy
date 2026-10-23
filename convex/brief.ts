@@ -73,6 +73,7 @@ import { requireAccess, requireAccessFor } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import {
   languageModel,
+  type ModelEnv,
   modelChain,
   registerStubObject,
   withModelFallback,
@@ -93,10 +94,10 @@ import schema from "./schema";
  * 2. Code asks the missing essentials as chip questions, one at a time
  *    (`nextQuestion`), and applies each answer (`api.brief.answerChip`).
  * 3. With the essentials complete, the Brief's Functions and Assumptions are
- *    filled in, the Chat shows "Checking current prices in <city>", and
+ *    filled in, the Brief summary card shows "Checking current prices in <city>", and
  *    `internal.brief.checkBudget` prices the Brief's budget lines through the
  *    estimate cascade (which fills the cache the first plan reads) and stores
- *    the `BudgetCheck`. The Brief summary card follows.
+ *    the `BudgetCheck`. The card then shows the summary.
  * 4. Members edit any field in place (`api.brief.editField`), which re-runs the
  *    Budget check; after the first plan an essential goes through
  *    `proposeEssentialChange` instead (S14).
@@ -123,9 +124,6 @@ for (const example of BRIEF_EXAMPLES) {
 
 /** A Brief longer than this is refused; it goes into the prompt. */
 export const MAX_BRIEF_LENGTH = 2000;
-
-const WELCOME_TO_SUMMARY =
-  "Here's your Brief. Change anything that's off, then make your plan.";
 
 // ---------------------------------------------------------------------------
 // Reading the Brief
@@ -476,6 +474,8 @@ async function advance(
   ctx: MutationCtx,
   eventId: Id<"events">,
   actor: MemberActor,
+  /** A line said before the next question, in the same message. */
+  lead: string | null = null,
 ): Promise<void> {
   const event = await loadEvent(ctx, eventId);
   const rows = await functionRows(ctx, eventId);
@@ -492,7 +492,7 @@ async function advance(
         ctx,
         eventId,
         { kind: "briefChips", id: question.id },
-        question.prompt,
+        lead ? `${lead} ${question.prompt}` : question.prompt,
       );
     }
     return;
@@ -505,13 +505,12 @@ async function advance(
     groupLabel: "The Brief",
     patch: { briefState: "summary" },
   });
-  const city = event.city?.name ?? state.extraction.city ?? "your city";
-  await postCard(
-    ctx,
-    eventId,
-    { kind: "system", id: null },
-    `Checking current prices in ${city}`,
-  );
+  // The summary card arrives at once and shows "Checking current prices in
+  // <city>" until the check lands. One message, not a notice and then the
+  // card: the Agent component would merge two Utsavvy lines in a row.
+  if ((await latestCard(ctx, eventId, "briefSummary")) === null) {
+    await postCard(ctx, eventId, { kind: "briefSummary", id: null }, "");
+  }
   await startBudgetCheck(ctx, eventId);
 }
 
@@ -544,6 +543,33 @@ export const submitText = mutation({
 });
 
 /**
+ * One extraction call on the helper model chain, with structured output for
+ * `BriefExtraction`. Returns the checked result and the model that answered.
+ * The scripted cases (`evals/brief.eval.ts`) call it with the real models.
+ */
+export async function extractBrief(
+  text: string,
+  today: string,
+  source: ModelEnv,
+): Promise<{ cleaned: ReturnType<typeof cleanExtraction>; model: string }> {
+  const { result, model } = await withModelFallback(
+    modelChain("helper", source),
+    (id) =>
+      generateText({
+        model: languageModel(id, source),
+        system: EXTRACTION_SYSTEM,
+        prompt: extractionPrompt(text, today),
+        output: Output.object({
+          name: BRIEF_EXTRACTION_NAME,
+          schema: briefExtractionSchema,
+        }),
+        maxOutputTokens: 1200,
+      }),
+  );
+  return { cleaned: cleanExtraction(result.output), model };
+}
+
+/**
  * The extraction step: the helper model chain (falling back to Gemini, or the
  * stub on previews) with structured output for `BriefExtraction`. If no model
  * can answer, the Brief starts empty and the chips ask for everything.
@@ -558,21 +584,7 @@ export const extract = internalAction({
   handler: async (ctx, { eventId, membershipId, text }) => {
     let cleaned: ReturnType<typeof cleanExtraction> | null = null;
     try {
-      const { result } = await withModelFallback(
-        modelChain("helper", env),
-        (model) =>
-          generateText({
-            model: languageModel(model, env),
-            system: EXTRACTION_SYSTEM,
-            prompt: extractionPrompt(text, istDay(Date.now())),
-            output: Output.object({
-              name: BRIEF_EXTRACTION_NAME,
-              schema: briefExtractionSchema,
-            }),
-            maxOutputTokens: 1200,
-          }),
-      );
-      cleaned = cleanExtraction(result.output);
+      ({ cleaned } = await extractBrief(text, istDay(Date.now()), env));
     } catch (error) {
       console.warn(
         `The Brief's extraction failed: ${error instanceof Error ? error.message.slice(0, 200) : "unknown error"}`,
@@ -613,14 +625,6 @@ export const applyExtraction = internalMutation({
       throw error;
     }
     const actor = member(args.membershipId);
-    if (args.extraction === null) {
-      await postCard(
-        ctx,
-        args.eventId,
-        { kind: "system", id: null },
-        "I couldn't read that just now, so I'll ask a few quick questions instead.",
-      );
-    }
     const extraction = args.extraction ?? emptyExtraction(event.eventType);
     extraction.eventType ??= event.eventType;
     for (const [order, key] of args.functionKeys.entries()) {
@@ -643,7 +647,14 @@ export const applyExtraction = internalMutation({
       extraction,
       assumptions: args.assumptions,
     });
-    await advance(ctx, args.eventId, actor);
+    await advance(
+      ctx,
+      args.eventId,
+      actor,
+      args.extraction === null
+        ? "I couldn't read that just now, so I'll ask a few quick questions instead."
+        : null,
+    );
     return null;
   },
 });
@@ -945,8 +956,24 @@ export const editField = mutation({
       extraction.households = change.households;
       drop("households");
     } else if (change.field === "assumptionConfirmed") {
-      // One tap confirms an Assumption: it stops being listed as assumed.
-      drop(change.assumption);
+      // One tap confirms an Assumption: it stops being listed as assumed. A
+      // Function's date or Guests stop being assumed on the Function itself.
+      const fn = change.assumption.match(/^function\.([^.]+)\.(date|guests)$/);
+      if (fn) {
+        const row = rows.find((r) => r.key === fn[1]);
+        if (!row) throw new ConvexError({ kind: "NotFound", what: "function" });
+        functionPatch = {
+          row,
+          patch: { assumed: row.assumed.filter((f) => f !== fn[2]) },
+        };
+      } else if (change.assumption === "guests") {
+        drop(change.assumption);
+      } else {
+        throw new ConvexError({
+          kind: "BadAnswer",
+          message: "That Assumption is settled by the first plan.",
+        });
+      }
     } else if (change.field === "styleWords") {
       const words = change.styleWords
         .map((w) => w.trim())
@@ -1150,7 +1177,7 @@ export const storeBudgetCheck = internalMutation({
         ctx,
         args.eventId,
         { kind: "briefSummary", id: basis },
-        WELCOME_TO_SUMMARY,
+        "",
       );
     } else if (card.card?.id !== basis) {
       await ctx.db.patch("chatAnnotations", card._id, {
@@ -1184,7 +1211,7 @@ export async function geocodeCity(
   url.searchParams.set("format", "json");
   url.searchParams.set("apiKey", opts.apiKey);
   try {
-    const response = await (opts.fetch ?? fetch)(url, {
+    const response = await (opts.fetch ?? fetch)(url.toString(), {
       signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -1198,8 +1225,11 @@ export async function geocodeCity(
     if (typeof first?.lat !== "number" || typeof first.lon !== "number")
       return null;
     return { lat: first.lat, lng: first.lon };
-  } catch {
-    console.warn(`Geoapify didn't answer for ${city}`);
+  } catch (error) {
+    // The error's name only: its message could carry the request URL, and so the key.
+    console.warn(
+      `Geoapify didn't answer for ${city} (${error instanceof Error ? error.name : "unknown"})`,
+    );
     return null;
   }
 }

@@ -194,12 +194,10 @@ describe("extraction", () => {
       minimum: 68915,
     });
     const shown = await cards(s);
-    expect(shown.map((c) => c.kind)).toEqual([
-      "briefChips",
-      "system",
-      "briefSummary",
-    ]);
-    expect(shown[1]!.text).toBe("Checking current prices in Jaipur");
+    // One summary card, which showed "Checking current prices in Jaipur"
+    // until the check landed; no separate notice, so the Chat never merges
+    // two Utsavvy lines into one.
+    expect(shown.map((c) => c.kind)).toEqual(["briefChips", "briefSummary"]);
   });
 
   it("unknown fields stay null and the Assistant asks for them", async () => {
