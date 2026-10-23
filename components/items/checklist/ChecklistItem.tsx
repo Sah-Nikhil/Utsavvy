@@ -21,6 +21,7 @@ import {
   inlineControlClass,
   useRowAction,
 } from "@/components/items/budget/parts";
+import { EntryCommentCount } from "@/components/comments/ItemComments";
 import { ItemFrame } from "@/components/items/ItemFrame";
 import type { ItemComponentProps } from "@/components/items/registry";
 import { formatDay } from "@/components/items/timeline/format";
@@ -252,6 +253,7 @@ function ChecklistRow({
           ) : null}
         </p>
       </div>
+      <EntryCommentCount entryId={entry._id} className="shrink-0" />
       <ViewerAvatars
         viewers={canvas?.viewersByEntry.get(entry._id) ?? []}
         className="shrink-0"
