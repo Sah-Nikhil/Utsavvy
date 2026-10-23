@@ -93,6 +93,66 @@ function mayResolve(
 }
 
 /**
+ * The live Item a new Comment's target sits on. Refuses a passage target
+ * (until X10) and a missing or deleted Item. Shared with the Assistant's
+ * `addComment` tool (S7), which checks access its own way first.
+ */
+export async function commentItem(
+  ctx: Ctx,
+  target: Doc<"comments">["target"],
+): Promise<Doc<"items">> {
+  if (target.kind === "passage") refuse("passage");
+  const item = await liveItem(ctx, target.itemId);
+  if (item === null) refuse("noTarget");
+  return item;
+}
+
+/**
+ * The rest of a new Comment's checks, after access: an Entry target must be
+ * live and in the Item, the body readable and short enough, a reply's root a
+ * thread's first Comment on the same target, and the Item under its limit.
+ * Returns the trimmed body. Shared with the Assistant's `addComment` (S7).
+ */
+export async function checkNewComment(
+  ctx: Ctx,
+  item: Doc<"items">,
+  target: Doc<"comments">["target"],
+  body: string,
+  rootId: Id<"comments"> | null,
+): Promise<string> {
+  if (target.kind === "entry") {
+    const entry = await ctx.db.get("entries", target.entryId);
+    if (
+      entry === null ||
+      entry.deletedAt !== null ||
+      entry.itemId !== item._id ||
+      entry.eventId !== item.eventId
+    )
+      refuse("noTarget");
+  }
+
+  const text = checkedBody(body);
+
+  if (rootId !== null) {
+    const root = await ctx.db.get("comments", rootId);
+    if (
+      root === null ||
+      root.rootId !== null ||
+      root.eventId !== item.eventId ||
+      !sameTarget(root.target, target)
+    )
+      refuse("badReply");
+  }
+
+  const existing = await ctx.db
+    .query("comments")
+    .withIndex("by_item", (q) => q.eq("itemId", item._id))
+    .take(MAX_COMMENTS_PER_ITEM);
+  if (existing.length >= MAX_COMMENTS_PER_ITEM) refuse("tooMany");
+  return text;
+}
+
+/**
  * Adds a Comment on an Item or an Entry, or a reply when `rootId` names a
  * thread's first Comment on the same target. A passage target is refused
  * until X10. Returns the new Comment's ID.
@@ -105,45 +165,13 @@ export const add = mutation({
   },
   returns: v.id("comments"),
   handler: async (ctx, { target, body, rootId }) => {
-    if (target.kind === "passage") refuse("passage");
-
-    const item = await liveItem(ctx, target.itemId);
-    if (item === null) refuse("noTarget");
+    const item = await commentItem(ctx, target);
     const { membership } = await requireAccess(
       ctx,
       item.eventId,
       "comment.add",
     );
-
-    if (target.kind === "entry") {
-      const entry = await ctx.db.get("entries", target.entryId);
-      if (
-        entry === null ||
-        entry.deletedAt !== null ||
-        entry.itemId !== item._id ||
-        entry.eventId !== item.eventId
-      )
-        refuse("noTarget");
-    }
-
-    const text = checkedBody(body);
-
-    if (rootId !== null) {
-      const root = await ctx.db.get("comments", rootId);
-      if (
-        root === null ||
-        root.rootId !== null ||
-        root.eventId !== item.eventId ||
-        !sameTarget(root.target, target)
-      )
-        refuse("badReply");
-    }
-
-    const existing = await ctx.db
-      .query("comments")
-      .withIndex("by_item", (q) => q.eq("itemId", item._id))
-      .take(MAX_COMMENTS_PER_ITEM);
-    if (existing.length >= MAX_COMMENTS_PER_ITEM) refuse("tooMany");
+    const text = await checkNewComment(ctx, item, target, body, rootId);
 
     return await ctx.db.insert("comments", {
       eventId: item.eventId,

@@ -7,10 +7,13 @@ import {
   CircleStop,
   Clock,
   Crosshair,
-  Link as LinkIcon,
   MessageCircleOff,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import {
+  Citations,
+  type CitationSource,
+} from "@/components/chat/cards/citations/Citations";
 import { CHAT_CARDS } from "@/components/chat/cards/registry";
 import { UndoAllButton } from "@/components/history/UndoAllButton";
 import { AssistantOrb } from "@/components/shell/AssistantOrb";
@@ -26,7 +29,7 @@ import {
   type RunNotice,
   type RunSummary,
 } from "./runState";
-import { hasText, sourceLabel, type TimelineRow } from "./timeline";
+import { hasText, type TimelineRow } from "./timeline";
 
 type Pointing = Doc<"chatAnnotations">["pointing"];
 
@@ -50,7 +53,7 @@ export function ChatRow({
         />
       );
     case "reply":
-      return <Reply row={row} palette={palette} />;
+      return <Reply row={row} eventId={eventId} palette={palette} />;
     case "system":
       return <SystemMessage row={row} eventId={eventId} palette={palette} />;
   }
@@ -205,9 +208,11 @@ function RunLine({
 
 function Reply({
   row,
+  eventId,
   palette,
 }: {
   row: Extract<TimelineRow, { kind: "reply" }>;
+  eventId: Id<"events">;
   palette: string[];
 }) {
   const { message, run } = row;
@@ -256,7 +261,14 @@ function Reply({
             />
           ) : null}
         </div>
-        {sources.length > 0 ? <Sources sources={sources} /> : null}
+        {sources.length > 0 ? (
+          <Citations
+            eventId={eventId}
+            messageId={message.id}
+            sources={sources}
+            ready={!streaming}
+          />
+        ) : null}
         {(notice && run) || (run && !streaming) ? (
           <div className="flex items-center gap-2 empty:hidden">
             {notice && run ? (
@@ -270,44 +282,15 @@ function Reply({
   );
 }
 
-type Source = { url: string; title: string | undefined };
-
-function sourcesOf(message: UIMessage): Source[] {
+function sourcesOf(message: UIMessage): CitationSource[] {
   const seen = new Set<string>();
-  const sources: Source[] = [];
+  const sources: CitationSource[] = [];
   for (const part of message.parts) {
     if (part.type !== "source-url" || seen.has(part.url)) continue;
     seen.add(part.url);
     sources.push({ url: part.url, title: part.title });
   }
   return sources;
-}
-
-function Sources({ sources }: { sources: Source[] }) {
-  return (
-    <div className="mt-1 flex flex-col gap-1 border-t border-rule pt-2">
-      <p className="text-caption font-semibold text-ink-2">Sources</p>
-      <ol className="flex flex-col gap-0.5">
-        {sources.map((source, index) => (
-          <li
-            key={source.url}
-            className="flex min-w-0 items-baseline gap-1.5 text-caption"
-          >
-            <span className="tabular-nums text-ink-3">{index + 1}.</span>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className="inline-flex min-w-0 items-center gap-1 text-action underline-offset-2 hover:underline"
-            >
-              <LinkIcon aria-hidden className="size-3 shrink-0" />
-              <span className="truncate">{sourceLabel(source)}</span>
-            </a>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
 }
 
 function SystemMessage({
