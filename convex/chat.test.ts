@@ -219,6 +219,22 @@ describe("chat.details", () => {
     ).toBeNull();
   });
 
+  it("marks a Member whose name looks like the Assistant's (L4)", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.rohan, {
+        displayName: "Utsavvy for Meera",
+      }),
+    );
+    await send(s.asRohan, s.eventId, "Plan the sangeet", { dontReply: true });
+    const details = await s.asAditi.query(api.chat.details, {
+      eventId: s.eventId,
+    });
+    expect(details?.annotations.at(-1)?.authorName).toBe(
+      "Utsavvy for Meera (a Member)",
+    );
+  });
+
   it("lets a Viewer read but not post", async () => {
     const s = await setUp();
     const details = await s.asPapa.query(api.chat.details, {
