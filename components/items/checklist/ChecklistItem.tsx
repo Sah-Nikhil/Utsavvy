@@ -245,7 +245,10 @@ function ChecklistRow({
             })
           )}
           {bookBy ? (
-            <span className="num">· book by {formatDay(bookBy)}</span>
+            <>
+              <span aria-hidden>·</span>
+              <span className="num">book by {formatDay(bookBy)}</span>
+            </>
           ) : null}
         </p>
       </div>

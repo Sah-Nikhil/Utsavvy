@@ -419,13 +419,32 @@ function BudgetRow({
             className="w-28"
           />
         ) : (
-          <EditableText
-            text={<Money amount={amount} />}
-            canEdit={canEdit}
-            onEdit={() => setEditing("amount")}
-            editLabel={`Change the amount for ${label}`}
-            className="text-label font-semibold text-ink"
-          />
+          <span className="grid shrink-0 justify-items-end">
+            {fields.estimate === null && fields.plannedAmount === null ? (
+              canEdit ? (
+                <EditableText
+                  text="Add amount"
+                  canEdit
+                  onEdit={() => setEditing("amount")}
+                  editLabel={`Add an amount for ${label}`}
+                  className="text-label font-medium text-action"
+                />
+              ) : null
+            ) : (
+              <EditableText
+                text={<Money amount={amount} />}
+                canEdit={canEdit}
+                onEdit={() => setEditing("amount")}
+                editLabel={`Change the amount for ${label}`}
+                className="text-label font-semibold text-ink"
+              />
+            )}
+            {fields.role === "line" &&
+            fields.plannedAmount !== null &&
+            fields.estimate !== null ? (
+              <span className="text-caption text-ink-3">Your amount</span>
+            ) : null}
+          </span>
         )}
         {canEdit ? (
           <TinyIconButton
