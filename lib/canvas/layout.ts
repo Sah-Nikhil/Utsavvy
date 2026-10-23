@@ -65,3 +65,54 @@ export function sectionUnder<S extends { box: Frame }>(
   }
   return found;
 }
+
+/** The least space between two drawn Sections. */
+export const SECTION_SPACING = 32;
+
+function crowds(a: Frame, b: Frame, gap: number): boolean {
+  return (
+    a.x < b.x + b.w + gap &&
+    b.x < a.x + a.w + gap &&
+    a.y < b.y + b.h + gap &&
+    b.y < a.y + a.h + gap
+  );
+}
+
+/**
+ * Where every Section is drawn, so no two Sections, and so no two Items in
+ * different Sections, ever overlap on screen. Each Section's box is its frame
+ * grown to hold its Items, with padding and the label row. In `order`, each
+ * box keeps its stored place unless it crowds a Section already placed; then
+ * it moves right or down, whichever is the shorter way out, until it is clear.
+ * The Canvas draws with it, and the server places new Sections with it, so
+ * everyone sees the same layout.
+ */
+export function layoutSections<
+  S extends { _id: string; frame: Frame; order: number },
+>(
+  sections: readonly S[],
+  itemsOf: (section: S) => readonly Placed[],
+): Map<string, Frame> {
+  const sorted = [...sections].sort(
+    (a, b) => a.order - b.order || (a._id < b._id ? -1 : a._id > b._id ? 1 : 0),
+  );
+  const placed: Frame[] = [];
+  const boxes = new Map<string, Frame>();
+  for (const section of sorted) {
+    const box = sectionBox(section.frame, itemsOf(section));
+    // Each move only goes right or down, so this ends; the cap is a safeguard.
+    for (let step = 0; step < 4 * sorted.length + 8; step++) {
+      const blocker = placed.find((other) =>
+        crowds(box, other, SECTION_SPACING),
+      );
+      if (!blocker) break;
+      const right = blocker.x + blocker.w + SECTION_SPACING - box.x;
+      const down = blocker.y + blocker.h + SECTION_SPACING - box.y;
+      if (right <= down) box.x += right;
+      else box.y += down;
+    }
+    placed.push(box);
+    boxes.set(section._id, box);
+  }
+  return boxes;
+}
