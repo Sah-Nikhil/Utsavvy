@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "../_generated/api";
+import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
   identityFor,
@@ -584,3 +584,26 @@ describe("#87 part 2", { timeout: 60_000 }, () => {
     expect(page[notice]!.order).toBe(request.order);
   });
 });
+
+describe(
+  "#87 part 2: what a reply saves and reads",
+  { timeout: 60_000 },
+  () => {
+    it("saves the model that answered on the reply message itself (L13)", async () => {
+      const s = await setUp(STUB_FALLBACK_MODEL);
+      const runId = await startRun(s, "Plan the sangeet");
+      await untilEnded(s, runId);
+      const threadId = (await messages(s)).details.threadId!;
+      const docs = await s.t.query(
+        components.agent.messages.listMessagesByThreadId,
+        {
+          threadId,
+          order: "asc",
+          paginationOpts: { numItems: 10, cursor: null },
+        },
+      );
+      const reply = docs.page.find((doc) => doc.message?.role === "assistant");
+      expect(reply?.model).toBe("stub-gemini");
+    });
+  },
+);
