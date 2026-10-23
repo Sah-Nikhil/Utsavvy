@@ -4,7 +4,7 @@ import type { UIMessage } from "@convex-dev/agent/react";
 import { api, internal } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
-import { setStubChunkDelayMs } from "../convex/assistant/agent";
+import { setStubChunkDelayMs } from "../convex/lib/models";
 import { ASSISTANT_TOOLS } from "../convex/assistant/tools";
 import { createStartingSections } from "../convex/canvas";
 import {

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { STUB_REPLY } from "../convex/assistant/agent";
+import { STUB_REPLY } from "../convex/lib/models";
 import {
   amountOf,
   hasDevanagari,

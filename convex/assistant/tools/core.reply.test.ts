@@ -10,34 +10,72 @@ import {
   newTest,
   seedMembership,
 } from "../../lib/test.helpers";
-import { setStubChunkDelayMs } from "../agent";
 
 // S7 (issue #40): the tools inside a real reply. The stub model is scripted
 // to call addEntry and then answer, so the whole path runs: the Agent injects
 // the run's context into the tool, the tool writes as "Utsavvy for Meera",
 // and the write lands in that reply's history group.
 
-const script = vi.hoisted(() => ({ steps: null as unknown[][] | null }));
+const script = vi.hoisted(() => ({
+  steps: null as unknown[][] | null,
+  call: 0,
+}));
 
-vi.mock("@convex-dev/agent", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@convex-dev/agent")>();
+// The stub model from `convex/lib/models.ts`, scripted: each call streams the
+// next step's parts (a tool call, then the answer).
+vi.mock("../../lib/models", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../lib/models")>();
+  const usage = {
+    inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 0, text: 0, reasoning: 0 },
+  };
   return {
     ...original,
-    mockModel: (args: Parameters<typeof original.mockModel>[0]) => {
-      if (script.steps === null) return original.mockModel(args);
-      const { content: _content, ...rest } = args ?? {};
-      return original.mockModel({
-        ...rest,
-        contentSteps: script.steps as never,
-      });
+    languageModel: (...args: Parameters<typeof original.languageModel>) => {
+      const [id] = args;
+      if (script.steps === null || id !== original.STUB_MODEL)
+        return original.languageModel(...args);
+      const steps = script.steps;
+      const model: ReturnType<typeof original.languageModel> = {
+        specificationVersion: "v4",
+        provider: "stub",
+        modelId: id,
+        supportedUrls: {},
+        doGenerate: () => {
+          throw new Error("The scripted stub only streams");
+        },
+        doStream: async () => {
+          const step = steps[Math.min(script.call++, steps.length - 1)]!;
+          const toolCalls = step.some(
+            (part) => (part as { type: string }).type === "tool-call",
+          );
+          return {
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "stream-start", warnings: [] });
+                for (const part of step) controller.enqueue(part);
+                controller.enqueue({
+                  type: "finish",
+                  usage,
+                  finishReason: toolCalls
+                    ? { unified: "tool-calls", raw: "tool_use" }
+                    : { unified: "stop", raw: "stop" },
+                });
+                controller.close();
+              },
+            }),
+          } as never;
+        },
+      };
+      return model;
     },
   };
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  setStubChunkDelayMs(undefined);
   script.steps = null;
+  script.call = 0;
 });
 
 const ENDED = ["done", "failed", "stopped", "cancelled"];
@@ -45,7 +83,6 @@ const ENDED = ["done", "failed", "stopped", "cancelled"];
 describe("a reply that calls a tool", { timeout: 30_000 }, () => {
   it("adds the Member's ₹15,000 line as Utsavvy for Meera, in the reply's history group", async () => {
     vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
-    setStubChunkDelayMs(1);
     script.steps = [
       [
         {
@@ -60,7 +97,15 @@ describe("a reply that calls a tool", { timeout: 30_000 }, () => {
           }),
         },
       ],
-      [{ type: "text", text: "Added the mehendi artist at ₹15,000." }],
+      [
+        { type: "text-start", id: "t" },
+        {
+          type: "text-delta",
+          id: "t",
+          delta: "Added the mehendi artist at ₹15,000.",
+        },
+        { type: "text-end", id: "t" },
+      ],
     ];
 
     const t = newTest();
