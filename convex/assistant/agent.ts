@@ -80,13 +80,20 @@ function recordStubCall(options: CallOptions) {
 }
 
 /**
- * The stub's pace: 250 ms a word unless `STUB_CHUNK_DELAY_MS` says otherwise,
- * about 8 seconds for the whole reply, so a browser test can reload mid-reply
- * or press Stop. Unit tests set it short.
+ * The stub's pace: 250 ms a word, about 8 seconds for the whole reply, so a
+ * browser test can reload mid-reply or press Stop. Unit tests make it short
+ * with {@link setStubChunkDelayMs}.
  */
+const STUB_CHUNK_DELAY_MS = 250;
+let stubChunkDelay = STUB_CHUNK_DELAY_MS;
+
+/** For tests: the stub's delay between words; `undefined` restores 250 ms. */
+export function setStubChunkDelayMs(ms: number | undefined): void {
+  stubChunkDelay = ms ?? STUB_CHUNK_DELAY_MS;
+}
+
 function stubChunkDelayMs(): number {
-  const configured = Number(process.env.STUB_CHUNK_DELAY_MS);
-  return Number.isFinite(configured) && configured >= 0 ? configured : 250;
+  return stubChunkDelay;
 }
 
 function stubModel(modelId: ModelId): ModelV4 {
