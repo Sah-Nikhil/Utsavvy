@@ -53,6 +53,11 @@ function chat(page: Page) {
 }
 
 test.describe("chat", () => {
+  test.skip(
+    process.env.E2E_TARGET === "production",
+    "Production never runs the stub model, so its canned replies can't be checked there; PR previews run this test.",
+  );
+
   test("a Member's message gets a streamed reply that a second Member sees too", async ({
     page,
     browser,
