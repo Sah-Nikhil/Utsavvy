@@ -222,4 +222,42 @@ test.describe("comments", () => {
       "Comment",
     );
   });
+  test("a Comment on an Entry shows its count on that row, for everyone", async () => {
+    const checklist = (page: Page) =>
+      page.locator('[data-canvas-item="checklist"]');
+    await checklist(meera.page)
+      .getByRole("textbox", { name: "New Vendor to find" })
+      .fill("Caterer for the sangeet");
+    await checklist(meera.page)
+      .getByRole("button", { name: "Add", exact: true })
+      .click();
+    const row = (page: Page) =>
+      checklist(page)
+        .locator("[data-entry-id]")
+        .filter({ hasText: "Caterer for the sangeet" });
+    await expect(row(papa.page)).toBeVisible({ timeout: 5_000 });
+
+    await row(papa.page)
+      .getByRole("button", { name: "Comment on this Entry" })
+      .click();
+    const papaSheet = sheet(papa.page);
+    await expect(
+      papaSheet.getByText("On an Entry in the Vendor checklist"),
+    ).toBeVisible();
+    await papaSheet
+      .getByRole("textbox", { name: "Comment on this Entry" })
+      .fill("Do they do Rajasthani thali?");
+    await papaSheet
+      .getByRole("button", { name: "Comment", exact: true })
+      .click();
+    await expect(
+      papaSheet.getByText("Do they do Rajasthani thali?"),
+    ).toBeVisible();
+
+    await expect(
+      row(meera.page).locator('[data-entry-comments="1"]'),
+    ).toHaveAttribute("aria-label", "1 Comment on this Entry", {
+      timeout: 5_000,
+    });
+  });
 });
