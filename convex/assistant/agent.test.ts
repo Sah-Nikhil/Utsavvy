@@ -13,11 +13,10 @@ import {
   assistantChain,
   chainedModel,
   chatPrompt,
-  STUB_FALLBACK_MODEL,
-  STUB_MODEL,
   webSearchBudget,
   type ChainLink,
 } from "./agent";
+import { STUB_FALLBACK_MODEL, STUB_MODEL } from "../lib/models";
 
 // The automatic fallback for a streamed reply (ADR 0003, section 4.5 "Model
 // failure"): a model that fails before its first token hands the reply to the

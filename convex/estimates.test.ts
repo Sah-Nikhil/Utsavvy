@@ -454,6 +454,34 @@ describe("liveEstimateDeps: research only when Claude is reachable", () => {
   });
 });
 
+describe("on the stub model, no Estimate call reaches a real model (L8)", () => {
+  it("keeps research off even with an Anthropic key", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    expect(liveEstimateDeps().claudeReachable()).toBe(false);
+  });
+
+  it("answers the Assistant's own estimate from the stub, with no network", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "test-google");
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.reject(new Error("a real model was called")),
+    );
+    const output = await liveKnowledge(
+      {
+        eventType: "wedding",
+        city: "Jaipur",
+        lines: [{ key: 0, label: "tent house", unit: "per_function" }],
+      },
+      { fetch },
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(output?.model).toBe("stub-utsavvy");
+    expect(output?.results).toEqual([]);
+  });
+});
+
 describe("no silent failure (M1)", () => {
   it("reports and logs an API error with its status, and prices the line from the table", async () => {
     const { ctx, eventId } = await setup();
