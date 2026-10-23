@@ -68,7 +68,11 @@ function roundingStep(unit: string, quantity: number): number {
  * A line's amount at a unit price: per-plate prices round to ₹10 and the line
  * stays as price × plates; every other line rounds to the nearest ₹1,000.
  */
-function amountAt(unit: string, unitPrice: number, quantity: number): number {
+export function amountAt(
+  unit: string,
+  unitPrice: number,
+  quantity: number,
+): number {
   if (unit === "per_plate") return roundTo(unitPrice, 10) * quantity;
   return roundTo(unitPrice * quantity, 1000);
 }
@@ -79,7 +83,7 @@ function amountAt(unit: string, unitPrice: number, quantity: number): number {
  * exact product such as 1.25 × ₹1,000 from flooring a whole step on float
  * error.
  */
-function amountAtMost(
+export function amountAtMost(
   unit: string,
   unitPrice: number,
   quantity: number,
