@@ -35,7 +35,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-type T = ReturnType<typeof newTest>;
 
 /** A Jaipur wedding planned by Meera and Aditi, viewed by Papa, with a ₹12L Budget. */
 async function seedWedding(ctx: MutationCtx) {
@@ -351,11 +350,18 @@ describe("addEntry with an estimate source", () => {
       }).success,
     ).toBe(false);
     expect(
+      schema.safeParse({ ...line, amountSource: { memberStated: 15_000 } })
+        .success,
+    ).toBe(true);
+    expect(
       schema.safeParse({
         ...line,
-        amountSource: { memberStated: 15_000, estimate: undefined },
+        amountSource: {
+          memberStated: 15_000,
+          estimate: line.amountSource.estimate,
+        },
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -540,12 +546,10 @@ describe("the asker is removed mid-reply", () => {
       });
     });
     expect(owner).toBeTruthy();
-    await s.t
-      .withIdentity(identityFor("Nani"))
-      .mutation(api.people.remove, {
-        eventId: s.eventId,
-        membershipId: s.meera,
-      });
+    await s.t.withIdentity(identityFor("Nani")).mutation(api.people.remove, {
+      eventId: s.eventId,
+      membershipId: s.meera,
+    });
 
     const before = await changeCount(s);
     const tries: [keyof Tools, unknown][] = [
@@ -577,9 +581,7 @@ describe("the asker is removed mid-reply", () => {
       ctx.db.query("highlights").collect(),
     );
     expect(highlights).toHaveLength(0);
-    const queuedRun = await s.t.run((ctx) =>
-      ctx.db.get("runs", queued.runId!),
-    );
+    const queuedRun = await s.t.run((ctx) => ctx.db.get("runs", queued.runId!));
     expect(queuedRun!.status).toBe("cancelled");
   });
 
@@ -602,7 +604,11 @@ describe("reading", () => {
     const result = await call(s, runId, "readCanvas", {});
     expect(result).toMatchObject({
       ok: true,
-      event: { name: "Meera weds Rohan", city: "Jaipur", budgetTotal: 1_200_000 },
+      event: {
+        name: "Meera weds Rohan",
+        city: "Jaipur",
+        budgetTotal: 1_200_000,
+      },
       functions: [
         { key: "mehendi", name: "Mehendi" },
         { key: "sangeet", name: "Sangeet" },
@@ -661,12 +667,15 @@ describe("Notes, Suggestions, Sections and moves", () => {
       text: "Nani needs a wheelchair ramp at the venue.",
     });
     expect(result).toMatchObject({ ok: true });
-    const itemId = (result as { itemId: Id<"items"> }).itemId;
+    const itemId = (result as unknown as { itemId: Id<"items"> }).itemId;
     const item = await s.t.run((ctx) => ctx.db.get("items", itemId));
     expect(item).toMatchObject({
       kind: "note",
       sectionId: s.sections.notes,
-      data: { text: "Nani needs a wheelchair ramp at the venue.", citations: [] },
+      data: {
+        text: "Nani needs a wheelchair ramp at the venue.",
+        citations: [],
+      },
     });
   });
 
@@ -681,12 +690,16 @@ describe("Notes, Suggestions, Sections and moves", () => {
       cost: { category: "mehendi_artists", quantity: 1, unit: "per_function" },
     });
     expect(result).toMatchObject({ ok: true });
-    const itemId = (result as { itemId: Id<"items"> }).itemId;
+    const itemId = (result as unknown as { itemId: Id<"items"> }).itemId;
     const item = (await s.t.run((ctx) => ctx.db.get("items", itemId)))!;
     expect(item.kind).toBe("suggestion");
     expect(item.data).toMatchObject({
       status: "open",
-      estimate: { low: 10_000, high: 30_000, basis: { kind: "referenceTable" } },
+      estimate: {
+        low: 10_000,
+        high: 30_000,
+        basis: { kind: "referenceTable" },
+      },
     });
   });
 
@@ -708,11 +721,16 @@ describe("Notes, Suggestions, Sections and moves", () => {
 
   it("moves an Item into another Section", async () => {
     const s = await setUp();
-    const add = await call(s, await ask(s, "Note: call the decorator"), "addItem", {
-      kind: "note",
-      text: "Call the decorator",
-    });
-    const itemId = (add as { itemId: Id<"items"> }).itemId;
+    const add = await call(
+      s,
+      await ask(s, "Note: call the decorator"),
+      "addItem",
+      {
+        kind: "note",
+        text: "Call the decorator",
+      },
+    );
+    const itemId = (add as unknown as { itemId: Id<"items"> }).itemId;
     const runId = await ask(s, "Move that note into Vendors");
     const result = await call(s, runId, "moveItem", {
       itemId,
@@ -741,9 +759,11 @@ describe("pointAt", () => {
       eventId: s.eventId,
       runId,
       forMembershipId: s.meera,
-      expiresAt: T0 + 30_000,
       targets: [{ kind: "entry", itemId: s.items.budget, entryId: caterer }],
     });
+    // convex-test's clock can tick a millisecond past the frozen time.
+    expect(highlight!.expiresAt - T0).toBeGreaterThanOrEqual(30_000);
+    expect(highlight!.expiresAt - T0).toBeLessThan(31_000);
   });
 
   it("refuses to point at another Event's Item", async () => {
@@ -911,4 +931,3 @@ describe("saveAnswerAsNote", () => {
     expect(notes).toHaveLength(0);
   });
 });
-

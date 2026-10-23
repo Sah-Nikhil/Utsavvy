@@ -40,7 +40,6 @@ export function wrapOutside(
   content: string,
   { source, addedBy }: { source: string; addedBy: string | null },
 ): string {
-  const by =
-    addedBy === null ? "" : ` added_by="${escapeAttribute(addedBy)}"`;
+  const by = addedBy === null ? "" : ` added_by="${escapeAttribute(addedBy)}"`;
   return `<${OUTSIDE_TAG} source="${escapeAttribute(source)}"${by}>\n${escapeText(content)}\n</${OUTSIDE_TAG}>`;
 }

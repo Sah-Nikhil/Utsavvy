@@ -20,12 +20,10 @@ describe("checkMemberStatedAmount", () => {
   });
 
   it("reads lakh, Rs and Devanagari forms", () => {
-    expect(
-      checkMemberStatedAmount(240_000, "Caterer ko 2,40,000 kar do"),
-    ).toBe(true);
-    expect(checkMemberStatedAmount(150_000, "decor 1.5 lakh rakho")).toBe(
+    expect(checkMemberStatedAmount(240_000, "Caterer ko 2,40,000 kar do")).toBe(
       true,
     );
+    expect(checkMemberStatedAmount(150_000, "decor 1.5 lakh rakho")).toBe(true);
     expect(checkMemberStatedAmount(200_000, "keep it at 2L")).toBe(true);
     expect(checkMemberStatedAmount(15_000, "Rs. 15000 for the DJ")).toBe(true);
     expect(checkMemberStatedAmount(15_000, "मेहंदी के लिए ₹१५,००० रखो")).toBe(
