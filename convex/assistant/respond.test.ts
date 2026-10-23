@@ -397,6 +397,18 @@ describe("review of #94", { timeout: 120_000 }, () => {
     );
   });
 
+  it("still shows the model's own earlier reply as role=assistant", async () => {
+    const s = await setUp(STUB_MODEL);
+    const first = await startRun(s, "Plan the sangeet");
+    await untilEnded(s, first);
+    const { runId } = await say(s.asAditi, s.eventId, "And the haldi?", false);
+    await untilEnded(s, runId!);
+
+    const { text } = lastPromptTurn();
+    expect(text).toContain(`<message role="assistant">${STUB_REPLY}</message>`);
+    expect(text).not.toContain("<notice>");
+  });
+
   it("shows an old notice as a notice even when its annotation is past the newest 300 (M1, fail closed)", async () => {
     const s = await setUp(STUB_MODEL);
     await s.t.mutation(internal.chat.postSystem, {

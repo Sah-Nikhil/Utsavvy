@@ -679,6 +679,12 @@ export type ChatPromptMessage = {
   messageId: string;
   role: "user" | "assistant";
   text: string;
+  /**
+   * Proof that the model generated this message: the Agent sets
+   * `finishReason` only on a step it generated, never on a message saved
+   * with `saveMessage` (as `postSystem` does). Missing means "not proven".
+   */
+  generated?: boolean;
 };
 
 /**
@@ -703,14 +709,15 @@ export function chatPrompt(
       const text = escapeChat(message.text);
       const label = labels.get(message.messageId);
       if (message.role === "assistant") {
-        // A line posted by `postSystem` (it has an annotation with no author)
-        // is a notice: it can quote Member-written text, so it is never shown
-        // as the Assistant's own words. Only the model's own replies, which
-        // have no annotation, are role="assistant".
+        // Fail closed: only a message the model provably generated is shown
+        // as the Assistant's own words. Anything else with the assistant role,
+        // such as a `postSystem` line (Nudges, Proposal lines and notices that
+        // can quote Member-written text), is a notice, whether or not its
+        // annotation is among the labels this run loaded.
         lines.push(
-          label?.notice
-            ? `<notice>${text}</notice>`
-            : `<message role="assistant">${text}</message>`,
+          message.generated === true && !label?.notice
+            ? `<message role="assistant">${text}</message>`
+            : `<notice>${text}</notice>`,
         );
         continue;
       }
@@ -745,7 +752,12 @@ export function chatPrompt(
 function promptMessage(doc: MessageDoc): ChatPromptMessage | null {
   const role = doc.message?.role;
   if (role !== "user" && role !== "assistant") return null;
-  return { messageId: doc._id, role, text: doc.text ?? "" };
+  return {
+    messageId: doc._id,
+    role,
+    text: doc.text ?? "",
+    generated: role === "assistant" && doc.finishReason !== undefined,
+  };
 }
 
 /**
