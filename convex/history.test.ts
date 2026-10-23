@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -763,5 +763,52 @@ describe("review fixes (PR #90)", () => {
       .withIdentity(identityFor("meera"))
       .query(api.history.list, { eventId, paginationOpts: firstPage });
     expect(page[0]!.summary).toBe(`Renamed the Section "${"कि".repeat(39)}…"`);
+  });
+
+  describe("where the runtime has no Intl.Segmenter", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("still shortens long names, by code point, never splitting an emoji", async () => {
+      // Intl as it is, minus Segmenter.
+      const { Segmenter: _segmenter, ...rest } =
+        Object.getOwnPropertyDescriptors(Intl);
+      vi.stubGlobal("Intl", Object.create(Object.getPrototypeOf(Intl), rest));
+      expect("Segmenter" in Intl).toBe(false);
+
+      const t = newTest();
+      const { eventId } = await t.run(async (ctx) => {
+        const s = await setUp(ctx);
+        const actor = { kind: "member" as const, membershipId: s.rohan };
+        await memberWrite(ctx, {
+          table: "sections",
+          id: s.sections.money,
+          patch: { name: "कि".repeat(45) },
+          actor,
+        });
+        await memberWrite(ctx, {
+          table: "sections",
+          id: s.sections.notes,
+          patch: { name: `a${"🎉".repeat(45)}` },
+          actor,
+        });
+        return s;
+      });
+      const { page } = await t
+        .withIdentity(identityFor("meera"))
+        .query(api.history.list, { eventId, paginationOpts: firstPage });
+
+      // 39 code points: a Hindi cluster may lose its matra, an emoji is never halved.
+      expect(page[0]!.summary).toBe(
+        `Renamed the Section "a${"🎉".repeat(38)}…"`,
+      );
+      expect(page[1]!.summary).toBe(
+        `Renamed the Section "${"कि".repeat(19)}क…"`,
+      );
+      const loneSurrogate =
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+      expect(page[0]!.summary).not.toMatch(loneSurrogate);
+    });
   });
 });
