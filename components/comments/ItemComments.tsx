@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQueries } from "convex/react";
 import { MessageSquare } from "lucide-react";
 import {
   createContext,
@@ -23,7 +23,13 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { CommentComposer } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
-import { isOn, openCount, threadsOf, type CommentViewTarget } from "./threads";
+import {
+  isOn,
+  openCount,
+  threadsOf,
+  type CommentView,
+  type CommentViewTarget,
+} from "./threads";
 
 /*
  * Comments on one Item and its Entries (S8). `<ItemComments>` wraps an Item
@@ -44,6 +50,31 @@ export type ItemCommentsState = {
   /** Opens the thread sheet on the Item, or on one of its Entries. */
   open: (target?: CommentViewTarget) => void;
 };
+
+/** An Item's Comments: undefined while loading; `failed` when the query threw. */
+export type CommentList = {
+  comments: CommentView[] | undefined;
+  failed: boolean;
+};
+
+/** Reads a `useQueries` result, where a failed query is an `Error`, not a throw. */
+export function readCommentList(result: unknown): CommentList {
+  if (result instanceof Error) return { comments: undefined, failed: true };
+  return { comments: result as CommentView[] | undefined, failed: false };
+}
+
+/**
+ * `api.comments.listForItem` without throwing: a Comments failure hides the
+ * counts and shows a notice in the sheet, but never takes the Item down with
+ * it (the Item node's error boundary would otherwise blank the whole Item).
+ * Every caller on one Item shares one subscription.
+ */
+export function useCommentList(itemId: Id<"items">): CommentList {
+  const results = useQueries({
+    list: { query: api.comments.listForItem, args: { itemId } },
+  });
+  return readCommentList(results.list);
+}
 
 const ItemCommentsContext = createContext<ItemCommentsState | null>(null);
 
@@ -69,7 +100,7 @@ export function ItemComments({
   itemLabel: string;
   children: ReactNode;
 }) {
-  const comments = useQuery(api.comments.listForItem, { itemId });
+  const { comments } = useCommentList(itemId);
   const [openOn, setOpenOn] = useState<CommentViewTarget | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -130,7 +161,7 @@ function CommentsSheetBody({
   itemId: Id<"items">;
   on: CommentViewTarget;
 }) {
-  const comments = useQuery(api.comments.listForItem, { itemId });
+  const { comments, failed } = useCommentList(itemId);
   const add = useMutation(api.comments.add);
 
   // Opened on an Entry: that Entry's threads. On the Item: every thread on
@@ -156,7 +187,11 @@ function CommentsSheetBody({
         className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
         data-comments-list=""
       >
-        {threads === undefined ? (
+        {failed ? (
+          <p role="alert" className="text-label text-warn">
+            Comments couldn&apos;t load. Close this and try again in a moment.
+          </p>
+        ) : threads === undefined ? (
           <p className="text-label text-ink-3" aria-live="polite">
             Loading Comments…
           </p>

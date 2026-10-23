@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { countCharacters } from "@/lib/types/canvas";
 import { cn } from "@/lib/utils";
 
-/** The longest Comment; `COMMENT_MAX` in convex/comments.ts. */
-export const COMMENT_MAX = 2000;
+import { COMMENT_MAX, MAX_COMMENTS_PER_ITEM, isBlankComment } from "./text";
+
+export { COMMENT_MAX };
 /** The counter shows once this few characters are left. */
 const COUNTER_FROM = 200;
 
@@ -18,7 +19,7 @@ const PROBLEMS: Record<string, string> = {
   badReply: "That thread can't take replies. Start a new Comment instead.",
   notYours: "Only the person who wrote a Comment can change it.",
   notFound: "That Comment is gone.",
-  tooMany: "This Item has too many Comments. Resolve or tidy some first.",
+  tooMany: `This Item has reached its limit of ${MAX_COMMENTS_PER_ITEM} Comments.`,
   passage: "Comments on a highlighted passage aren't here yet.",
 };
 
@@ -68,7 +69,7 @@ export function CommentComposer({
 
   const length = countCharacters(body.trim());
   const left = COMMENT_MAX - length;
-  const empty = body.trim() === "";
+  const empty = isBlankComment(body);
   const over = left < 0;
 
   async function send(event?: FormEvent) {

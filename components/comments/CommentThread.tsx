@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { CircleCheck, CornerDownRight, Pencil, RotateCcw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { scriptClass } from "@/lib/script";
 import { cn } from "@/lib/utils";
 import { CommentComposer, commentErrorText } from "./CommentComposer";
+import { useCommentList } from "./ItemComments";
 import { threadsOf, type CommentView } from "./threads";
 
 /*
@@ -49,7 +50,7 @@ export function CommentThread({
   /** What the thread is on, when the list mixes targets: "On this Item", "On an Entry". */
   label?: ReactNode;
 }) {
-  const comments = useQuery(api.comments.listForItem, { itemId });
+  const { comments } = useCommentList(itemId);
   const add = useMutation(api.comments.add);
   const resolve = useMutation(api.comments.resolve);
   const [replying, setReplying] = useState(false);

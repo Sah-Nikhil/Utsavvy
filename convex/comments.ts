@@ -1,4 +1,9 @@
 import { ConvexError, v } from "convex/values";
+import {
+  COMMENT_MAX,
+  MAX_COMMENTS_PER_ITEM,
+  isBlankComment,
+} from "../components/comments/text";
 import { countCharacters, commentTargetValidator } from "../lib/types/canvas";
 import type { WriteEvent } from "../lib/types/history";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -22,10 +27,7 @@ import { requireAccess } from "./lib/access";
 
 type Ctx = QueryCtx | MutationCtx;
 
-/** The longest Comment, in characters as a person sees them (`countCharacters`). */
-export const COMMENT_MAX = 2000;
-/** The most Comments one Item (with its Entries) holds, so its list stays bounded. */
-export const MAX_COMMENTS_PER_ITEM = 500;
+export { COMMENT_MAX, MAX_COMMENTS_PER_ITEM };
 
 /** Why a Comment was refused, for the UI to word. */
 export type CommentProblem =
@@ -43,10 +45,10 @@ function refuse(problem: CommentProblem): never {
   throw new ConvexError({ kind: "CommentRefused", problem });
 }
 
-/** The trimmed body, or a refusal when it is empty or too long. */
+/** The trimmed body, or a refusal when it is blank (`isBlankComment`) or too long. */
 function checkedBody(body: string): string {
+  if (isBlankComment(body)) refuse("empty");
   const trimmed = body.trim();
-  if (trimmed === "") refuse("empty");
   if (countCharacters(trimmed) > COMMENT_MAX) refuse("tooLong");
   return trimmed;
 }
@@ -227,7 +229,8 @@ const commentViewValidator = v.object({
 
 /**
  * Every Comment on an Item and its Entries, oldest first. Passage Comments
- * (X10) are left out until their UI exists. A deleted Item lists nothing.
+ * (X10) are left out until their UI exists. A deleted Item lists nothing,
+ * and Comments on a deleted Entry are hidden until it is restored.
  */
 export const listForItem = query({
   args: { itemId: v.id("items") },
@@ -269,10 +272,25 @@ export const listForItem = query({
       return found;
     }
 
+    // A Comment on a deleted Entry is hidden, not deleted: restoring the
+    // Entry brings it back. Each Entry is read once.
+    const liveEntries = new Map<Id<"entries">, boolean>();
+    async function entryIsLive(entryId: Id<"entries">) {
+      const known = liveEntries.get(entryId);
+      if (known !== undefined) return known;
+      const entry = await ctx.db.get("entries", entryId);
+      const live =
+        entry !== null && entry.deletedAt === null && entry.itemId === itemId;
+      liveEntries.set(entryId, live);
+      return live;
+    }
+
     const views = [];
     for (const comment of comments) {
       const { target } = comment;
       if (target.kind === "passage") continue;
+      if (target.kind === "entry" && !(await entryIsLive(target.entryId)))
+        continue;
       const byAssistant = comment.author.kind === "assistant";
       const author =
         comment.author.kind === "member"
