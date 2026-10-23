@@ -37,7 +37,7 @@ Every item here is built in v1. Slice ids refer to [docs/plans/build-slices.md](
 | S4 | Work with the Budget, Timeline (including run sheets) and Vendor checklist Items and their Entries, Notes and Suggestions ("Add to plan", "Not for us"). | L |
 | S5 | Chat with the Assistant: streamed replies every Member sees, the run queue, Stop, and the per-message "Don't reply" toggle. | L |
 | S6 | See the edit history grouped per Assistant reply and Restore any earlier value. (Undo all moved to SHOULD, X11.) | S |
-| S7 | Ask the Assistant to change the Canvas: version-checked, idempotent tools, pointing back, Chat web search on Claude, outside content handled as data, replies in the asker's language. | L |
+| S7 | Ask the Assistant to change the Canvas: version-checked, idempotent tools, pointing back, the citations card and "Save as Note" for Chat web search (the search itself is S5's since 2026-10-23), outside content handled as data, replies in the asker's language. | L |
 | S8 | Comment on Items and Entries, with threads and resolve. (Comments on highlighted passages moved to SHOULD, X10.) | S |
 | S9 | See the seeded Jaipur Vendors as cards, shortlist them onto the Canvas, link them to checklist Entries with statuses. | M |
 | S10 | Accept or reject Proposals: out of date, 24-hour expiry, replace, all or nothing. | M |
@@ -64,7 +64,7 @@ Sah-Nikhil chose to fold four small extras into the MUST slices they belong to:
 
 - Nudges, in S17.
 - The WhatsApp Quote paste, in S12.
-- Chat web search, in S7.
+- Chat web search, in S5 (moved from S7 on 2026-10-23); its citations card and "Save as Note" in S7.
 - @Utsavvy in Comments, in S17.
 
 ### 1.3 Stretch: later stage and SHOULD, in build order
@@ -380,7 +380,7 @@ Final names. Every write tool takes `expectedVersion` for anything it changes, g
 | `createSection` | `name` | Only when a Member asked | S7 |
 | `addComment` | target, body | Direct when asked, or replying to @Utsavvy in a Comment | S7 (S17 for Comment threads) |
 | `pointAt` | Items, Entries, passages | Highlight; the asker's view pans | S7 |
-| `webSearch` | (provider tool) | Read: cited answer in the Chat; Claude only, at most 3 per reply | S7 |
+| `webSearch` | (provider tool) | Read: cited answer in the Chat; Claude only, at most 3 per reply | S5 |
 | `propose` | `summary`, changes (any write above, plus `deleteEntry`, `deleteItem`, `setBudgetTotal`, `addQuote`, `updateTheme`, `changeEssential`) | Proposal card | S10 |
 | `findVendors` | category, `functionKey`, `minCapacity`, `maxPrice` (per its unit) | Read: shared Vendors in the Event's city, shown as Vendor cards in the reply | S9 |
 | `shortlistVendor` | `vendorId`, `checklistEntryId` | Direct when asked | S9 |
