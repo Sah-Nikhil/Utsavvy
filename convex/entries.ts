@@ -6,12 +6,19 @@ import {
   type VendorLinkStatus,
 } from "../components/items/checklist/status";
 import { can } from "../lib/access/permissions";
-import { lineRange } from "../lib/pricing";
+import {
+  lineRange,
+  referenceTableBasis,
+  researchedBasis,
+  tableRange,
+} from "../lib/pricing";
 import type { MemberActor } from "../lib/types/actors";
 import type { EntryFields, EntryKind } from "../lib/types/canvas";
 import type { PricedEstimate } from "../lib/types/estimates";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  env,
+  internalMutation,
   mutation,
   query,
   type MutationCtx,
@@ -197,10 +204,31 @@ async function checklistStatuses(
   return statuses;
 }
 
+/** Each checklist Entry's book-by day, from the Timeline deadline it points at. */
+async function bookByDates(
+  ctx: Ctx,
+  entries: readonly Doc<"entries">[],
+): Promise<Record<string, string>> {
+  const dates: Record<string, string> = {};
+  for (const entry of entries) {
+    if (entry.kind !== "checklist" || entry.fields.bookByEntryId === null)
+      continue;
+    const deadline = await ctx.db.get("entries", entry.fields.bookByEntryId);
+    if (
+      deadline?.kind === "timeline" &&
+      deadline.deletedAt === null &&
+      deadline.fields.date !== null
+    )
+      dates[entry._id] = deadline.fields.date;
+  }
+  return dates;
+}
+
 /**
  * Everything one Budget, Timeline or Vendor checklist Item shows: its live
  * Entries in order, the Event's Functions, the Event's Budget facts, each
- * checklist Entry's status (to find, shortlisted, booked) and whether this
+ * checklist Entry's status (to find, shortlisted, booked) and book-by day,
+ * and whether this
  * person may edit.
  */
 export const forItem = query({
@@ -248,6 +276,7 @@ export const forItem = query({
         item.kind === "checklist"
           ? await checklistStatuses(ctx, item.eventId, entries)
           : {},
+      bookBy: item.kind === "checklist" ? await bookByDates(ctx, entries) : {},
       canEdit: can(membership.role, "canvas.edit"),
     };
   },
@@ -567,6 +596,269 @@ export const confirmAssumption = mutation({
       patch: { assumed: entry.assumed.filter((name) => name !== field) },
       actor,
     });
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Local browser checks only
+
+function refuseOutsideLocal() {
+  const url = env.CONVEX_CLOUD_URL ?? "";
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    throw new Error("Only for a local Convex deployment");
+  }
+}
+
+/** A table-priced Estimate at fraction 0.2 of its range, as the first plan would price it. */
+function seedEstimate(
+  category: string,
+  unit: string,
+  quantity: number,
+): PricedEstimate | null {
+  const range = tableRange(category, unit, "Y");
+  if (range === null) return null;
+  const { low, high } = lineRange(range, quantity);
+  const unitPrice = range.unitLow + 0.2 * (range.unitHigh - range.unitLow);
+  const amount =
+    unit === "per_plate"
+      ? Math.round(unitPrice / 10) * 10 * quantity
+      : Math.round((unitPrice * quantity) / 1000) * 1000;
+  return {
+    low,
+    high,
+    amount,
+    label: "Estimate",
+    basis: referenceTableBasis({ unit, ...range, tier: "Y" }),
+  };
+}
+
+/**
+ * Fills an Event made by `canvas:seedLocalCheck` with a small Jaipur plan:
+ * budget lines with Estimates (one quantity assumed, one line with no
+ * Estimate), a Contingency, a late deadline with its note, two run sheets with
+ * assumed times, checklist Entries and a costed Suggestion. For the browser
+ * checks in e2e/plan-items.spec.ts. Refuses on anything but a local deployment.
+ */
+export const seedPlanForLocalCheck = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.null(),
+  handler: async (ctx, { eventId }) => {
+    refuseOutsideLocal();
+    const owner = (
+      await ctx.db
+        .query("memberships")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .take(50)
+    ).find((m) => m.role === "owner");
+    if (!owner) throw new Error("That Event has no Owner");
+    const createdBy = { kind: "member" as const, membershipId: owner._id };
+    const budget = await planItemOf(ctx, eventId, "budget");
+    const timeline = await planItemOf(ctx, eventId, "timeline");
+    const checklist = await planItemOf(ctx, eventId, "checklist");
+    if (!budget || !timeline || !checklist)
+      throw new Error("Seed the Event with canvas:seedLocalCheck first");
+
+    await ctx.db.patch("events", eventId, {
+      eventType: "wedding",
+      budgetTotal: 1_200_000,
+      budgetCheck: {
+        band: "tight",
+        minimum: 1_050_000,
+        typical: 1_550_000,
+        high: 2_050_000,
+        contingency: 100_000,
+        unallocated: 0,
+        perHousehold: null,
+      },
+    });
+    await ctx.db.patch("items", budget._id, {
+      data: {
+        note: "₹12L is below the typical ₹15.5L for this plan, so Estimates sit near the low end.",
+      },
+    });
+
+    let order = 0;
+    const line = async (
+      functionKey: string | null,
+      label: string,
+      category: string | null,
+      quantity: number,
+      unit: string,
+      extra: Partial<EntryFields<"budget">> = {},
+      assumed: string[] = [],
+    ) =>
+      await ctx.db.insert("entries", {
+        eventId,
+        itemId: budget._id,
+        kind: "budget",
+        order: order++,
+        functionKey,
+        assumed,
+        createdBy,
+        version: 1,
+        deletedAt: null,
+        fields: {
+          label,
+          category,
+          quantity,
+          unit,
+          estimate: category ? seedEstimate(category, unit, quantity) : null,
+          plannedAmount: null,
+          role: "line",
+          belowUsualRange: false,
+          editedByMember: false,
+          ...extra,
+        },
+      });
+    await line("haldi", "Catering", "catering_light", 60, "per_plate", {}, [
+      "quantity",
+    ]);
+    await line("haldi", "Decor", "decor_small", 1, "per_function");
+    await line("sangeet", "Catering", "catering_main", 300, "per_plate", {
+      plannedAmount: 245_000,
+      editedByMember: true,
+    });
+    await line("sangeet", "Venue", "venue_large", 1, "per_function");
+    await line("sangeet", "DJ and sound", "dj_sound", 1, "per_function");
+    await line(null, "Photography", "photography_video", 4, "per_day", {}, [
+      "quantity",
+    ]);
+    await line(null, "Favours", null, 1, "per_event");
+    await line(null, "Contingency", null, 1, "per_event", {
+      role: "contingency",
+      plannedAmount: 100_000,
+    });
+
+    order = 0;
+    const deadline = async (
+      title: string,
+      date: string,
+      extra: Partial<EntryFields<"timeline">> = {},
+    ) =>
+      await ctx.db.insert("entries", {
+        eventId,
+        itemId: timeline._id,
+        kind: "timeline",
+        order: order++,
+        functionKey: null,
+        assumed: [],
+        createdBy,
+        version: 1,
+        deletedAt: null,
+        fields: {
+          title,
+          date,
+          time: null,
+          leadKey: null,
+          priority: null,
+          late: false,
+          note: null,
+          vendorCategory: null,
+          done: false,
+          ...extra,
+        },
+      });
+    const venues = await deadline("Book Venues", "2026-10-30", {
+      late: true,
+      priority: "P1",
+      note: "Venues for February dates usually book 9-12 months ahead; call these first.",
+      vendorCategory: "venue",
+    });
+    await deadline("Send invitations", "2026-12-19", { priority: "P1" });
+    const sheet = async (functionKey: string, time: string, title: string) =>
+      await ctx.db.insert("entries", {
+        eventId,
+        itemId: timeline._id,
+        kind: "timeline",
+        order: order++,
+        functionKey,
+        assumed: ["time"],
+        createdBy,
+        version: 1,
+        deletedAt: null,
+        fields: {
+          title,
+          date: null,
+          time,
+          leadKey: null,
+          priority: null,
+          late: false,
+          note: null,
+          vendorCategory: null,
+          done: false,
+        },
+      });
+    await sheet("sangeet", "19:00", "Guests arrive");
+    await sheet("sangeet", "19:30", "Family performances");
+    await sheet("sangeet", "20:30", "Dinner");
+    await sheet("wedding", "22:30", "Pheras begin");
+    await sheet("wedding", "01:00", "Vidaai");
+
+    order = 0;
+    const vendorsNeeded: [string, string[]][] = [
+      ["venue", ["sangeet"]],
+      ["caterer", ["haldi", "sangeet"]],
+      ["photographer", []],
+    ];
+    for (const [vendorCategory, functionKeys] of vendorsNeeded) {
+      await ctx.db.insert("entries", {
+        eventId,
+        itemId: checklist._id,
+        kind: "checklist",
+        order: order++,
+        functionKey: null,
+        assumed: [],
+        createdBy,
+        version: 1,
+        deletedAt: null,
+        fields: {
+          vendorCategory,
+          freeLabel: null,
+          functionKeys,
+          bookByEntryId: vendorCategory === "venue" ? venues : null,
+          budgetEntryIds: [],
+        },
+      });
+    }
+
+    for await (const item of ctx.db
+      .query("items")
+      .withIndex("by_event_kind", (q) =>
+        q.eq("eventId", eventId).eq("kind", "suggestion"),
+      )) {
+      if (item.deletedAt !== null) continue;
+      await ctx.db.patch("items", item._id, {
+        functionKey: "sangeet",
+        data: {
+          title: "Rajasthani folk musicians at the sangeet dinner",
+          body: "A Manganiyar group playing through dinner in the courtyard.",
+          costCategory: "folk_musicians",
+          quantity: 1,
+          estimate: {
+            low: 25_000,
+            high: 60_000,
+            amount: 32_000,
+            label: "Estimate",
+            basis: researchedBasis({
+              unit: "per_function",
+              unitLow: 25_000,
+              unitHigh: 60_000,
+              sourceUrls: [
+                "https://example.com/folk-rates",
+                "https://example.org/manganiyar",
+                "https://example.net/sangeet",
+              ],
+              searchedAt: Date.UTC(2026, 9, 22, 6, 0),
+              reasoning:
+                "Three Jaipur troupes list ₹25,000 to ₹60,000 an evening.",
+            }),
+          },
+          status: "open",
+        },
+      });
+      break;
+    }
     return null;
   },
 });
