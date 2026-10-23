@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { COMMENT_MAX } from "./comments";
+import { COMMENT_MAX, MAX_COMMENTS_PER_ITEM } from "./comments";
 import {
   identityFor,
   insertEvent,
@@ -464,5 +464,162 @@ describe("people who left", () => {
     await expect(
       asPapa.query(api.comments.listForItem, { itemId }),
     ).rejects.toEqual(denied("blocked"));
+  });
+});
+
+describe("review fixes", () => {
+  it("drops Comments on a deleted Entry from the list, and keeps the Item's", async () => {
+    const { t, asPapa, asMeera, checklistId, entryId } = await setUp("viewer");
+    const rootId = await asPapa.mutation(api.comments.add, {
+      target: { kind: "entry", itemId: checklistId, entryId },
+      body: "Which caterer did we call?",
+      rootId: null,
+    });
+    await asMeera.mutation(api.comments.add, {
+      target: { kind: "entry", itemId: checklistId, entryId },
+      body: "Shree Caterers",
+      rootId,
+    });
+    await asPapa.mutation(api.comments.add, {
+      target: { kind: "item", itemId: checklistId },
+      body: "Is the checklist done?",
+      rootId: null,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("entries", entryId, { deletedAt: 5 });
+    });
+    const listed = await asPapa.query(api.comments.listForItem, {
+      itemId: checklistId,
+    });
+    expect(listed.map((c) => c.body)).toEqual(["Is the checklist done?"]);
+  });
+
+  it("brings an Entry's Comments back when the Entry is restored", async () => {
+    const { t, asPapa, checklistId, entryId } = await setUp("viewer");
+    await asPapa.mutation(api.comments.add, {
+      target: { kind: "entry", itemId: checklistId, entryId },
+      body: "Which caterer?",
+      rootId: null,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("entries", entryId, { deletedAt: 5 });
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("entries", entryId, { deletedAt: null });
+    });
+    const listed = await asPapa.query(api.comments.listForItem, {
+      itemId: checklistId,
+    });
+    expect(listed.map((c) => c.body)).toEqual(["Which caterer?"]);
+  });
+
+  it("refuses a body of only invisible characters as empty", async () => {
+    const { asMeera, itemId } = await setUp();
+    for (const body of ["​", "‌‍", "﻿", " ⁠ ​ "])
+      await expect(
+        asMeera.mutation(api.comments.add, {
+          target: { kind: "item", itemId },
+          body,
+          rootId: null,
+        }),
+      ).rejects.toEqual(refusal("empty"));
+  });
+
+  it("keeps the joiners Hindi needs inside real text", async () => {
+    const { asMeera, itemId } = await setUp();
+    // "क्‍ष" has a zero-width joiner and "किसी‌ने" a zero-width non-joiner.
+    for (const body of ["क्‍ष", "किसी‌ने"])
+      await asMeera.mutation(api.comments.add, {
+        target: { kind: "item", itemId },
+        body,
+        rootId: null,
+      });
+    const listed = await asMeera.query(api.comments.listForItem, { itemId });
+    expect(listed.map((c) => c.body)).toEqual(["क्‍ष", "किसी‌ने"]);
+  });
+
+  it("refuses an edit to only invisible characters", async () => {
+    const { asMeera, itemId } = await setUp();
+    const commentId = await asMeera.mutation(api.comments.add, {
+      target: { kind: "item", itemId },
+      body: "Call the caterer",
+      rootId: null,
+    });
+    await expect(
+      asMeera.mutation(api.comments.edit, { commentId, body: "​" }),
+    ).rejects.toEqual(refusal("empty"));
+  });
+
+  it("refuses the 501st Comment on one Item", async () => {
+    const { t, asMeera, meera, eventId, itemId } = await setUp();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < MAX_COMMENTS_PER_ITEM; i++)
+        await ctx.db.insert("comments", {
+          eventId,
+          itemId,
+          target: { kind: "item", itemId },
+          rootId: null,
+          author: { kind: "member", membershipId: meera.membershipId },
+          body: `#${i}`,
+          resolved: true,
+          createdAt: i,
+          editedAt: null,
+        });
+    });
+    await expect(
+      asMeera.mutation(api.comments.add, {
+        target: { kind: "item", itemId },
+        body: "One more",
+        rootId: null,
+      }),
+    ).rejects.toEqual(refusal("tooMany"));
+  });
+
+  it("an Owner can't resolve a Viewer's thread", async () => {
+    const { asMeera, asPapa, itemId } = await setUp("viewer");
+    const commentId = await asPapa.mutation(api.comments.add, {
+      target: { kind: "item", itemId },
+      body: "Too small?",
+      rootId: null,
+    });
+    await expect(
+      asMeera.mutation(api.comments.resolve, { commentId, resolved: true }),
+    ).rejects.toEqual(refusal("notYours"));
+  });
+
+  it("refuses someone from another Event editing or resolving by ID", async () => {
+    const { t, asMeera, itemId } = await setUp();
+    const commentId = await asMeera.mutation(api.comments.add, {
+      target: { kind: "item", itemId },
+      body: "Mine",
+      rootId: null,
+    });
+    await t.run(async (ctx) => {
+      await seedMembership(ctx, { clerkId: "stranger", role: "owner" });
+    });
+    const asStranger = t.withIdentity(identityFor("stranger"));
+    await expect(
+      asStranger.mutation(api.comments.edit, { commentId, body: "Theirs" }),
+    ).rejects.toEqual(denied("notAMember"));
+    await expect(
+      asStranger.mutation(api.comments.resolve, { commentId, resolved: true }),
+    ).rejects.toEqual(denied("notAMember"));
+  });
+
+  it("refuses someone who left adding a Comment", async () => {
+    const { t, asPapa, papa, itemId } = await setUp("member");
+    await t.run(async (ctx) => {
+      await ctx.db.patch("memberships", papa.membershipId, {
+        status: "left",
+        endedAt: 10,
+      });
+    });
+    await expect(
+      asPapa.mutation(api.comments.add, {
+        target: { kind: "item", itemId },
+        body: "Back?",
+        rootId: null,
+      }),
+    ).rejects.toEqual(denied("left"));
   });
 });
