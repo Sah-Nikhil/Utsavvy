@@ -1,7 +1,12 @@
 import type { UIMessage } from "@convex-dev/agent/react";
 import { describe, expect, it } from "vitest";
 import type { ChatDetails, RunSummary } from "./runState";
-import { buildTimeline, historyRange, withHistory } from "./timeline";
+import {
+  buildTimeline,
+  historyRange,
+  sourceLabel,
+  withHistory,
+} from "./timeline";
 
 function message(
   id: string,
@@ -96,5 +101,22 @@ describe("older Chat details (L9)", () => {
       annotation: { authorName: "Rohan" },
       run: { status: "stopped" },
     });
+  });
+});
+
+describe("sourceLabel (L13)", () => {
+  it("shows a source's title, or its site", () => {
+    expect(sourceLabel({ url: "https://x.in/a", title: "Tent prices" })).toBe(
+      "Tent prices",
+    );
+    expect(sourceLabel({ url: "https://www.x.in/a", title: undefined })).toBe(
+      "www.x.in",
+    );
+  });
+
+  it("shows a malformed URL as it is instead of throwing", () => {
+    expect(sourceLabel({ url: "not a url", title: undefined })).toBe(
+      "not a url",
+    );
   });
 });

@@ -146,3 +146,11 @@ export function withHistory(
     ],
   };
 }
+
+/** What a source link in a reply shows: its title, or else its site. */
+export function sourceLabel(source: {
+  url: string;
+  title: string | undefined;
+}): string {
+  return source.title ?? new URL(source.url).hostname;
+}
