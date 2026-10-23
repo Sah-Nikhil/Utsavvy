@@ -552,3 +552,35 @@ describe("respond before it streams", { timeout: 20_000 }, () => {
     expect(stubCallCount()).toBe(calls);
   });
 });
+
+describe("#87 part 2", { timeout: 60_000 }, () => {
+  it("keeps the access-loss notice with its reply, above the next Member's message (L5)", async () => {
+    const s = await setUp(STUB_MODEL);
+    setStubChunkDelayMs(120);
+    const runId = await startRun(s, "Plan the sangeet");
+    await untilStreaming(s, runId);
+    // Aditi asks next while Rohan's reply streams, then Rohan leaves.
+    const { runId: next } = await say(
+      s.asAditi,
+      s.eventId,
+      "And the haldi?",
+      false,
+    );
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.rohan, { status: "left" }),
+    );
+    await untilEnded(s, runId);
+    await untilEnded(s, next!);
+
+    const { page } = await messages(s);
+    const texts = page.map((m) => m.text);
+    const notice = texts.findIndex((text) =>
+      text.startsWith("The Member who asked no longer has access"),
+    );
+    expect(notice).toBeGreaterThan(-1);
+    expect(notice).toBeLessThan(texts.indexOf("And the haldi?"));
+    // It shares the order of the request it ends.
+    const request = page.find((m) => m.text === "Plan the sangeet")!;
+    expect(page[notice]!.order).toBe(request.order);
+  });
+});
