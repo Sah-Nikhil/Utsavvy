@@ -208,6 +208,53 @@ const runSummaryValidator = v.object({
 const RECENT_RUNS = 100;
 const RECENT_ANNOTATIONS = 300;
 
+/** Single letters from other scripts that pass for Latin ones in "Utsavvy". */
+const CONFUSABLES: Record<string, string> = {
+  а: "a",
+  е: "e",
+  о: "o",
+  р: "p",
+  с: "c",
+  у: "y",
+  х: "x",
+  ѕ: "s",
+  і: "i",
+  т: "t",
+  в: "v",
+  ν: "v",
+  α: "a",
+  ο: "o",
+  υ: "u",
+  τ: "t",
+  ι: "i",
+  ρ: "p",
+  ʋ: "v",
+  ѵ: "v",
+};
+
+/**
+ * Whether a name could pass for the Assistant's: compared after NFKC
+ * normalisation, with invisible characters, spaces and punctuation removed,
+ * case folded and common Cyrillic and Greek lookalikes mapped to Latin.
+ */
+export function looksLikeAssistant(name: string): boolean {
+  const folded = [...name.normalize("NFKC").toLowerCase()]
+    .map((char) => CONFUSABLES[char] ?? char)
+    .join("")
+    .replace(/[^a-z]/g, "");
+  return folded.includes(ASSISTANT_NAME.toLowerCase());
+}
+
+/**
+ * A Member's name as the Chat and the prompt show it: invisible characters
+ * removed, and "(a Member)" added when it could pass for the Assistant's, so
+ * nobody can post as "Utsavvy for Meera".
+ */
+export function memberName(displayName: string): string {
+  const visible = displayName.replace(/\p{Cf}/gu, "").trim() || "A Member";
+  return looksLikeAssistant(visible) ? `${visible} (a Member)` : visible;
+}
+
 /** A membership's name as the Chat shows it, "Aditi (left)" once they've gone. */
 async function nameOf(
   ctx: QueryCtx,
@@ -222,8 +269,8 @@ async function nameOf(
     membership === null
       ? "Someone"
       : membership.status === "active"
-        ? membership.displayName
-        : `${membership.displayName} (left)`;
+        ? memberName(membership.displayName)
+        : `${memberName(membership.displayName)} (left)`;
   cache.set(membershipId, name);
   return name;
 }
@@ -388,6 +435,8 @@ export const runContext = internalQuery({
           authorName: v.string(),
           dontReply: v.boolean(),
           pointing: pointingValidator,
+          /** A line the app posted (`postSystem`), not a Member's or a reply. */
+          notice: v.boolean(),
         }),
       ),
     }),
@@ -406,13 +455,25 @@ export const runContext = internalQuery({
       .withIndex("by_event", (q) => q.eq("eventId", run.eventId))
       .order("desc")
       .take(RECENT_ANNOTATIONS);
+    // The request's own annotation, however far back it is, so the model
+    // always knows who asked and what they pointed at.
+    const own = await ctx.db
+      .query("chatAnnotations")
+      .withIndex("by_message", (q) => q.eq("messageId", run.messageId!))
+      .unique();
+    if (own !== null && !recent.some((row) => row._id === own._id)) {
+      recent.push(own);
+    }
     for (const annotation of recent) {
-      if (annotation.authorMembershipId === null) continue;
+      const notice = annotation.authorMembershipId === null;
       labels.push({
         messageId: annotation.messageId,
-        authorName: await nameOf(ctx, annotation.authorMembershipId, names),
+        authorName: notice
+          ? ""
+          : await nameOf(ctx, annotation.authorMembershipId, names),
         dontReply: annotation.dontReply,
         pointing: annotation.pointing,
+        notice,
       });
     }
     return {
