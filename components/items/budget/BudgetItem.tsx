@@ -8,6 +8,7 @@ import {
   ViewerAvatars,
 } from "@/components/canvas/CanvasItemContext";
 import type { ItemComponentProps } from "@/components/items/registry";
+import { EntryCommentCount } from "@/components/comments/ItemComments";
 import { ItemFrame } from "@/components/items/ItemFrame";
 import { Badge } from "@/components/ui/badge";
 import { FunctionMarker } from "@/components/ui/function-marker";
@@ -401,6 +402,7 @@ function BudgetRow({
           )}
           {tag("label", label, "label")}
         </div>
+        <EntryCommentCount entryId={entry._id} className="shrink-0" />
         <ViewerAvatars viewers={viewers} className="shrink-0" />
         {editing === "amount" ? (
           <InlineEdit
