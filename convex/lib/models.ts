@@ -25,7 +25,7 @@ export function defaultModel(): string {
 
 /** The helper model for descriptions and extraction: `HELPER_MODEL`, else `claude-haiku-5-5`. */
 export function helperModel(): string {
-  return env.HELPER_MODEL ?? MODELS.helper;
+  return env.HELPER_MODEL || MODELS.helper;
 }
 
 /** The automatic fallback model: `FALLBACK_MODEL`, else `gemini-3.8-flash`. */
