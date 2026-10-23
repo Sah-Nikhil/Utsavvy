@@ -69,6 +69,8 @@ async function loadEvent(ctx: QueryCtx, eventId: Id<"events">) {
 export const MAX_POINTED = 5;
 /** A pointed passage longer than this is refused; it goes into the prompt. */
 export const MAX_POINTED_QUOTE = 500;
+/** A passage's field name longer than this is refused; it goes into the prompt too. */
+export const MAX_POINTED_FIELD = 64;
 
 /** Refuses pointing at too much, or at anything outside this Event or deleted. */
 async function checkPointing(
@@ -82,6 +84,9 @@ async function checkPointing(
   for (const target of pointing) {
     if (target.kind === "passage" && target.quote.length > MAX_POINTED_QUOTE) {
       throw new ConvexError({ kind: "QuoteTooLong", max: MAX_POINTED_QUOTE });
+    }
+    if (target.kind === "passage" && target.field.length > MAX_POINTED_FIELD) {
+      throw new ConvexError({ kind: "FieldTooLong", max: MAX_POINTED_FIELD });
     }
     const item = await ctx.db.get("items", target.itemId);
     if (item === null || item.eventId !== eventId || item.deletedAt !== null) {
