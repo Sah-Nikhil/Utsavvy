@@ -9,6 +9,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import { ItemComments } from "@/components/comments/ItemComments";
 import { itemComponentFor } from "@/components/items/registry";
 import { PointingRing } from "@/components/shell/PointingRing";
 import { useSetSelection } from "@/components/shell/selection";
@@ -72,6 +73,9 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
     if (!sameTarget(next, state.selection)) setSelection(next);
   }
 
+  // `pointer-events-auto`: React Flow turns pointer events off on a node that
+  // can't be dragged or selected, which is every Item for a Viewer. Its
+  // content still needs clicks (selection, the Comment count).
   const body = (
     <div
       ref={contentRef}
@@ -83,7 +87,7 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
           selectFrom(event.target);
       }}
       className={cn(
-        "nodrag nopan nowheel size-full cursor-auto overflow-auto rounded-md select-text",
+        "nodrag nopan nowheel pointer-events-auto size-full cursor-auto overflow-auto rounded-md select-text",
         "transition-[outline-color] duration-(--dur-feedback) ease-standard",
         "[&>article]:min-h-full",
         state.selected && "outline-2 outline-offset-2 outline-action",
@@ -93,7 +97,9 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
       )}
     >
       <ItemErrorBoundary kind={KIND_NAMES[item.kind]}>
-        <Body item={item} />
+        <ItemComments itemId={item._id} itemLabel={KIND_NAMES[item.kind]}>
+          <Body item={item} />
+        </ItemComments>
       </ItemErrorBoundary>
     </div>
   );

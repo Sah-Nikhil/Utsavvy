@@ -23,6 +23,7 @@ import {
   inlineControlClass,
   useRowAction,
 } from "@/components/items/budget/parts";
+import { EntryCommentCount } from "@/components/comments/ItemComments";
 import { ItemFrame } from "@/components/items/ItemFrame";
 import type { ItemComponentProps } from "@/components/items/registry";
 import { Badge } from "@/components/ui/badge";
@@ -377,6 +378,7 @@ function DeadlineRow({
           </p>
         ) : null}
       </div>
+      <EntryCommentCount entryId={entry._id} className="shrink-0" />
       <ViewerAvatars viewers={row.viewers} className="shrink-0" />
       {canEdit ? (
         <TinyIconButton
@@ -473,6 +475,7 @@ function RunSheetRow({ entry, canEdit, run }: RowProps) {
           </p>
         ) : null}
       </div>
+      <EntryCommentCount entryId={entry._id} className="shrink-0" />
       <ViewerAvatars viewers={row.viewers} className="shrink-0" />
       {canEdit ? (
         <TinyIconButton

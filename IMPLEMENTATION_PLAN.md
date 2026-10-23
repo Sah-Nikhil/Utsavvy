@@ -293,7 +293,7 @@ Convex tables, defined once in `convex/schema.ts` by the contract. Field names h
 | `memberships` | `eventId`, `userId`, `role` (`"owner"`, `"coOwner"`, `"member"`, `"viewer"`), `status` (`"active"`, `"left"`, `"removed"`), `blocked`, `displayName`, `joinedAt`, `endedAt` | `by_event`, `by_user`, `by_event_user` | One row per person per Event. Work keeps pointing at the membership, so a person who left shows as "Aditi (left)". |
 | `inviteLinks` | `eventId`, `role` (`"member"` or `"viewer"`), `token`, `createdBy`, `createdAt` | `by_token`, `by_event_role` | One row per link. Not versioned and never copied into history or a conflict payload; only the Owner and Co-owners can read or reset a link (S1). A reset replaces the token, and its history line names who reset which link without the token. Moved off `events` on 2026-10-22 after the contract review. |
 | `emailInvites` | `eventId`, `email`, `role`, `invitedBy`, `createdAt` | `by_event`, `by_email` | Built in X5, defined now because the 25-person cap counts pending invites. |
-| `eventFunctions` | `eventId`, `key` (`"sangeet"`), `name`, `date` (a day or a range), `guests`, `assumed` (field names still assumed), `order` | `by_event` | Versioned. Named `eventFunctions` because "functions" means something else in Convex. |
+| `eventFunctions` | `eventId`, `key` (`"sangeet"`), `name`, `date` (a day or a range), `guests`, `assumed` (field names still assumed), `order` | `by_event` | Versioned. Named `eventFunctions` because "functions" means something else in Convex. `key` is one of `FUNCTION_KEYS` in `lib/types/functions.ts` (decided 2026-10-23); S11's Brief extraction normalises Function keys to it, and S21's boards and the vibe sets use the same keys. |
 
 ### 5.2 The Canvas
 
