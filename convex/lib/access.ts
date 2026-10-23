@@ -34,10 +34,31 @@ async function findUser(
     .unique();
 }
 
+/**
+ * The name shown to everyone in a person's Events, never their full email
+ * address (#83): Clerk's name, else the part of the email before `@`, else
+ * "Someone". A blank name, or one that is itself an email address (as stored
+ * before this rule), counts as no name.
+ */
+function displayName(
+  names: readonly (string | undefined)[],
+  email: string | undefined,
+): string {
+  const name = names
+    .map((n) => n?.trim())
+    .find((n): n is string => n !== undefined && n !== "" && !n.includes("@"));
+  if (name !== undefined) return name;
+  const local = email?.split("@")[0]?.trim();
+  return local ? local : "Someone";
+}
+
 /** The profile fields Clerk owns, as the `users` row stores them. */
 function profileFrom(identity: UserIdentity, existing: Doc<"users"> | null) {
   return {
-    name: identity.name ?? existing?.name ?? identity.email ?? "Someone",
+    name: displayName(
+      [identity.name, existing?.name],
+      identity.email ?? existing?.email,
+    ),
     email: (identity.email ?? existing?.email ?? "").toLowerCase(),
     imageUrl: identity.pictureUrl ?? existing?.imageUrl ?? null,
   };
