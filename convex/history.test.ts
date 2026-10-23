@@ -518,3 +518,250 @@ describe("list labels", () => {
     ]);
   });
 });
+
+describe("review fixes (PR #90)", () => {
+  /** The newest change to a document. */
+  async function lastChange(
+    ctx: MutationCtx,
+    docId: Id<"sections"> | Id<"items">,
+  ) {
+    return (
+      await ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", docId))
+        .collect()
+    ).at(-1)!;
+  }
+
+  it("refuses to Restore a Restore that would delete a custom Section again, so its Items are never orphaned", async () => {
+    const t = newTest();
+    const { eventId } = await t.run((ctx) => setUp(ctx));
+    const rohan = t.withIdentity(identityFor("rohan"));
+    const sectionId = await rohan.mutation(api.canvas.createSection, {
+      eventId,
+      name: "Sangeet night",
+    });
+    await rohan.mutation(api.canvas.deleteSection, { sectionId });
+    const deletion = await t.run((ctx) => lastChange(ctx, sectionId));
+    await rohan.mutation(api.history.restore, { changeId: deletion._id });
+    const restored = await t.run((ctx) => lastChange(ctx, sectionId));
+    expect(restored.op).toBe("restore");
+
+    const { page } = await rohan.query(api.history.list, {
+      eventId,
+      paginationOpts: firstPage,
+    });
+    expect(page.find((r) => r.changeId === restored._id)?.canRestore).toBe(
+      false,
+    );
+    await expect(
+      rohan.mutation(api.history.restore, { changeId: restored._id }),
+    ).rejects.toThrow(/useDelete/);
+    const section = await t.run((ctx) => ctx.db.get("sections", sectionId));
+    expect(section?.deletedAt).toBeNull();
+  });
+
+  it("refuses to Restore a Restore that would delete a non-empty starting Section", async () => {
+    const t = newTest();
+    const { sections, noteId } = await t.run((ctx) => setUp(ctx));
+    // Meera (Owner) empties the Notes Section, deletes it and restores it.
+    await t.run((ctx) =>
+      ctx.db.patch("items", noteId, { sectionId: sections.money }),
+    );
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.canvas.deleteSection, {
+      sectionId: sections.notes,
+    });
+    const deletion = await t.run((ctx) => lastChange(ctx, sections.notes));
+    await meera.mutation(api.history.restore, { changeId: deletion._id });
+    await t.run((ctx) =>
+      ctx.db.patch("items", noteId, { sectionId: sections.notes }),
+    );
+    const restored = await t.run((ctx) => lastChange(ctx, sections.notes));
+
+    await expect(
+      meera.mutation(api.history.restore, { changeId: restored._id }),
+    ).rejects.toThrow(/useDelete/);
+    const section = await t.run((ctx) =>
+      ctx.db.get("sections", sections.notes),
+    );
+    expect(section?.deletedAt).toBeNull();
+  });
+
+  it("refuses to Restore a Restore that would delete an Item again", async () => {
+    const t = newTest();
+    const { eventId, noteId } = await t.run(async (ctx) => {
+      const s = await setUp(ctx);
+      await memberSoftDelete(ctx, {
+        table: "items",
+        id: s.noteId,
+        actor: { kind: "member", membershipId: s.rohan },
+      });
+      return s;
+    });
+    const meera = t.withIdentity(identityFor("meera"));
+    const deletion = await t.run((ctx) => lastChange(ctx, noteId));
+    await meera.mutation(api.history.restore, { changeId: deletion._id });
+    const restored = await t.run((ctx) => lastChange(ctx, noteId));
+
+    const { page } = await meera.query(api.history.list, {
+      eventId,
+      paginationOpts: firstPage,
+    });
+    expect(page.find((r) => r.changeId === restored._id)?.canRestore).toBe(
+      false,
+    );
+    await expect(
+      meera.mutation(api.history.restore, { changeId: restored._id }),
+    ).rejects.toThrow(/useDelete/);
+    const note = await t.run((ctx) => ctx.db.get("items", noteId));
+    expect(note?.deletedAt).toBeNull();
+  });
+
+  it("returns at most 50 rows a page, whatever page size the client asks for", async () => {
+    const t = newTest();
+    const { eventId } = await t.run(async (ctx) => {
+      const s = await setUp(ctx);
+      for (let x = 1; x <= 60; x++) {
+        await memberWrite(ctx, {
+          table: "items",
+          id: s.noteId,
+          patch: { position: { x, y: 0 } },
+          actor: { kind: "member", membershipId: s.rohan },
+        });
+      }
+      return s;
+    });
+    const { page, isDone } = await t
+      .withIdentity(identityFor("meera"))
+      .query(api.history.list, {
+        eventId,
+        paginationOpts: { numItems: 100_000, cursor: null },
+      });
+    expect(page).toHaveLength(50);
+    expect(isDone).toBe(false);
+  });
+
+  it("puts back only a shared Vendor's Marker, never its other facts", async () => {
+    const t = newTest();
+    const marker = (lat: number) => ({
+      lat,
+      lng: 75.8,
+      confidence: 0.9,
+      matchType: "street",
+      approximate: false,
+      provider: "geoapify",
+      attribution: "© OpenStreetMap contributors",
+    });
+    const { vendorId, changeId } = await t.run(async (ctx) => {
+      const s = await setUp(ctx);
+      const vendorId = await ctx.db.insert("vendors", {
+        domain: "mlcaterers.in",
+        name: "M L Caterers",
+        category: "caterer",
+        website: "https://mlcaterers.in",
+        phone: "+91 141 000 0000",
+        marker: marker(26.9),
+        summary: "Caterer in Jaipur.",
+        provenance: [],
+        factsSeenAt: "2026-10-21",
+        source: "starterSet",
+        version: 1,
+      });
+      await memberWrite(ctx, {
+        table: "vendors",
+        id: vendorId,
+        patch: { marker: marker(26.95), phone: "+91 141 999 9999" },
+        actor: { kind: "member", membershipId: s.rohan },
+      });
+      const change = (
+        await ctx.db
+          .query("changes")
+          .withIndex("by_doc", (q) => q.eq("docId", vendorId))
+          .collect()
+      ).at(-1)!;
+      return { vendorId, changeId: change._id };
+    });
+
+    await t
+      .withIdentity(identityFor("meera"))
+      .mutation(api.history.restore, { changeId });
+
+    const vendor = await t.run((ctx) => ctx.db.get("vendors", vendorId));
+    expect(vendor?.marker?.lat).toBe(26.9);
+    expect(vendor?.phone).toBe("+91 141 999 9999");
+  });
+
+  it("refuses to bring back a custom Section past the 30 custom Section cap", async () => {
+    const t = newTest();
+    const { eventId } = await t.run((ctx) => setUp(ctx));
+    const rohan = t.withIdentity(identityFor("rohan"));
+    const first = await rohan.mutation(api.canvas.createSection, {
+      eventId,
+      name: "Haldi",
+    });
+    await rohan.mutation(api.canvas.deleteSection, { sectionId: first });
+    const deletion = await t.run((ctx) => lastChange(ctx, first));
+    for (let n = 1; n <= 30; n++) {
+      await rohan.mutation(api.canvas.createSection, {
+        eventId,
+        name: `Section ${n}`,
+      });
+    }
+    await expect(
+      rohan.mutation(api.history.restore, { changeId: deletion._id }),
+    ).rejects.toThrow(/tooManySections/);
+  });
+
+  it("grows the Section's frame to hold an Item a Restore puts back, as a move does", async () => {
+    const t = newTest();
+    const { noteId, sections } = await t.run(async (ctx) => {
+      const s = await setUp(ctx);
+      const actor = { kind: "member" as const, membershipId: s.rohan };
+      await memberWrite(ctx, {
+        table: "items",
+        id: s.noteId,
+        patch: { position: { x: 5000, y: 0 } },
+        actor,
+      });
+      await memberWrite(ctx, {
+        table: "items",
+        id: s.noteId,
+        patch: { position: { x: 0, y: 0 } },
+        actor,
+      });
+      return s;
+    });
+    const backHome = await t.run((ctx) => lastChange(ctx, noteId));
+
+    await t
+      .withIdentity(identityFor("meera"))
+      .mutation(api.history.restore, { changeId: backHome._id });
+
+    const { note, section } = await t.run(async (ctx) => ({
+      note: await ctx.db.get("items", noteId),
+      section: await ctx.db.get("sections", sections.notes),
+    }));
+    expect(note?.position).toEqual({ x: 5000, y: 0 });
+    expect(section!.frame.w).toBeGreaterThanOrEqual(5300);
+  });
+
+  it("shortens a long Hindi name by whole characters, never mid-character", async () => {
+    const t = newTest();
+    const { eventId } = await t.run(async (ctx) => {
+      const s = await setUp(ctx);
+      // "कि" is one character on screen: क plus the ि matra.
+      await memberWrite(ctx, {
+        table: "sections",
+        id: s.sections.notes,
+        patch: { name: "कि".repeat(45) },
+        actor: { kind: "member", membershipId: s.rohan },
+      });
+      return s;
+    });
+    const { page } = await t
+      .withIdentity(identityFor("meera"))
+      .query(api.history.list, { eventId, paginationOpts: firstPage });
+    expect(page[0]!.summary).toBe(`Renamed the Section "${"कि".repeat(39)}…"`);
+  });
+});

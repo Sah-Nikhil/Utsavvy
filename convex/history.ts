@@ -4,12 +4,20 @@ import {
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { can } from "../lib/access/permissions";
+import { fitFrame } from "../lib/canvas/placement";
 import { isStartingSection } from "../lib/canvas/starting";
 import type { Actor } from "../lib/types/actors";
+import { countCharacters } from "../lib/types/canvas";
 import { changeOpValidator, type HistoryTable } from "../lib/types/history";
 import type { Action, Role } from "../lib/types/roles";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import {
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { MAX_CUSTOM_SECTIONS } from "./canvas";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { memberWrite } from "./lib/write";
@@ -24,7 +32,13 @@ import { memberWrite } from "./lib/write";
 
 /** Why Restore refused, for the UI to word. */
 export type HistoryProblem =
-  "notFound" | "notRestorable" | "gone" | "sectionDeleted" | "itemDeleted";
+  | "notFound"
+  | "notRestorable"
+  | "useDelete"
+  | "gone"
+  | "sectionDeleted"
+  | "itemDeleted"
+  | "tooManySections";
 
 function refuse(problem: HistoryProblem): never {
   throw new ConvexError({ kind: "HistoryRefused", problem });
@@ -32,6 +46,10 @@ function refuse(problem: HistoryProblem): never {
 
 /** The most rows one history group is counted up to. */
 const GROUP_COUNT_MAX = 200;
+/** The most rows one page of the history returns, whatever the client asks for. */
+const PAGE_MAX = 50;
+/** The most Items a Section's frame is fitted around after a Restore. */
+const SECTION_ITEMS_MAX = 1000;
 
 /** Fields a Restore never puts back: identity, the version, and system bookkeeping. */
 const NEVER_RESTORED = new Set([
@@ -89,6 +107,29 @@ function isRestorable(change: Doc<"changes">): boolean {
       change.op === "restore") &&
     change.before !== null
   );
+}
+
+/**
+ * The fields a Restore of this change would put back. A shared Vendor is the
+ * same row for every Event, so only its Marker (the one thing a Member moves)
+ * ever comes back; its facts never do.
+ */
+function restorableFields(change: Doc<"changes">): string[] {
+  const fields = changedFields(change.before as Fields, change.after as Fields);
+  return change.table === "vendors"
+    ? fields.filter((f) => f === "marker")
+    : fields;
+}
+
+/**
+ * Whether restoring this change would delete the row again, as Restoring a
+ * "Restored ..." row does. Deleting has its own rules (a custom Section's
+ * Items move home first, a starting Section must be empty and not the last),
+ * so Restore never deletes: delete it from the Canvas instead.
+ */
+function wouldDelete(change: Doc<"changes">, fields: string[]): boolean {
+  const before = change.before as Fields;
+  return fields.includes("deletedAt") && before.deletedAt != null;
 }
 
 /**
@@ -202,11 +243,30 @@ const EVENT_FIELDS: Record<string, string> = {
   startingSectionRenameBlocked: "Section renaming",
 };
 
+/** The first `count` characters as people see them, never splitting a Hindi cluster or an emoji. */
+function firstCharacters(text: string, count: number): string {
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, {
+      granularity: "grapheme",
+    });
+    let out = "";
+    let n = 0;
+    for (const { segment } of segmenter.segment(text)) {
+      if (n++ === count) break;
+      out += segment;
+    }
+    return out;
+  }
+  return Array.from(text).slice(0, count).join("");
+}
+
 function quoted(text: unknown, max = 40): string {
   if (typeof text !== "string" || text.trim() === "") return "";
   const clean = text.trim().replace(/\s+/g, " ");
   const short =
-    clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+    countCharacters(clean) > max
+      ? `${firstCharacters(clean, max - 1).trimEnd()}…`
+      : clean;
   return ` "${short}"`;
 }
 
@@ -411,7 +471,10 @@ export const list = query({
       .query("changes")
       .withIndex("by_event_at", (q) => q.eq("eventId", eventId))
       .order("desc")
-      .paginate(paginationOpts);
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, PAGE_MAX),
+      });
 
     const membership = cached((id: Id<"memberships">) =>
       ctx.db.get("memberships", id),
@@ -471,16 +534,16 @@ export const list = query({
         belongsTo(table, doc, eventId) &&
         can(me.role, "history.restore")
       ) {
-        const fields = changedFields(
-          change.before as Fields,
-          change.after as Fields,
-        );
-        canRestore = actionsFor(
-          table,
-          doc,
-          fields,
-          event.startingSectionRenameBlocked,
-        ).every((action) => can(me.role, action));
+        const fields = restorableFields(change);
+        canRestore =
+          fields.length > 0 &&
+          !wouldDelete(change, fields) &&
+          actionsFor(
+            table,
+            doc,
+            fields,
+            event.startingSectionRenameBlocked,
+          ).every((action) => can(me.role, action));
       }
 
       page.push({
@@ -504,6 +567,46 @@ export const list = query({
 // ---------------------------------------------------------------------------
 // Restore
 
+/** How many custom Sections an Event has live, counted up to the cap. */
+async function liveCustomSections(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+): Promise<number> {
+  let count = 0;
+  for await (const section of ctx.db
+    .query("sections")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))) {
+    if (section.kind === "custom" && section.deletedAt === null) count++;
+    if (count >= MAX_CUSTOM_SECTIONS) break;
+  }
+  return count;
+}
+
+/** Grows a Section's frame to hold its live Items, writing only when it grows. */
+async function fitSectionFrame(
+  ctx: MutationCtx,
+  sectionId: Id<"sections">,
+  actor: { kind: "member"; membershipId: Id<"memberships"> },
+): Promise<void> {
+  const section = await ctx.db.get("sections", sectionId);
+  if (section === null) return;
+  const items: Doc<"items">[] = [];
+  for await (const item of ctx.db
+    .query("items")
+    .withIndex("by_section", (q) => q.eq("sectionId", sectionId))) {
+    if (item.deletedAt === null) items.push(item);
+    if (items.length >= SECTION_ITEMS_MAX) break;
+  }
+  const frame = fitFrame(section.frame, items);
+  if (frame.w === section.frame.w && frame.h === section.frame.h) return;
+  await memberWrite(ctx, {
+    table: "sections",
+    id: sectionId,
+    patch: { frame },
+    actor,
+  });
+}
+
 /**
  * Puts back the earlier values of one change as a new change (op "restore"),
  * through `memberWrite`, so the version moves on, the history gets its own row
@@ -525,6 +628,9 @@ export const restore = mutation({
       "history.restore",
     );
     if (!isRestorable(change)) refuse("notRestorable");
+    const restorable = restorableFields(change);
+    if (restorable.length === 0) refuse("notRestorable");
+    if (wouldDelete(change, restorable)) refuse("useDelete");
 
     const table = change.table as HistoryTable;
     const id = change.docId as Id<HistoryTable>;
@@ -535,7 +641,7 @@ export const restore = mutation({
 
     const before = change.before as Fields;
     const patch: Fields = {};
-    for (const field of changedFields(before, change.after as Fields)) {
+    for (const field of restorable) {
       if (!sameValue(doc[field], before[field])) patch[field] = before[field];
     }
     const fields = Object.keys(patch);
@@ -566,14 +672,35 @@ export const restore = mutation({
       const item = await ctx.db.get("items", after.itemId as Id<"items">);
       if (item === null || item.deletedAt !== null) refuse("itemDeleted");
     }
+    // A custom Section coming back counts against the cap, as a new one does.
+    if (
+      table === "sections" &&
+      after.kind === "custom" &&
+      doc.deletedAt !== null &&
+      after.deletedAt === null &&
+      (await liveCustomSections(ctx, change.eventId)) >= MAX_CUSTOM_SECTIONS
+    ) {
+      refuse("tooManySections");
+    }
 
+    const actor = { kind: "member" as const, membershipId: membership._id };
     await memberWrite(ctx, {
       table,
       id,
       patch: patch as never,
-      actor: { kind: "member", membershipId: membership._id },
+      actor,
       op: "restore",
     });
+    // An Item put back somewhere grows its Section's frame to hold it, as
+    // `canvas.moveItem` does.
+    const placement = ["position", "size", "sectionId", "deletedAt"];
+    if (
+      table === "items" &&
+      after.deletedAt === null &&
+      fields.some((f) => placement.includes(f))
+    ) {
+      await fitSectionFrame(ctx, after.sectionId as Id<"sections">, actor);
+    }
     return { changed: true };
   },
 });

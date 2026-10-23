@@ -55,10 +55,14 @@ type Day = { label: string; blocks: Block[] };
 const PROBLEMS: Record<HistoryProblem, string> = {
   notFound: "That change isn't in the history any more.",
   notRestorable: "That change can't be restored.",
+  useDelete:
+    "Restoring that would delete it again. Delete it from the Canvas instead.",
   gone: "What that change touched no longer exists.",
   sectionDeleted:
     "Its Section was deleted. Restore the Section first, then this.",
   itemDeleted: "Its Item was deleted. Restore the Item first, then this.",
+  tooManySections:
+    "The Canvas already has 30 custom Sections. Delete one, then restore this.",
 };
 
 function restoreProblem(error: unknown): string {
@@ -67,7 +71,7 @@ function restoreProblem(error: unknown): string {
     if (data.kind === "HistoryRefused" && data.problem)
       return PROBLEMS[data.problem];
     if (data.kind === "AccessDenied")
-      return "You can't restore that change. Only Members can restore, and some settings only the Owner can.";
+      return "You can't restore that change. Only Members can restore, and some settings only the Owner and Co-owners can.";
   }
   return "Restore didn't work. Try again.";
 }
