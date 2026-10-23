@@ -742,7 +742,7 @@ function chatContext(
 const STOP_POLL_MS = 500;
 
 /** Aborts `abort` once the run is no longer `running` (Stop sets `stopping`). */
-function watchForStop(
+export function watchForStop(
   ctx: ActionCtx,
   runId: Id<"runs">,
   abort: AbortController,

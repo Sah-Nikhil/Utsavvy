@@ -7,15 +7,18 @@ import {
   streamText,
   tool,
 } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   assistantChain,
   chainedModel,
   chatPrompt,
+  watchForStop,
   webSearchBudget,
   type ChainLink,
 } from "./agent";
+import type { Id } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
 import { STUB_FALLBACK_MODEL, STUB_MODEL } from "../lib/models";
 
 // The automatic fallback for a streamed reply (ADR 0003, section 4.5 "Model
@@ -668,5 +671,27 @@ describe("webSearchBudget", () => {
     expect(calls[2]?.tools?.map((candidate) => candidate.name)).toEqual([
       "lookup",
     ]);
+  });
+});
+
+describe("watchForStop", () => {
+  it("leaves no timer behind once the reply has ended (L13)", async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = {
+        runQuery: vi.fn(async () => "running"),
+      } as unknown as ActionCtx;
+      const stopWatching = watchForStop(
+        ctx,
+        "run" as Id<"runs">,
+        new AbortController(),
+      );
+      await vi.advanceTimersByTimeAsync(600);
+      expect(ctx.runQuery).toHaveBeenCalledTimes(1);
+      stopWatching();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
