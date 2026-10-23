@@ -50,9 +50,10 @@ function jaipurPlan(): RollupEntry[] {
     budget: BUDGET,
     contingencyShare: 0.1,
   });
-  const keys = jaipurWedding.plan.functions.flatMap((fn) =>
-    fn.budgetEntries.map(() => fn.key),
-  );
+  const keys: string[] = [];
+  for (const fn of jaipurWedding.plan.functions) {
+    for (const _ of fn.budgetEntries) keys.push(fn.key);
+  }
   const entries: RollupEntry[] = lines.map((l, i) => ({
     functionKey: keys[i] ?? null,
     fields: line({

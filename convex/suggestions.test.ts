@@ -160,9 +160,7 @@ describe("suggestions.addToPlan", () => {
         .collect(),
     );
     expect(
-      changes
-        .filter((c) => c.table !== "sections")
-        .map((c) => [c.table, c.op]),
+      changes.filter((c) => c.table !== "sections").map((c) => [c.table, c.op]),
     ).toEqual([
       ["entries", "create"],
       ["entries", "create"],
