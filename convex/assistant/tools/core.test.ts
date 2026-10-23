@@ -513,6 +513,66 @@ describe("idempotency", () => {
   });
 });
 
+describe("a stopped reply", () => {
+  it("refuses every tool once Stop is pressed, reads included, and writes nothing", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Add a mehendi artist, around ₹15,000");
+    // Stop sets the run to "stopping"; the action notices only at its next poll.
+    await s.t.run((ctx) => ctx.db.patch("runs", runId, { status: "stopping" }));
+    const before = await changeCount(s);
+    const tries: [keyof Tools, unknown][] = [
+      ["readCanvas", {}],
+      ["readChat", {}],
+      [
+        "addEntry",
+        {
+          kind: "budget",
+          label: "Mehendi artist",
+          functionKey: "mehendi",
+          amountSource: { memberStated: 15_000 },
+        },
+      ],
+      [
+        "addEntry",
+        {
+          kind: "budget",
+          label: "DJ",
+          functionKey: "sangeet",
+          amountSource: {
+            estimate: {
+              category: "dj_sound",
+              quantity: 1,
+              unit: "per_function",
+            },
+          },
+        },
+      ],
+      ["addItem", { kind: "note", text: "Book the mehendi artist" }],
+      ["pointAt", { targets: [{ kind: "item", itemId: s.items.budget }] }],
+    ];
+    for (const [i, [name, input]] of tries.entries()) {
+      const result = await call(s, runId, name, input, `toolu_stop${i}`);
+      expect(result, name).toMatchObject({ ok: false, reason: "RunStopped" });
+    }
+    expect(await changeCount(s)).toBe(before);
+    expect(await entriesOf(s, s.items.budget)).toHaveLength(0);
+    expect(
+      await s.t.run((ctx) => ctx.db.query("highlights").collect()),
+    ).toHaveLength(0);
+  });
+
+  it("refuses a run that already ended", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Add a note");
+    await s.t.run((ctx) => ctx.db.patch("runs", runId, { status: "done" }));
+    const result = await call(s, runId, "addItem", {
+      kind: "note",
+      text: "Late note",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "RunStopped" });
+  });
+});
+
 describe("the asker is removed mid-reply", () => {
   it("refuses every later tool call, reads included, and writes nothing", async () => {
     const s = await setUp();
