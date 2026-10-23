@@ -263,6 +263,9 @@ function DeadlineRow({
   const tick = useMutation(api.entries.tick);
   const [editing, setEditing] = useState<"title" | "date" | null>(null);
   const { fields, assumed } = entry;
+  // Shows the tick at once; the saved value takes over when the write lands.
+  const [ticking, setTicking] = useState<boolean | null>(null);
+  const done = ticking ?? fields.done;
   const tag = (field: string, what: string, edit: "title" | "date") =>
     assumed.includes(field) ? (
       <AssumedTag
@@ -283,11 +286,17 @@ function DeadlineRow({
       <input
         id={checkboxId}
         type="checkbox"
-        checked={fields.done}
+        checked={done}
         disabled={!canEdit}
-        onChange={(e) =>
-          run(() => tick({ entryId: entry._id, done: e.target.checked }))
-        }
+        onChange={(e) => {
+          const next = e.target.checked;
+          setTicking(next);
+          run(() =>
+            tick({ entryId: entry._id, done: next }).finally(() =>
+              setTicking(null),
+            ),
+          );
+        }}
         aria-label={`Done: ${fields.title}`}
         className="mt-1 size-4 shrink-0 accent-action"
       />
@@ -314,13 +323,13 @@ function DeadlineRow({
               editLabel={`Rename ${fields.title}`}
               className={cn(
                 "text-label font-medium",
-                fields.done && "text-ink-3 line-through",
+                done && "text-ink-3 line-through",
               )}
             />
           )}
           {tag("title", fields.title, "title")}
-          {fields.late && !fields.done ? <Badge tone="warn">late</Badge> : null}
-          {fields.priority && !fields.done ? (
+          {fields.late && !done ? <Badge tone="warn">late</Badge> : null}
+          {fields.priority && !done ? (
             <Badge tone="outline">{fields.priority}</Badge>
           ) : null}
         </div>
@@ -360,7 +369,7 @@ function DeadlineRow({
           <p
             className={cn(
               "text-caption",
-              fields.late && !fields.done ? "text-ink-2" : "text-ink-3",
+              fields.late && !done ? "text-ink-2" : "text-ink-3",
               scriptClass(fields.note),
             )}
           >

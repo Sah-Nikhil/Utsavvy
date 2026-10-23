@@ -544,7 +544,6 @@ export function EditableText({
       )}
     >
       {text}
-      <span className="sr-only">, {editLabel.toLowerCase()}</span>
     </button>
   );
 }
