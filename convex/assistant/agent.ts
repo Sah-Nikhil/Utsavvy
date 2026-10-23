@@ -660,6 +660,12 @@ function promptMessage(doc: MessageDoc): ChatPromptMessage | null {
   };
 }
 
+/** A Member's message or a reply with text: what the context window counts. */
+function isChatText(doc: MessageDoc): boolean {
+  const message = promptMessage(doc);
+  return message !== null && message.text.trim().length > 0;
+}
+
 /**
  * Replaces the Agent's default context with {@link chatPrompt}: the recent Chat
  * up to the message this run answers, as one turn.
@@ -672,33 +678,29 @@ function chatContext(
   const byMessage = new Map(labels.map((label) => [label.messageId, label]));
   return async (ctx, args): Promise<ModelMessage[]> => {
     // Page back until the message this run answers turns up: messages posted
-    // while it waited in the queue can push it out of the newest page.
+    // while it waited in the queue can push it out of the newest page. Then
+    // keep reading until the window holds CONTEXT_MESSAGES of Chat text before
+    // it; tool calls and results from earlier replies don't count toward it.
     const newestFirst: MessageDoc[] = [];
     let prompt: MessageDoc | undefined;
     let cursor: string | null = null;
-    for (let page = 0; page < CONTEXT_PAGES && prompt === undefined; page++) {
+    for (let page = 0; page <= CONTEXT_PAGES; page++) {
+      if (prompt === undefined && page === CONTEXT_PAGES) break;
       const result = await listMessages(ctx, components.agent, {
         threadId,
         paginationOpts: { numItems: CONTEXT_MESSAGES, cursor },
         statuses: ["success"],
       });
       newestFirst.push(...result.page);
-      prompt = result.page.find((doc) => doc._id === promptMessageId);
+      prompt ??= result.page.find((doc) => doc._id === promptMessageId);
       if (result.isDone) break;
       cursor = result.continueCursor;
-      // Found near the end of its page: read one more page so the reply still
-      // gets up to CONTEXT_MESSAGES of the Chat before it.
       if (prompt !== undefined) {
         const found = prompt;
-        const older = result.page.filter((doc) => doc.order < found.order);
-        if (older.length < CONTEXT_MESSAGES) {
-          const more = await listMessages(ctx, components.agent, {
-            threadId,
-            paginationOpts: { numItems: CONTEXT_MESSAGES, cursor },
-            statuses: ["success"],
-          });
-          newestFirst.push(...more.page);
-        }
+        const older = newestFirst.filter(
+          (doc) => doc.order < found.order && isChatText(doc),
+        );
+        if (older.length >= CONTEXT_MESSAGES) break;
       }
     }
     // Fail closed: if it still isn't found, answer it with no earlier Chat
@@ -721,7 +723,7 @@ function chatContext(
       doc.order < prompt.order ||
       (doc.order === prompt.order && doc.stepOrder < prompt.stepOrder);
     const earlier = newestFirst
-      .filter(before)
+      .filter((doc) => before(doc) && isChatText(doc))
       .slice(0, CONTEXT_MESSAGES)
       .reverse()
       .map(promptMessage)
