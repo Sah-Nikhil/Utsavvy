@@ -1,4 +1,5 @@
 import type { FunctionReturnType } from "convex/server";
+import { ConvexError } from "convex/values";
 import type { api } from "@/convex/_generated/api";
 
 /** What `api.chat.details` returns when the caller can read the Chat. */
@@ -76,6 +77,25 @@ export function stopState(
     allowed: false,
     secondsLeft: Math.ceil((STOP_ANYONE_AFTER_MS - ranFor) / 1000),
   };
+}
+
+/** What a failed Cancel tells the Member (L11). */
+export function cancelErrorText(error: unknown): string {
+  const kind =
+    error instanceof ConvexError
+      ? (error.data as { kind?: string }).kind
+      : undefined;
+  return kind === "RunNotQueued"
+    ? "Utsavvy already started on this."
+    : "Couldn't cancel it. Try again.";
+}
+
+/** The Cancel error to show under a run's notice. */
+export function shownCancelError(
+  _run: RunSummary,
+  error: string | null,
+): string | null {
+  return error;
 }
 
 /** The Chat header's model line: the model that answered the latest reply. */

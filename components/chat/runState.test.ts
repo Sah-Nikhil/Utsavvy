@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { ConvexError } from "convex/values";
 import {
+  cancelErrorText,
   modelCaption,
   runNotice,
+  shownCancelError,
   stopState,
   type RunSummary,
 } from "./runState";
@@ -109,5 +112,41 @@ describe("modelCaption", () => {
 
   it("says nothing has answered yet", () => {
     expect(modelCaption(null)).toBe("No replies yet");
+  });
+});
+
+describe("cancelling a queued message (L11)", () => {
+  it("says Utsavvy already started when the run left the queue first", () => {
+    expect(cancelErrorText(new ConvexError({ kind: "RunNotQueued" }))).toBe(
+      "Utsavvy already started on this.",
+    );
+  });
+
+  it("asks to try again after any other failure", () => {
+    expect(cancelErrorText(new Error("offline"))).toBe(
+      "Couldn't cancel it. Try again.",
+    );
+  });
+
+  it("shows the error while the message is still queued", () => {
+    expect(
+      shownCancelError({ ...base, status: "queued" }, "Couldn't cancel it."),
+    ).toBe("Couldn't cancel it.");
+  });
+
+  it("drops the error once the run has moved on", () => {
+    for (const status of [
+      "running",
+      "stopped",
+      "failed",
+      "cancelled",
+    ] as const) {
+      expect(
+        shownCancelError(
+          { ...base, status },
+          "Utsavvy already started on this.",
+        ),
+      ).toBeNull();
+    }
   });
 });
