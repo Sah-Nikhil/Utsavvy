@@ -473,6 +473,36 @@ describe("chat.send limits", () => {
     ).toMatchObject({ kind: "QuoteTooLong", max: 500 });
   });
 
+  it("refuses a pointed passage whose field name is over 64 characters", async () => {
+    const s = await setUp();
+    const passage = (field: string) => ({
+      kind: "passage" as const,
+      itemId: s.noteId,
+      entryId: null,
+      field,
+      start: 0,
+      end: 3,
+      quote: "Mom",
+    });
+    expect(
+      await denialOf(
+        s.asRohan.mutation(api.chat.send, {
+          eventId: s.eventId,
+          text: "This bit?",
+          dontReply: false,
+          pointing: [passage("f".repeat(65))],
+        }),
+      ),
+    ).toMatchObject({ kind: "FieldTooLong", max: 64 });
+    const { runId } = await s.asRohan.mutation(api.chat.send, {
+      eventId: s.eventId,
+      text: "This bit?",
+      dontReply: false,
+      pointing: [passage("f".repeat(64))],
+    });
+    expect(runId).not.toBeNull();
+  });
+
   it("refuses pointing at a deleted Entry", async () => {
     const s = await setUp();
     const entryId = await s.t.run((ctx) =>
