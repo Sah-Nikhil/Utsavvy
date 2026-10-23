@@ -102,7 +102,20 @@ describe("references.add", () => {
 
   it("lands each new Reference in free space in the Inspirations Section", async () => {
     const t = newTest();
-    const { eventId } = await t.run((ctx) => seedEvent(ctx));
+    const { eventId, sectionId, notesId } = await t.run(async (ctx) => {
+      const seeded = await seedEvent(ctx);
+      // A Notes Section first, so the Inspirations one is found by kind.
+      const notesId = await ctx.db.insert("sections", {
+        eventId: seeded.eventId,
+        kind: "notes",
+        name: "Notes",
+        frame: { x: 700, y: 0, w: 640, h: 480 },
+        order: 3,
+        version: 1,
+        deletedAt: null,
+      });
+      return { ...seeded, notesId };
+    });
     const asMeera = t.withIdentity(identityFor("meera"));
     const first = await asMeera.mutation(api.references.add, {
       eventId,
@@ -118,7 +131,45 @@ describe("references.add", () => {
       await ctx.db.get("items", first.itemId),
       await ctx.db.get("items", second.itemId),
     ]);
-    expect(a!.position).not.toEqual(b!.position);
+    expect(a!.sectionId).toBe(sectionId);
+    expect(b!.sectionId).toBe(sectionId);
+    expect(a!.sectionId).not.toBe(notesId);
+    // S2's rule: left to right with a 20 px gap, in a 640 px wide Section.
+    expect(a!.position).toEqual({ x: 0, y: 0 });
+    expect(b!.position).toEqual({ x: 320, y: 0 });
+  });
+
+  it("places a Reference below an Item with no stored size by S2's fallback size", async () => {
+    const t = newTest();
+    const { eventId } = await t.run(async (ctx) => {
+      const seeded = await seedEvent(ctx);
+      await ctx.db.patch("sections", seeded.sectionId, {
+        frame: { x: 0, y: 0, w: 300, h: 480 },
+      });
+      await ctx.db.insert("items", {
+        eventId: seeded.eventId,
+        sectionId: seeded.sectionId,
+        kind: "note",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        createdBy: { kind: "member", membershipId: seeded.membershipId },
+        data: { text: "marigold", citations: [] },
+        version: 1,
+        deletedAt: null,
+      });
+      return seeded;
+    });
+    const { itemId } = await t
+      .withIdentity(identityFor("meera"))
+      .mutation(api.references.add, {
+        eventId,
+        url: "https://www.pinterest.com/pin/1/",
+        note: null,
+      });
+    const item = await t.run((ctx) => ctx.db.get("items", itemId));
+    // A sizeless Item counts as 300 x 200 (FALLBACK_ITEM_SIZE), so 200 + 20.
+    expect(item!.position).toEqual({ x: 0, y: 220 });
   });
 
   it("files the Reference under a Function of the Event", async () => {

@@ -1,12 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { parseReferenceUrl } from "../lib/references/parse";
-import {
-  REFERENCE_CARD_SIZE,
-  placeReference,
-} from "../lib/references/placement";
 import { REFERENCE_NOTE_MAX } from "../lib/references/note";
 import { countCharacters } from "../lib/types/canvas";
 import { mutation, query } from "./_generated/server";
+import { placeNewItem } from "./canvas";
 import { requireAccess } from "./lib/access";
 import { memberInsert } from "./lib/write";
 
@@ -14,6 +11,9 @@ import { memberInsert } from "./lib/write";
 // inspirations.md rules 6, 7 and 14). A Reference keeps only the link and the
 // Member's note. Nothing here opens the link: the platform's own embed draws it
 // in the `/embed/*` pages.
+
+/** A Reference card's size on the Canvas: room for a Pin or post embed. */
+const REFERENCE_CARD_SIZE = { w: 300, h: 420 };
 
 /** The link isn't a Pinterest Pin or board or an Instagram post or Reel. */
 class ReferenceUrlRefused extends ConvexError<{
@@ -38,7 +38,7 @@ class ReferenceNoteTooLong extends ConvexError<{
 
 /**
  * Saves a pasted link as a Reference in the Event's Inspirations Section, in
- * free space. The server checks the host and path again (the browser's check is
+ * free space (`placeNewItem`; the Canvas grows the Section's frame to fit). The server checks the host and path again (the browser's check is
  * only a convenience) and stores the Member's link without its query string.
  */
 export const add = mutation({
@@ -74,25 +74,13 @@ export const add = mutation({
         throw new Error(`This Event has no Function "${functionKey}"`);
     }
 
-    const sections = await ctx.db
-      .query("sections")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .take(100);
-    const section = sections.find(
-      (s) => s.kind === "inspirations" && s.deletedAt === null,
-    );
-    if (section === undefined)
-      throw new Error("This Event has no Inspirations Section");
-
-    const inSection = await ctx.db
-      .query("items")
-      .withIndex("by_section", (q) => q.eq("sectionId", section._id))
-      .take(500);
-    const position = placeReference(
-      section,
-      inSection.filter((item) => item.deletedAt === null),
-      REFERENCE_CARD_SIZE,
-    );
+    // Free space in the Inspirations Section (S2's rule), read in this same
+    // mutation as the insert so two saves can't land on one spot.
+    const { sectionId, position } = await placeNewItem(ctx, {
+      eventId: args.eventId,
+      kind: "inspiration",
+      size: REFERENCE_CARD_SIZE,
+    });
 
     // The embed link is worked out again from `url` wherever it is shown.
     const { embedUrl: _embedUrl, ...link } = parsed;
@@ -103,7 +91,7 @@ export const add = mutation({
       actor: { kind: "member", membershipId: membership._id },
       value: {
         eventId: args.eventId,
-        sectionId: section._id,
+        sectionId,
         kind: "inspiration",
         position,
         size: REFERENCE_CARD_SIZE,

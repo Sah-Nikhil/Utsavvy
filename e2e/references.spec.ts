@@ -97,6 +97,9 @@ test.describe("references", () => {
     await dialog.getByRole("button", { name: "Create Event" }).click();
     await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
 
+    await expect(
+      page.locator('[data-section-kind="inspirations"] h2 + span'),
+    ).toHaveText("0 Items");
     await page.getByRole("button", { name: "Add Inspiration" }).click();
     const form = page.locator("[data-paste-link]");
     await expect(
@@ -156,6 +159,12 @@ test.describe("references", () => {
     await form.getByRole("button", { name: "Save" }).click();
     await expect(form.getByText("Saved to Inspirations.")).toBeVisible();
     await expect(link).toHaveValue("");
+    // The Reference is on the Canvas, in the Inspirations Section (its card
+    // is S13's placeholder until S13 lands).
+    await page.keyboard.press("Escape");
+    await expect(
+      page.locator('[data-section-kind="inspirations"] h2 + span'),
+    ).toHaveText(/^1 Items?$/);
     expect(cspViolations).toEqual([]);
   });
 });
