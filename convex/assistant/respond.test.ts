@@ -16,7 +16,7 @@ import {
   setStubChunkDelayMs,
   stubCallCount,
   stubCalls,
-} from "./agent";
+} from "../lib/models";
 
 // The streamed reply end to end on the stub model: no network, no credits.
 

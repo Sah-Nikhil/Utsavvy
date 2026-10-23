@@ -5,7 +5,7 @@ import { expect, test, type Page } from "./fixtures";
 // S5 smoke test (issue #38): a Member sends a message and two browsers see the
 // same streamed reply. The deployment under test answers with the stub model
 // (`DEFAULT_MODEL=stub-utsavvy` on its Convex deployment), so no credits are
-// spent; STUB_REPLY in convex/assistant/agent.ts is the text it streams.
+// spent; STUB_REPLY in convex/lib/models.ts is the text it streams.
 const STUB_REPLY_FULL = "point at what I changed.";
 
 /** A second test user on the e2e user's domain, made through Clerk's Backend API. */
