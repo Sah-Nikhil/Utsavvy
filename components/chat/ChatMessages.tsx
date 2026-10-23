@@ -2,7 +2,6 @@
 
 import { useSmoothText, type UIMessage } from "@convex-dev/agent/react";
 import { useMutation } from "convex/react";
-import { ConvexError } from "convex/values";
 import {
   CircleAlert,
   CircleStop,
@@ -23,7 +22,13 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-import { runNotice, type RunNotice, type RunSummary } from "./runState";
+import {
+  cancelErrorText,
+  runNotice,
+  shownCancelError,
+  type RunNotice,
+  type RunSummary,
+} from "./runState";
 import { hasText, type TimelineRow } from "./timeline";
 
 type Pointing = Doc<"chatAnnotations">["pointing"];
@@ -156,20 +161,14 @@ function RunLine({
   const cancel = useMutation(api.runs.cancelQueued);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
+  const shownError = shownCancelError(run, cancelError);
+
   async function onCancel() {
     setCancelError(null);
     try {
       await cancel({ runId: run._id });
     } catch (caught) {
-      const kind =
-        caught instanceof ConvexError
-          ? (caught.data as { kind?: string }).kind
-          : undefined;
-      setCancelError(
-        kind === "RunNotQueued"
-          ? "Utsavvy already started on this."
-          : "Couldn't cancel it. Try again.",
-      );
+      setCancelError(cancelErrorText(caught));
     }
   }
 
@@ -198,9 +197,9 @@ function RunLine({
           </Button>
         ) : null}
       </p>
-      {cancelError ? (
+      {shownError ? (
         <p role="status" className="px-1 text-caption text-warn">
-          {cancelError}
+          {shownError}
         </p>
       ) : null}
     </>

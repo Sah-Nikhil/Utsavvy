@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { Check, Link as LinkIcon, StickyNote } from "lucide-react";
 import { useState } from "react";
+import { sourceLabel } from "@/components/chat/timeline";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -115,9 +116,7 @@ export function Citations({
             >
               <span className="inline-flex min-w-0 items-center gap-1 text-action underline-offset-2 group-hover:underline">
                 <LinkIcon aria-hidden className="size-3 shrink-0" />
-                <span className="truncate">
-                  {source.title ?? hostOf(source.url)}
-                </span>
+                <span className="truncate">{sourceLabel(source)}</span>
               </span>
               {source.title ? (
                 <span className="truncate pl-4 text-ink-3">

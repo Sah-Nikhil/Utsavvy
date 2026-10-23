@@ -17,6 +17,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { describePointing } from "./ChatMessages";
+import { composerMode } from "./composerMode";
 
 /** Same limit as `convex/chat.ts`. */
 const MAX_MESSAGE_LENGTH = 4000;
@@ -59,6 +60,7 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
   const errorId = useId();
 
   const pointing = selection ? [selection] : [];
+  const mode = composerMode(selection !== null, dontReply);
   const canSend = text.trim().length > 0 && !sending;
 
   async function submit(event?: FormEvent) {
@@ -67,7 +69,7 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
     setSending(true);
     setError(null);
     try {
-      await send({ eventId, text, dontReply, pointing });
+      await send({ eventId, text, dontReply: mode.dontReply, pointing });
       setText("");
       setDontReply(false);
     } catch (caught) {
@@ -122,11 +124,7 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
         onKeyDown={onKeyDown}
         rows={2}
         maxLength={MAX_MESSAGE_LENGTH}
-        placeholder={
-          dontReply
-            ? "Message the other Members…"
-            : "Ask Utsavvy, or tell the Members…"
-        }
+        placeholder={mode.placeholder}
         aria-describedby={error ? errorId : undefined}
         className="max-h-40 min-h-[3.25rem] w-full resize-none [field-sizing:content] rounded-md border border-rule-strong bg-surface-raised px-3 py-2 text-body text-ink placeholder:text-ink-3 focus-visible:border-action focus-visible:outline-none"
       />
@@ -135,14 +133,20 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
           {error}
         </p>
       ) : null}
+      {mode.note ? (
+        <p className="text-caption text-ink-3" data-dont-reply-note>
+          {mode.note}
+        </p>
+      ) : null}
       <div className="flex items-center justify-end gap-3">
-        <Tooltip content={DONT_REPLY_TIP}>
+        <Tooltip content={mode.note ?? DONT_REPLY_TIP}>
           <span className="inline-flex" data-dont-reply>
             <Switch
               label="Don't reply"
-              checked={dontReply}
+              checked={mode.dontReply}
+              disabled={mode.dontReplyDisabled}
               onCheckedChange={setDontReply}
-              aria-description={DONT_REPLY_TIP}
+              aria-description={mode.note ?? DONT_REPLY_TIP}
             />
           </span>
         </Tooltip>

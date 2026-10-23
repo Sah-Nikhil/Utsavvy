@@ -1,4 +1,5 @@
 import type { FunctionReturnType } from "convex/server";
+import { ConvexError } from "convex/values";
 import type { api } from "@/convex/_generated/api";
 
 /** What `api.chat.details` returns when the caller can read the Chat. */
@@ -55,20 +56,50 @@ export function runNotice(
   }
 }
 
-/** Whether `membershipId` may stop the run at `now`, and how long they still wait. */
+/**
+ * Stop for the person looking at a running reply: Viewers get no Stop at all
+ * (the server refuses them), the asker may stop at once and other Members
+ * after 30 seconds. `secondsLeft` is how long they still wait.
+ */
 export function stopState(
   run: RunSummary,
-  membershipId: string,
+  me: { membershipId: string; canPost: boolean },
   now: number,
-): { allowed: boolean; secondsLeft: number } {
-  if (run.requestedBy === membershipId)
-    return { allowed: true, secondsLeft: 0 };
+): { visible: boolean; allowed: boolean; secondsLeft: number } {
+  if (!me.canPost) return { visible: false, allowed: false, secondsLeft: 0 };
+  if (run.requestedBy === me.membershipId)
+    return { visible: true, allowed: true, secondsLeft: 0 };
   const ranFor = now - (run.startedAt ?? now);
-  if (ranFor >= STOP_ANYONE_AFTER_MS) return { allowed: true, secondsLeft: 0 };
+  if (ranFor >= STOP_ANYONE_AFTER_MS)
+    return { visible: true, allowed: true, secondsLeft: 0 };
   return {
+    visible: true,
     allowed: false,
     secondsLeft: Math.ceil((STOP_ANYONE_AFTER_MS - ranFor) / 1000),
   };
+}
+
+/** What a failed Cancel tells the Member (L11). */
+export function cancelErrorText(error: unknown): string {
+  const kind =
+    error instanceof ConvexError
+      ? (error.data as { kind?: string }).kind
+      : undefined;
+  return kind === "RunNotQueued"
+    ? "Utsavvy already started on this."
+    : "Couldn't cancel it. Try again.";
+}
+
+/**
+ * The Cancel error to show under a run's notice: only while the message is
+ * still queued, so it doesn't linger under the notice that replaces it
+ * ("Stopped by …", the failed notice).
+ */
+export function shownCancelError(
+  run: RunSummary,
+  error: string | null,
+): string | null {
+  return run.status === "queued" ? error : null;
 }
 
 /** The Chat header's model line: the model that answered the latest reply. */

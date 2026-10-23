@@ -473,6 +473,36 @@ describe("chat.send limits", () => {
     ).toMatchObject({ kind: "QuoteTooLong", max: 500 });
   });
 
+  it("refuses a pointed passage whose field name is over 64 characters", async () => {
+    const s = await setUp();
+    const passage = (field: string) => ({
+      kind: "passage" as const,
+      itemId: s.noteId,
+      entryId: null,
+      field,
+      start: 0,
+      end: 3,
+      quote: "Mom",
+    });
+    expect(
+      await denialOf(
+        s.asRohan.mutation(api.chat.send, {
+          eventId: s.eventId,
+          text: "This bit?",
+          dontReply: false,
+          pointing: [passage("f".repeat(65))],
+        }),
+      ),
+    ).toMatchObject({ kind: "FieldTooLong", max: 64 });
+    const { runId } = await s.asRohan.mutation(api.chat.send, {
+      eventId: s.eventId,
+      text: "This bit?",
+      dontReply: false,
+      pointing: [passage("f".repeat(64))],
+    });
+    expect(runId).not.toBeNull();
+  });
+
   it("refuses pointing at a deleted Entry", async () => {
     const s = await setUp();
     const entryId = await s.t.run((ctx) =>
@@ -562,5 +592,58 @@ describe("a run nobody finished", () => {
     });
     await s.t.mutation(internal.runs.reapStale, { runId: runId! });
     expect((await runOf(s, runId!))?.status).toBe("done");
+  });
+});
+
+describe("older messages keep their details (L9)", () => {
+  it("has no window to fill in while the Chat is short", async () => {
+    const s = await setUp();
+    await send(s.asRohan, s.eventId, "Plan the sangeet");
+    const details = await s.asAditi.query(api.chat.details, {
+      eventId: s.eventId,
+    });
+    expect(details?.historyFrom).toBeNull();
+  });
+
+  it("fills in the author and run of a message older than the details' window", async () => {
+    const s = await setUp();
+    const first = await send(s.asRohan, s.eventId, "Who handles the haldi?");
+    for (let i = 1; i <= 300; i += 1) {
+      vi.setSystemTime(T0 + i * 1000);
+      await send(s.asAditi, s.eventId, `note ${i}`, { dontReply: true });
+    }
+    const details = await s.asAditi.query(api.chat.details, {
+      eventId: s.eventId,
+    });
+    expect(
+      details?.annotations.some((a) => a.messageId === first.messageId),
+    ).toBe(false);
+    expect(details?.historyFrom).not.toBeNull();
+
+    const history = await s.asAditi.query(api.chat.history, {
+      eventId: s.eventId,
+      since: T0,
+      until: details!.historyFrom!,
+    });
+    expect(
+      history?.annotations.find((a) => a.messageId === first.messageId),
+    ).toMatchObject({ authorName: "Rohan", dontReply: false });
+    expect(history?.runs.find((run) => run._id === first.runId)).toMatchObject({
+      requestedByName: "Rohan",
+      status: "queued",
+    });
+  }, 120_000);
+
+  it("shows nothing to someone outside the Event", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) => seedMembership(ctx, { clerkId: "Stranger" }));
+    const asStranger = s.t.withIdentity(identityFor("Stranger"));
+    expect(
+      await asStranger.query(api.chat.history, {
+        eventId: s.eventId,
+        since: T0,
+        until: T0 + 1000,
+      }),
+    ).toBeNull();
   });
 });

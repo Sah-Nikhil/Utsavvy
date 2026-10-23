@@ -19,6 +19,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ChatRow } from "./ChatMessages";
+import { announce, type AnnouncerState } from "./announcer";
 import { Composer } from "./Composer";
 import {
   modelCaption,
@@ -26,7 +27,7 @@ import {
   type ChatDetails,
   type RunSummary,
 } from "./runState";
-import { buildTimeline, hasText } from "./timeline";
+import { buildTimeline, historyRange, withHistory } from "./timeline";
 
 export type ChatPanelProps = { eventId: string };
 
@@ -145,10 +146,15 @@ function ChatBody({
     () => (threadId ? results : []),
     [threadId, results],
   );
-  const rows = useMemo(
-    () => buildTimeline(messages, details),
-    [messages, details],
+  // Messages older than the details' recent windows get their annotations
+  // and runs from `chat.history`.
+  const range = historyRange(messages, details);
+  const history = useQuery(
+    api.chat.history,
+    range ? { eventId, since: range.since, until: range.until } : "skip",
   );
+  const full = useMemo(() => withHistory(details, history), [details, history]);
+  const rows = useMemo(() => buildTimeline(messages, full), [messages, full]);
 
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -205,14 +211,12 @@ function ChatBody({
           </ol>
         )}
       </div>
-      <ReplyAnnouncer messages={messages} details={details} />
-      {active ? (
-        <ReplyingBar
-          run={active}
-          myMembershipId={details.me.membershipId}
-          canStop={details.me.canPost}
-        />
-      ) : null}
+      <ReplyAnnouncer
+        messages={messages}
+        details={full}
+        loading={status === "LoadingFirstPage"}
+      />
+      {active ? <ReplyingBar run={active} me={details.me} /> : null}
       {details.me.canPost ? (
         <Composer eventId={eventId} />
       ) : (
@@ -249,22 +253,14 @@ function useNow(enabled: boolean): number {
 }
 
 /** "Utsavvy is replying to Rohan" with Stop (rules 20 and 21). */
-function ReplyingBar({
-  run,
-  myMembershipId,
-  canStop,
-}: {
-  run: RunSummary;
-  myMembershipId: string;
-  /** Viewers can't stop a reply, so they get no Stop button at all. */
-  canStop: boolean;
-}) {
+function ReplyingBar({ run, me }: { run: RunSummary; me: ChatDetails["me"] }) {
   const stop = useMutation(api.runs.stop);
   const [error, setError] = useState<string | null>(null);
   const stopping = run.status === "stopping";
-  const mine = run.requestedBy === myMembershipId;
-  const now = useNow(canStop && !stopping && !mine);
-  const { allowed, secondsLeft } = stopState(run, myMembershipId, now);
+  const mine = run.requestedBy === me.membershipId;
+  const now = useNow(me.canPost && !stopping && !mine);
+  // Viewers get no Stop button at all.
+  const { visible, allowed, secondsLeft } = stopState(run, me, now);
 
   async function onStop() {
     setError(null);
@@ -310,7 +306,7 @@ function ReplyingBar({
           <span className="block text-caption text-warn">{error}</span>
         ) : null}
       </p>
-      {!canStop ? null : allowed || stopping ? (
+      {!visible ? null : allowed || stopping ? (
         button
       ) : (
         <Tooltip
@@ -332,11 +328,14 @@ function ReplyingBar({
 function ReplyAnnouncer({
   messages,
   details,
+  loading,
 }: {
   messages: UIMessage[];
   details: ChatDetails;
+  /** The first page is still loading, so the Chat has no messages yet. */
+  loading: boolean;
 }) {
-  const seen = useRef<Set<string> | null>(null);
+  const state = useRef<AnnouncerState>(null);
   const [announcement, setAnnouncement] = useState("");
   const cardMessages = useMemo(
     () =>
@@ -349,28 +348,16 @@ function ReplyAnnouncer({
   );
 
   useEffect(() => {
-    const finished = messages.filter(
-      (message) =>
-        message.role === "assistant" &&
-        message.status !== "streaming" &&
-        message.status !== "pending" &&
-        hasText(message),
-    );
-    if (seen.current === null) {
-      // Replies already in the Chat when it opens aren't news.
-      seen.current = new Set(finished.map((message) => message.key));
-      return;
-    }
-    const fresh = finished.filter((message) => !seen.current!.has(message.key));
-    if (fresh.length === 0) return;
-    for (const message of fresh) seen.current.add(message.key);
-    const latest = fresh.at(-1)!;
+    const result = announce(state.current, messages, loading);
+    state.current = result.state;
+    const latest = result.latest;
+    if (latest === null) return;
     setAnnouncement(
       cardMessages.has(latest.id)
         ? `Utsavvy: ${latest.text}`
         : `Utsavvy replied: ${latest.text}`,
     );
-  }, [messages, cardMessages]);
+  }, [messages, cardMessages, loading]);
 
   return (
     <div

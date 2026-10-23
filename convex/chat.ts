@@ -69,6 +69,8 @@ async function loadEvent(ctx: QueryCtx, eventId: Id<"events">) {
 export const MAX_POINTED = 5;
 /** A pointed passage longer than this is refused; it goes into the prompt. */
 export const MAX_POINTED_QUOTE = 500;
+/** A passage's field name longer than this is refused; it goes into the prompt too. */
+export const MAX_POINTED_FIELD = 64;
 
 /** Refuses pointing at too much, or at anything outside this Event or deleted. */
 async function checkPointing(
@@ -82,6 +84,9 @@ async function checkPointing(
   for (const target of pointing) {
     if (target.kind === "passage" && target.quote.length > MAX_POINTED_QUOTE) {
       throw new ConvexError({ kind: "QuoteTooLong", max: MAX_POINTED_QUOTE });
+    }
+    if (target.kind === "passage" && target.field.length > MAX_POINTED_FIELD) {
+      throw new ConvexError({ kind: "FieldTooLong", max: MAX_POINTED_FIELD });
     }
     const item = await ctx.db.get("items", target.itemId);
     if (item === null || item.eventId !== eventId || item.deletedAt !== null) {
@@ -204,9 +209,24 @@ const runSummaryValidator = v.object({
   endedAt: v.union(v.number(), v.null()),
 });
 
+const annotationValidator = v.object({
+  ...schema.tables.chatAnnotations.validator.fields,
+  _id: v.id("chatAnnotations"),
+  _creationTime: v.number(),
+  authorName: v.string(),
+});
+
 /** How many recent runs and annotations the Chat loads beside its messages. */
 const RECENT_RUNS = 100;
 const RECENT_ANNOTATIONS = 300;
+/** At most this many of each for one stretch of older Chat. */
+const HISTORY_LIMIT = 1000;
+/**
+ * A message's annotation and run are written in the same mutation as the
+ * message, a moment after it; this margin makes sure a range that starts at
+ * the message's creation time still finds them.
+ */
+const HISTORY_MARGIN_MS = 1000;
 
 /** Single letters from other scripts that pass for Latin ones in "Utsavvy". */
 const CONFUSABLES: Record<string, string> = {
@@ -275,6 +295,53 @@ async function nameOf(
   return name;
 }
 
+async function withAuthor(
+  ctx: QueryCtx,
+  annotation: Doc<"chatAnnotations">,
+  names: Map<string, string>,
+) {
+  return {
+    ...annotation,
+    authorName: await nameOf(ctx, annotation.authorMembershipId, names),
+  };
+}
+
+async function runSummary(
+  ctx: QueryCtx,
+  run: Doc<"runs">,
+  names: Map<string, string>,
+) {
+  return {
+    _id: run._id,
+    messageId: run.messageId,
+    status: run.status,
+    requestedBy: run.requestedBy,
+    requestedByName: await nameOf(ctx, run.requestedBy, names),
+    stoppedByName:
+      run.stoppedBy === null ? null : await nameOf(ctx, run.stoppedBy, names),
+    model: run.model,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt,
+  };
+}
+
+/** The caller's membership when they can read the Event's Chat, or null. */
+async function chatReader(
+  ctx: QueryCtx,
+  rawEventId: string,
+): Promise<{ eventId: Id<"events">; membership: Doc<"memberships"> } | null> {
+  const eventId = ctx.db.normalizeId("events", rawEventId);
+  if (eventId === null) return null;
+  try {
+    const { membership } = await requireAccess(ctx, eventId, "canvas.view");
+    return { eventId, membership };
+  } catch (error) {
+    if (error instanceof AccessDenied) return null;
+    throw error;
+  }
+}
+
 /**
  * Everything the Chat shows beside the message text: the thread, the caller's
  * own membership, who wrote each message and with which toggles, the recent
@@ -293,15 +360,14 @@ export const details = query({
         membershipId: v.id("memberships"),
         canPost: v.boolean(),
       }),
-      annotations: v.array(
-        v.object({
-          ...schema.tables.chatAnnotations.validator.fields,
-          _id: v.id("chatAnnotations"),
-          _creationTime: v.number(),
-          authorName: v.string(),
-        }),
-      ),
+      annotations: v.array(annotationValidator),
       runs: v.array(runSummaryValidator),
+      /**
+       * Annotations and runs from before this time may be missing (a recent
+       * window is full); `history` fills them in for older messages. Null
+       * when nothing is missing.
+       */
+      historyFrom: v.union(v.number(), v.null()),
       latestModel: v.union(
         v.object({ model: v.string(), fallback: v.boolean() }),
         v.null(),
@@ -309,54 +375,39 @@ export const details = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const eventId = ctx.db.normalizeId("events", args.eventId);
-    if (eventId === null) return null;
-    let membership: Doc<"memberships">;
-    try {
-      ({ membership } = await requireAccess(ctx, eventId, "canvas.view"));
-    } catch (error) {
-      if (error instanceof AccessDenied) return null;
-      throw error;
-    }
+    const reader = await chatReader(ctx, args.eventId);
+    if (reader === null) return null;
+    const { eventId, membership } = reader;
     const event = await loadEvent(ctx, eventId);
     const names = new Map<string, string>();
 
-    const annotations = [];
     const recentAnnotations = await ctx.db
       .query("chatAnnotations")
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
       .order("desc")
       .take(RECENT_ANNOTATIONS);
-    for (const annotation of recentAnnotations.reverse()) {
-      annotations.push({
-        ...annotation,
-        authorName: await nameOf(ctx, annotation.authorMembershipId, names),
-      });
+    const annotations = [];
+    for (const annotation of [...recentAnnotations].reverse()) {
+      annotations.push(await withAuthor(ctx, annotation, names));
     }
 
-    const runs = [];
     const recentRuns = await ctx.db
       .query("runs")
       .withIndex("by_event_created", (q) => q.eq("eventId", eventId))
       .order("desc")
       .take(RECENT_RUNS);
-    for (const run of recentRuns.reverse()) {
-      runs.push({
-        _id: run._id,
-        messageId: run.messageId,
-        status: run.status,
-        requestedBy: run.requestedBy,
-        requestedByName: await nameOf(ctx, run.requestedBy, names),
-        stoppedByName:
-          run.stoppedBy === null
-            ? null
-            : await nameOf(ctx, run.stoppedBy, names),
-        model: run.model,
-        createdAt: run.createdAt,
-        startedAt: run.startedAt,
-        endedAt: run.endedAt,
-      });
+    const runs = [];
+    for (const run of [...recentRuns].reverse()) {
+      runs.push(await runSummary(ctx, run, names));
     }
+
+    // Where each full window starts; anything older may be missing.
+    const windowStarts = [
+      recentAnnotations.length === RECENT_ANNOTATIONS
+        ? recentAnnotations.at(-1)!._creationTime
+        : null,
+      recentRuns.length === RECENT_RUNS ? recentRuns.at(-1)!.createdAt : null,
+    ].filter((time) => time !== null);
 
     const answered = runs.findLast((run) => run.model !== "");
     return {
@@ -367,6 +418,7 @@ export const details = query({
       },
       annotations,
       runs,
+      historyFrom: windowStarts.length > 0 ? Math.max(...windowStarts) : null,
       latestModel: answered
         ? {
             model: answered.model,
@@ -380,24 +432,80 @@ export const details = query({
 });
 
 /**
+ * The annotations and runs for a stretch of older Chat, from `since` (the
+ * oldest loaded message's creation time) to `until` (`details.historyFrom`),
+ * so messages loaded with "Show earlier messages" keep their author, Don't
+ * reply state, run notices and Undo all. Null without access, like `details`.
+ */
+export const history = query({
+  args: { eventId: v.string(), since: v.number(), until: v.number() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      annotations: v.array(annotationValidator),
+      runs: v.array(runSummaryValidator),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const reader = await chatReader(ctx, args.eventId);
+    if (reader === null) return null;
+    const { eventId } = reader;
+    const from = args.since - HISTORY_MARGIN_MS;
+    const names = new Map<string, string>();
+
+    const olderAnnotations = await ctx.db
+      .query("chatAnnotations")
+      .withIndex("by_event", (q) =>
+        q
+          .eq("eventId", eventId)
+          .gte("_creationTime", from)
+          .lte("_creationTime", args.until),
+      )
+      .take(HISTORY_LIMIT);
+    const annotations = [];
+    for (const annotation of olderAnnotations) {
+      annotations.push(await withAuthor(ctx, annotation, names));
+    }
+
+    const olderRuns = await ctx.db
+      .query("runs")
+      .withIndex("by_event_created", (q) =>
+        q
+          .eq("eventId", eventId)
+          .gte("createdAt", from)
+          .lte("createdAt", args.until),
+      )
+      .take(HISTORY_LIMIT);
+    const runs = [];
+    for (const run of olderRuns) {
+      runs.push(await runSummary(ctx, run, names));
+    }
+    return { annotations, runs };
+  },
+});
+
+/**
  * Posts a message as Utsavvy without a model call: Nudges (S17), Proposal
  * cards (S10) and notices. `card` picks the card the Chat renders from the
  * card registry; `text` is the line shown with it and the Assistant reads it
- * in later replies.
+ * in later replies. With `promptMessageId` the line joins that message's
+ * reply, at the same place in the thread, instead of going to the end.
  */
 export const postSystem = internalMutation({
   args: {
     eventId: v.id("events"),
     card: cardValidator,
     text: v.optional(v.string()),
+    promptMessageId: v.optional(v.string()),
   },
   returns: v.string(),
-  handler: async (ctx, { eventId, card, text }) => {
+  handler: async (ctx, { eventId, card, text, promptMessageId }) => {
     const threadId = await ensureThread(ctx, await loadEvent(ctx, eventId));
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId,
       agentName: ASSISTANT_NAME,
       message: { role: "assistant", content: text ?? "" },
+      promptMessageId,
     });
     await ctx.db.insert("chatAnnotations", {
       eventId,
@@ -417,6 +525,10 @@ export const postSystem = internalMutation({
  * answers, the asker, and labels for recent messages (who wrote each, and
  * whether it was a Don't-reply message), so the model reads the Chat with each
  * author's name (section 4.5, "Context").
+ *
+ * Null for a run with no Chat message, so `respond` fails it: S5 only queues
+ * Chat runs. A slice that queues runs from a Comment, Nudge or Brief without a
+ * Chat message (S10, S17) must post that message first or extend this.
  */
 export const runContext = internalQuery({
   args: { runId: v.id("runs") },
