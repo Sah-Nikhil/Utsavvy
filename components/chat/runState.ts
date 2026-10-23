@@ -90,12 +90,16 @@ export function cancelErrorText(error: unknown): string {
     : "Couldn't cancel it. Try again.";
 }
 
-/** The Cancel error to show under a run's notice. */
+/**
+ * The Cancel error to show under a run's notice: only while the message is
+ * still queued, so it doesn't linger under the notice that replaces it
+ * ("Stopped by …", the failed notice).
+ */
 export function shownCancelError(
-  _run: RunSummary,
+  run: RunSummary,
   error: string | null,
 ): string | null {
-  return error;
+  return run.status === "queued" ? error : null;
 }
 
 /** The Chat header's model line: the model that answered the latest reply. */
