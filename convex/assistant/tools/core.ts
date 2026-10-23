@@ -1,4 +1,4 @@
-import { createTool } from "@convex-dev/agent";
+import { createThread, createTool, saveMessage } from "@convex-dev/agent";
 import type { Tool } from "ai";
 import { ConvexError, v, type Value } from "convex/values";
 import { z } from "zod";
@@ -40,6 +40,7 @@ import type { CityTier, EventType } from "../../../lib/types";
 import { components, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
+  env,
   internalMutation,
   internalQuery,
   mutation,
@@ -2409,3 +2410,127 @@ function stripUndefined<T extends object>(value: T): T {
 }
 
 export const coreTools: CoreTools = buildCoreTools();
+
+// ---------------------------------------------------------------------------
+// Local browser checks only
+
+function refuseOutsideLocal() {
+  const url = env.CONVEX_CLOUD_URL ?? "";
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    throw new Error("Only for a local Convex deployment");
+  }
+}
+
+/**
+ * What a web search reply leaves behind, without a model: a request from the
+ * person with `email`, Utsavvy's answer with two cited sources, a Note added
+ * through `addItemForRun` as "Utsavvy for <them>", and `pointAtForRun` on it.
+ * For e2e/assistant.spec.ts against `bun run dev`; refuses anything but a
+ * local deployment.
+ */
+export const webAnswerForLocalCheck = internalMutation({
+  args: { eventId: v.id("events"), email: v.string() },
+  returns: v.object({ noteId: v.id("items"), messageId: v.string() }),
+  handler: async (ctx, { eventId, email }) => {
+    refuseOutsideLocal();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    const membership =
+      user &&
+      (await ctx.db
+        .query("memberships")
+        .withIndex("by_event_user", (q) =>
+          q.eq("eventId", eventId).eq("userId", user._id),
+        )
+        .unique());
+    if (!membership) throw new Error(`${email} is not in that Event`);
+    const event = (await ctx.db.get("events", eventId))!;
+    let threadId = event.agentThreadId;
+    if (threadId === null) {
+      threadId = await createThread(ctx, components.agent, {
+        title: event.name,
+      });
+      await ctx.db.patch("events", eventId, { agentThreadId: threadId });
+    }
+    const request = await saveMessage(ctx, components.agent, {
+      threadId,
+      userId: membership._id,
+      prompt: "What do Pune caterers charge per plate for a wedding?",
+    });
+    await ctx.db.insert("chatAnnotations", {
+      eventId,
+      messageId: request.messageId,
+      authorMembershipId: membership._id,
+      dontReply: false,
+      mentions: [],
+      pointing: [],
+      card: null,
+    });
+    const runId = await ctx.db.insert("runs", {
+      eventId,
+      requestedBy: membership._id,
+      source: "chat",
+      messageId: request.messageId,
+      commentId: null,
+      status: "running",
+      stoppedBy: null,
+      model: "check",
+      createdAt: Date.now(),
+      startedAt: Date.now(),
+      endedAt: null,
+    });
+    const answer = await saveMessage(ctx, components.agent, {
+      threadId,
+      agentName: "Utsavvy",
+      promptMessageId: request.messageId,
+      message: {
+        role: "assistant",
+        content:
+          "Pune caterers list about ₹900 to ₹1,600 per plate for a wedding, researched just now. I saved the range as a Note.",
+      },
+      metadata: {
+        finishReason: "stop",
+        sources: [
+          {
+            type: "source",
+            sourceType: "url",
+            id: "check-1",
+            url: "https://example.com/pune-caterer-menu",
+            title: "Wedding menus and per-plate prices",
+          },
+          {
+            type: "source",
+            sourceType: "url",
+            id: "check-2",
+            url: "https://example.org/pune-wedding-catering",
+          },
+        ],
+      },
+    });
+    const ref = { runId, eventId, forMembershipId: membership._id };
+    const added: ToolResult = await ctx.runMutation(
+      internal.assistant.tools.core.addItemForRun,
+      {
+        ...ref,
+        toolCallId: "check_1",
+        sectionId: null,
+        functionKey: null,
+        item: {
+          kind: "note",
+          text: "Pune catering: about ₹900 to ₹1,600 per plate (researched).",
+        },
+      },
+    );
+    if (!added.ok) throw new Error(added.message);
+    const noteId = added.itemId as Id<"items">;
+    await ctx.runMutation(internal.assistant.tools.core.pointAtForRun, {
+      ...ref,
+      toolCallId: "check_2",
+      targets: [{ kind: "item", itemId: noteId }],
+    });
+    await ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() });
+    return { noteId, messageId: answer.messageId };
+  },
+});
