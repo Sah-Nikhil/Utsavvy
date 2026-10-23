@@ -3,6 +3,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import {
   APICallError,
   generateText,
+  NoObjectGeneratedError,
   RetryError,
   type LanguageModel,
   type ModelMessage,
@@ -172,6 +173,7 @@ export type ResearchReport = {
   failures: ResearchFailure[];
   /** The Assistant's own estimate (the knowledge call), when it ran. */
   knowledgeUsage: ModelUsage[];
+  knowledgeMs: number;
 };
 
 export type EstimateDeps = {
@@ -376,6 +378,7 @@ export async function estimateLines(
   if (unknown.length > 0) {
     let knowledge: KnowledgeOutput | null = null;
     report ??= emptyReport();
+    const knowledgeStarted = Date.now();
     try {
       knowledge = await deps.knowledge({
         eventType: args.eventType,
@@ -391,6 +394,7 @@ export async function estimateLines(
         `Assistant's own estimate failed in ${city}: ${describeError(error)}`,
       );
     }
+    report.knowledgeMs = Date.now() - knowledgeStarted;
     report.knowledgeUsage.push(...(knowledge?.usage ?? []));
     for (const result of knowledge?.results ?? []) {
       const group = unknown.find((g) => g.first === result.key);
@@ -426,6 +430,7 @@ function emptyReport(): ResearchReport {
     inFlightAtDeadline: 0,
     failures: [],
     knowledgeUsage: [],
+    knowledgeMs: 0,
   };
 }
 
@@ -691,6 +696,7 @@ async function research(
     inFlightAtDeadline: inFlight.length,
     failures,
     knowledgeUsage: [],
+    knowledgeMs: 0,
   };
 }
 
@@ -1006,7 +1012,12 @@ export type ResearchCalls = {
     input: ResearchInput,
     findings: string,
     resultUrls: string[],
-  ) => Promise<{ estimates: ResearchOutput["results"]; usage: ModelUsage }>;
+  ) => Promise<{
+    estimates: ResearchOutput["results"];
+    usage: ModelUsage;
+    /** Why the extraction gave nothing usable, such as output that didn't parse. */
+    failure?: string;
+  }>;
 };
 
 /**
@@ -1080,6 +1091,9 @@ export async function researchLine(
   const extracted = await calls.extract(input, text, [...new Set(urls)]);
   usage.push(extracted.usage);
   meter.usage.push(extracted.usage);
+  if (extracted.failure) {
+    return output([], { reason: "noOutput", detail: extracted.failure });
+  }
   if (extracted.estimates.length === 0) {
     return output(
       [],
@@ -1114,6 +1128,25 @@ function billedSearches(providerMetadata: unknown): number | null {
     | undefined;
   const count = anthropic?.usage?.server_tool_use?.web_search_requests;
   return typeof count === "number" ? count : null;
+}
+
+/**
+ * A structured-output call whose reply didn't parse (for example JSON cut off
+ * at the output cap) was still billed: keep its usage and say why.
+ */
+function unparsedOutput(
+  error: unknown,
+  model: string,
+): { usage: ModelUsage; detail: string } | null {
+  if (!NoObjectGeneratedError.isInstance(error)) return null;
+  return {
+    usage: {
+      model,
+      inputTokens: error.usage?.inputTokens ?? 0,
+      outputTokens: error.usage?.outputTokens ?? 0,
+    },
+    detail: `the structured output didn't parse (finish reason: ${error.finishReason ?? "unknown"})`,
+  };
 }
 
 /** An AI SDK model for a Claude or Gemini model name, on the app's own key. */
@@ -1178,10 +1211,12 @@ export function liveResearchCalls(
     extract: async (input, findings, urls) => {
       const call = buildExtractCall(input, findings, urls);
       // An extraction job: the helper model, falling back to Gemini (#75).
-      const { result, model: used } = await withModelFallback(
-        modelChain("helper", env),
-        (id) =>
-          generateText({
+      let tried = "";
+      let outcome;
+      try {
+        outcome = await withModelFallback(modelChain("helper", env), (id) => {
+          tried = id;
+          return generateText({
             model: languageModel(id, options.fetch),
             system: call.system,
             prompt: call.prompt,
@@ -1189,8 +1224,18 @@ export function liveResearchCalls(
             providerOptions: call.providerOptions,
             maxOutputTokens: call.maxOutputTokens,
             abortSignal: input.abortSignal,
-          }),
-      );
+          });
+        });
+      } catch (error) {
+        const unparsed = unparsedOutput(error, tried);
+        if (!unparsed) throw error;
+        return {
+          estimates: [],
+          usage: unparsed.usage,
+          failure: `the extraction's ${unparsed.detail.replace(/^the /, "")}`,
+        };
+      }
+      const { result, model: used } = outcome;
       return {
         estimates: result.output.estimates,
         usage: {
@@ -1240,25 +1285,38 @@ const KNOWLEDGE_SYSTEM = `You estimate current prices for events in India from y
 
 For each budget line, give a low and a high price per unit in Indian rupees for the given city, and one sentence of reasoning. Give prices per unit only: never multiply by a quantity and never give a total. Leave a line out if you can't estimate it.`;
 
-async function liveKnowledge(
+/** The live knowledge call. `fetch` is for tests. */
+export async function liveKnowledge(
   input: KnowledgeInput,
+  options: { fetch?: typeof globalThis.fetch } = {},
 ): Promise<KnowledgeOutput | null> {
   const prompt = `Event type: ${input.eventType}\nCity: ${input.city}, India\n\nBudget lines:\n${input.lines
     .map((l) => `- key ${l.key}: ${l.label} (${unitWords(l.unit)})`)
     .join("\n")}`;
   // The default model, falling back to Gemini when Claude can't answer (#75).
-  const { result, model } = await withModelFallback(
-    modelChain("assistant", env),
-    (id) =>
-      generateText({
-        model: languageModel(id),
+  let tried = "";
+  let outcome;
+  try {
+    outcome = await withModelFallback(modelChain("assistant", env), (id) => {
+      tried = id;
+      return generateText({
+        model: languageModel(id, options.fetch),
         system: KNOWLEDGE_SYSTEM,
         prompt,
         output: Output.object({
           schema: z.object({ estimates: z.array(knowledgeEstimateSchema) }),
         }),
-      }),
-  );
+      });
+    });
+  } catch (error) {
+    const unparsed = unparsedOutput(error, tried);
+    if (!unparsed) throw error;
+    console.warn(
+      `Assistant's own estimate gave nothing in ${input.city}: ${unparsed.detail}`,
+    );
+    return { model: tried, usage: [unparsed.usage], results: [] };
+  }
+  const { result, model } = outcome;
   return {
     model,
     usage: [
@@ -1276,7 +1334,7 @@ async function liveKnowledge(
 export function liveEstimateDeps(): EstimateDeps {
   return {
     research: liveResearch,
-    knowledge: liveKnowledge,
+    knowledge: (input) => liveKnowledge(input),
     // Research runs on the default model, so it also needs that model to be Claude.
     claudeReachable: () => claudeReachable(env) && isClaude(defaultModel()),
     now: () => Date.now(),
