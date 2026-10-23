@@ -26,7 +26,7 @@ import {
   type RunNotice,
   type RunSummary,
 } from "./runState";
-import { hasText, type TimelineRow } from "./timeline";
+import { hasText, sourceLabel, type TimelineRow } from "./timeline";
 
 type Pointing = Doc<"chatAnnotations">["pointing"];
 
@@ -301,9 +301,7 @@ function Sources({ sources }: { sources: Source[] }) {
               className="inline-flex min-w-0 items-center gap-1 text-action underline-offset-2 hover:underline"
             >
               <LinkIcon aria-hidden className="size-3 shrink-0" />
-              <span className="truncate">
-                {source.title ?? new URL(source.url).hostname}
-              </span>
+              <span className="truncate">{sourceLabel(source)}</span>
             </a>
           </li>
         ))}

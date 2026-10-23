@@ -152,5 +152,7 @@ export function sourceLabel(source: {
   url: string;
   title: string | undefined;
 }): string {
-  return source.title ?? new URL(source.url).hostname;
+  if (source.title !== undefined) return source.title;
+  // A provider can send a URL that doesn't parse; show it as it is.
+  return URL.canParse(source.url) ? new URL(source.url).hostname : source.url;
 }
