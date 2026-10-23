@@ -216,13 +216,7 @@ function ChatBody({
         details={full}
         loading={status === "LoadingFirstPage"}
       />
-      {active ? (
-        <ReplyingBar
-          run={active}
-          myMembershipId={details.me.membershipId}
-          canStop={details.me.canPost}
-        />
-      ) : null}
+      {active ? <ReplyingBar run={active} me={details.me} /> : null}
       {details.me.canPost ? (
         <Composer eventId={eventId} />
       ) : (
@@ -259,22 +253,14 @@ function useNow(enabled: boolean): number {
 }
 
 /** "Utsavvy is replying to Rohan" with Stop (rules 20 and 21). */
-function ReplyingBar({
-  run,
-  myMembershipId,
-  canStop,
-}: {
-  run: RunSummary;
-  myMembershipId: string;
-  /** Viewers can't stop a reply, so they get no Stop button at all. */
-  canStop: boolean;
-}) {
+function ReplyingBar({ run, me }: { run: RunSummary; me: ChatDetails["me"] }) {
   const stop = useMutation(api.runs.stop);
   const [error, setError] = useState<string | null>(null);
   const stopping = run.status === "stopping";
-  const mine = run.requestedBy === myMembershipId;
-  const now = useNow(canStop && !stopping && !mine);
-  const { allowed, secondsLeft } = stopState(run, myMembershipId, now);
+  const mine = run.requestedBy === me.membershipId;
+  const now = useNow(me.canPost && !stopping && !mine);
+  // Viewers get no Stop button at all.
+  const { visible, allowed, secondsLeft } = stopState(run, me, now);
 
   async function onStop() {
     setError(null);
@@ -320,7 +306,7 @@ function ReplyingBar({
           <span className="block text-caption text-warn">{error}</span>
         ) : null}
       </p>
-      {!canStop ? null : allowed || stopping ? (
+      {!visible ? null : allowed || stopping ? (
         button
       ) : (
         <Tooltip
