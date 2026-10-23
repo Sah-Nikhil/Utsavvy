@@ -849,13 +849,10 @@ export const respond = internalAction({
       stopWatching();
     }
 
-    await ctx.runMutation(internal.runs.finish, {
-      runId,
-      outcome: failed ? "failed" : "done",
-    });
-
     // The asker was removed or made a Viewer mid-reply (section 4.3): from
     // that moment their tools are refused, and the reply ends with a notice.
+    // It joins the reply's place in the thread and is posted before `finish`
+    // starts the next run, so it never lands below the next request.
     const after = await ctx.runQuery(internal.chat.runContext, { runId });
     if (after !== null && !after.askerActive) {
       await ctx.runMutation(internal.chat.postSystem, {
@@ -864,8 +861,14 @@ export const respond = internalAction({
         // No name here: the Chat already shows whom the reply was for, and a
         // display name is Member-written text.
         text: "The Member who asked no longer has access to this Event, so I stopped changing it.",
+        promptMessageId: context.promptMessageId,
       });
     }
+
+    await ctx.runMutation(internal.runs.finish, {
+      runId,
+      outcome: failed ? "failed" : "done",
+    });
     return null;
   },
 });

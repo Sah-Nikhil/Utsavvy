@@ -383,21 +383,24 @@ export const details = query({
  * Posts a message as Utsavvy without a model call: Nudges (S17), Proposal
  * cards (S10) and notices. `card` picks the card the Chat renders from the
  * card registry; `text` is the line shown with it and the Assistant reads it
- * in later replies.
+ * in later replies. With `promptMessageId` the line joins that message's
+ * reply, at the same place in the thread, instead of going to the end.
  */
 export const postSystem = internalMutation({
   args: {
     eventId: v.id("events"),
     card: cardValidator,
     text: v.optional(v.string()),
+    promptMessageId: v.optional(v.string()),
   },
   returns: v.string(),
-  handler: async (ctx, { eventId, card, text }) => {
+  handler: async (ctx, { eventId, card, text, promptMessageId }) => {
     const threadId = await ensureThread(ctx, await loadEvent(ctx, eventId));
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId,
       agentName: ASSISTANT_NAME,
       message: { role: "assistant", content: text ?? "" },
+      promptMessageId,
     });
     await ctx.db.insert("chatAnnotations", {
       eventId,
