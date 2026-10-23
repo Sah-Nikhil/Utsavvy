@@ -54,6 +54,7 @@ import {
   planItemOf,
   rescaleEstimate,
 } from "../../entries";
+import { memberName } from "../../chat";
 import { estimateLines, type EstimateDeps } from "../../estimates";
 import { requireAccess, requireAccessFor } from "../../lib/access";
 import { AccessDenied, VersionConflict } from "../../lib/errors";
@@ -823,19 +824,32 @@ export const readChatForRun = internalQuery({
         .withIndex("by_message", (q) => q.eq("messageId", doc._id))
         .unique();
       if (annotation && annotation.eventId !== args.eventId) continue;
-      if (
-        doc.message?.role === "assistant" &&
-        !annotation?.authorMembershipId
-      ) {
-        messages.push({ messageId: doc._id, from: "Utsavvy", text });
+      if (doc.message?.role === "assistant") {
+        // As in the reply's own context (S5): only a step the model generated
+        // (it has a `finishReason`) is Utsavvy's own words; any other
+        // assistant-role line, such as a `postSystem` notice, is a notice.
+        const generated = doc.finishReason !== undefined && annotation === null;
+        messages.push(
+          generated
+            ? { messageId: doc._id, kind: "assistant", from: "Utsavvy", text }
+            : {
+                messageId: doc._id,
+                kind: "notice",
+                text: wrapOutside(text, {
+                  source: "app notice",
+                  addedBy: null,
+                }),
+              },
+        );
         continue;
       }
       const author = annotation?.authorMembershipId
         ? await ctx.db.get("memberships", annotation.authorMembershipId)
         : null;
-      const name = author?.displayName ?? "A Member";
+      const name = memberName(author?.displayName ?? "A Member");
       messages.push({
         messageId: doc._id,
+        kind: "member",
         from: name,
         dontReply: annotation?.dontReply ?? false,
         text: wrapOutside(text, { source: "Chat", addedBy: name }),
@@ -1818,7 +1832,17 @@ export const saveAnswerAsNote = mutation({
     );
     if (!doc || doc.threadId !== event.agentThreadId)
       throw new AccessDenied("wrongEvent", "canvas.edit");
-    if (doc.message?.role !== "assistant")
+    // Only a reply the model generated, never a Member's message or an app
+    // notice posted through `postSystem` (S5's rule for what is Utsavvy's).
+    const notice = await ctx.db
+      .query("chatAnnotations")
+      .withIndex("by_message", (q) => q.eq("messageId", doc._id))
+      .unique();
+    if (
+      doc.message?.role !== "assistant" ||
+      doc.finishReason === undefined ||
+      notice !== null
+    )
       invalid("Only Utsavvy's answers can be saved as a Note.");
 
     // A reply with tool steps is several messages at the same order.
