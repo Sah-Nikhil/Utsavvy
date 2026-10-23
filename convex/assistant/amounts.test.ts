@@ -50,6 +50,38 @@ describe("checkMemberStatedAmount", () => {
   });
 });
 
+describe("checkMemberStatedAmount counts only money (review M3)", () => {
+  it.each([
+    [15_000, "15 k"],
+    [150_000, "1.5L"],
+    [150_000, "1.5lakhs for decor"],
+    [150_000, "₹1,50,000"],
+    [20_000_000, "2 करोड़ का budget"],
+    [200_000, "2 lacs"],
+    [50_000, "0.5L"],
+    [15_000, "Rs.15000/- for the mehendi"],
+    [15_000, "INR15k"],
+    [15_000, "15000 rupees for the DJ"],
+    [15_000, "मेहंदी ₹१५,०००"],
+  ])("accepts %i for %j", (amount, text) => {
+    expect(checkMemberStatedAmount(amount, text)).toBe(true);
+  });
+
+  it.each([
+    [300, "300 guests, add a caterer"],
+    [2027, "wedding on 14 Feb 2027, add a DJ"],
+    [9_876_543_210, "call 9876543210"],
+    [15_000, "15000"],
+    [1_500, "1,500 guests at the reception"],
+    [1_200, "300 guests at ₹1,200 a plate"],
+    [1_200, "caterer at ₹1,200 per plate"],
+    [1_200, "₹1,200/plate"],
+    [360_000, "300 guests at ₹1,200 a plate"],
+  ])("refuses %i for %j", (amount, text) => {
+    expect(checkMemberStatedAmount(amount, text)).toBe(false);
+  });
+});
+
 describe("exceedsProposalThresholds", () => {
   const budget = 1_200_000;
 
@@ -124,11 +156,23 @@ describe("exceedsProposalThresholds", () => {
     expect(exceedsProposalThresholds(inserts, budget)).toMatch(/5/);
   });
 
-  it("checks no share without a Budget total", () => {
+  it("caps a reply's shift at ₹50,000 when no Budget total is set (review L1)", () => {
     expect(
       exceedsProposalThresholds(
         [{ op: "addEntry", docId: null, amountShift: 500_000 }],
         null,
+      ),
+    ).toMatch(/₹50,000/);
+    expect(
+      exceedsProposalThresholds(
+        [{ op: "addEntry", docId: null, amountShift: 50_000 }],
+        null,
+      ),
+    ).toBeNull();
+    expect(
+      exceedsProposalThresholds(
+        [{ op: "addEntry", docId: null, amountShift: 15_000 }],
+        0,
       ),
     ).toBeNull();
   });
