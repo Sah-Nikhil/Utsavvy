@@ -4,6 +4,7 @@ export * from "./actors";
 export * from "./brief";
 export * from "./canvas";
 export * from "./estimates";
+export * from "./functions";
 export * from "./history";
 export * from "./proposals";
 export * from "./roles";

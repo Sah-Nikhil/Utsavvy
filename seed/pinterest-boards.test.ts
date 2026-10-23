@@ -1,54 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { isFunctionKey } from "../lib/types/functions";
 import boards from "./pinterest-boards.json";
 
 // S21: the boards on Utsavvy's own Pinterest account (ADR 0014).
 
-/**
- * Function keys from the Brief's default Functions (docs/design/first-brief.md,
- * the Tradition table and the birthday and community defaults) and its worked
- * examples, written lowercase with underscores. CONTEXT.md names Functions but
- * keeps no list of keys, so this list is the check until it does.
- */
-const FUNCTION_KEYS = new Set([
-  // North Indian Hindu, Marwari / Rajasthani
-  "haldi",
-  "mehendi",
-  "sangeet",
-  "wedding",
-  "reception",
-  "tilak",
-  "mayra",
-  // Punjabi or Sikh
-  "roka",
-  "chunni",
-  "jaggo",
-  "anand_karaj",
-  // Muslim
-  "manjha",
-  "nikah",
-  "walima",
-  // South Indian Hindu
-  "nichayathartham",
-  "muhurtham",
-  // Bengali
-  "aashirbaad",
-  "gaye_holud",
-  "biye",
-  "bou_bhaat",
-  // Christian
-  "engagement",
-  "church_wedding",
-  // Birthdays
-  "party",
-  "puja",
-  "dinner",
-  "shashtipoorthi",
-  // Community: Ganesh utsav
-  "sthapana",
-  "daily_aarti",
-  "cultural_night",
-  "visarjan",
-]);
 const EVENT_TYPES = new Set(["wedding", "birthday", "community"]);
 const BOARD_URL =
   /^https:\/\/www\.pinterest\.com\/([A-Za-z0-9_]+)\/([A-Za-z0-9_-]+)\/$/;
@@ -83,7 +38,7 @@ function seedProblems(list: unknown[]): string[] {
       problems.push(`${name}: no functionKeys list`);
     else
       for (const key of board.functionKeys)
-        if (!FUNCTION_KEYS.has(key as string))
+        if (!isFunctionKey(key as string))
           problems.push(`${name}: unknown Function key ${String(key)}`);
   });
   if (accounts.size > 1)
