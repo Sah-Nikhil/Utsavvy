@@ -748,6 +748,7 @@ export function watchForStop(
   abort: AbortController,
 ): () => void {
   let done = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const check = async () => {
     if (done || abort.signal.aborted) return;
     try {
@@ -759,11 +760,12 @@ export function watchForStop(
     } catch {
       // A failed check is retried on the next tick.
     }
-    if (!done) setTimeout(() => void check(), STOP_POLL_MS);
+    if (!done) timer = setTimeout(() => void check(), STOP_POLL_MS);
   };
-  setTimeout(() => void check(), STOP_POLL_MS);
+  timer = setTimeout(() => void check(), STOP_POLL_MS);
   return () => {
     done = true;
+    clearTimeout(timer);
   };
 }
 
