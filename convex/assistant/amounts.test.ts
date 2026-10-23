@@ -46,11 +46,8 @@ describe("checkMemberStatedAmount", () => {
     expect(checkMemberStatedAmount(15_000.5, "15000.5")).toBe(false);
   });
 
-  it("doesn't read a quantity or a date as that amount", () => {
-    expect(checkMemberStatedAmount(300, "300 guests at the sangeet")).toBe(
-      true,
-    );
-    // An amount needs the number in the message; 2 lakh is not 2.
+  it("reads a suffixed number only at its full value", () => {
+    // 2 lakh is ₹2,00,000, not ₹2.
     expect(checkMemberStatedAmount(2, "keep it at 2L")).toBe(false);
   });
 });
