@@ -10,12 +10,26 @@ export type ComposerMode = {
   note: string | null;
 };
 
+/**
+ * A message that points at the Canvas always asks Utsavvy (rule 3), so while
+ * a selection is attached Don't reply is switched off and disabled, with a
+ * line saying why.
+ */
 export function composerMode(
   hasSelection: boolean,
   dontReply: boolean,
 ): ComposerMode {
+  if (hasSelection) {
+    return {
+      replies: true,
+      dontReply: false,
+      dontReplyDisabled: true,
+      placeholder: "Ask Utsavvy about the selection…",
+      note: "Utsavvy answers messages that point at the Canvas.",
+    };
+  }
   return {
-    replies: hasSelection || !dontReply,
+    replies: !dontReply,
     dontReply,
     dontReplyDisabled: false,
     placeholder: dontReply
