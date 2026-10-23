@@ -3,10 +3,11 @@
 import type { Node, NodeProps } from "@xyflow/react";
 import { GripVertical, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { memo } from "react";
+import { VendorMap } from "@/components/map/VendorMap";
 import { SectionOrnament } from "@/components/shell/SectionOrnament";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { SECTION_PAD_X } from "@/lib/canvas/layout";
 import { scriptClass } from "@/lib/script";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ import { useSectionDialogs } from "./SectionDialogs";
 
 export type SectionNodeData = {
   section: Doc<"sections">;
+  eventId: Id<"events">;
   itemCount: number;
   canMove: boolean;
   canRename: boolean;
@@ -31,7 +33,7 @@ export type SectionNodeType = Node<SectionNodeData, "section">;
 export const SECTION_DRAG_HANDLE = "canvas-section-handle";
 
 function SectionNodeView({ data }: NodeProps<SectionNodeType>) {
-  const { section, itemCount, canMove, canRename, canDelete } = data;
+  const { section, eventId, itemCount, canMove, canRename, canDelete } = data;
   const dialogs = useSectionDialogs();
   const count = `${itemCount} ${itemCount === 1 ? "Item" : "Items"}`;
   return (
@@ -72,6 +74,13 @@ function SectionNodeView({ data }: NodeProps<SectionNodeType>) {
           />
         ) : null}
         <div className="flex-1" />
+        {section.kind === "vendors" ? (
+          // S15 fills <VendorMap>: the map lives in the Vendors Section's label
+          // row (a preview that opens the full-screen map), so Items never sit under it.
+          <div data-mount="vendor-map" className="nodrag nopan nowheel">
+            <VendorMap eventId={eventId} />
+          </div>
+        ) : null}
         {canRename || canDelete ? (
           <Menu>
             <MenuTrigger

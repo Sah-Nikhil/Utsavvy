@@ -15,6 +15,7 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { FolderPlus, Maximize, Minus, Plus } from "lucide-react";
 import {
   useCallback,
@@ -38,7 +39,7 @@ import {
   SECTION_PAD_X,
   itemOffsetInBox,
   itemPositionFromBox,
-  sectionBox,
+  layoutSections,
   sectionUnder,
 } from "@/lib/canvas/layout";
 import { FALLBACK_ITEM_SIZE } from "@/lib/canvas/placement";
@@ -50,11 +51,11 @@ import {
   FunctionFilterProvider,
   useFunctionFilter,
 } from "./FunctionFilter";
+import type { CanvasItemState, CanvasViewer } from "./CanvasItemContext";
 import {
   ITEM_DRAG_HANDLE,
   ItemNode,
   itemAriaLabel,
-  type CanvasViewer,
   type ItemNodeType,
 } from "./ItemNode";
 import { SectionDialogsProvider, useSectionDialogs } from "./SectionDialogs";
@@ -120,10 +121,39 @@ export function Canvas({ eventId }: { eventId: string }) {
 
 type PresenceState = { userId: string; online: boolean; data?: unknown };
 
-function selectionOf(state: PresenceState): SelectionTarget | null {
-  const data = state.data as { selection?: SelectionTarget | null } | undefined;
+/** What others learn of a selection: the Item, and the Entry when it is on one. */
+type PresenceTarget = { itemId: Id<"items">; entryId: Id<"entries"> | null };
+
+function presenceTargetOf(
+  selection: SelectionTarget | null,
+): PresenceTarget | null {
+  if (selection === null) return null;
+  return {
+    itemId: selection.itemId,
+    entryId: selection.kind === "item" ? null : selection.entryId,
+  };
+}
+
+function selectionOf(state: PresenceState): PresenceTarget | null {
+  const data = state.data as { selection?: PresenceTarget | null } | undefined;
   return data?.selection ?? null;
 }
+
+/** Words for a refused move, for the notice. */
+function moveProblem(error: unknown): string {
+  const data =
+    error instanceof ConvexError
+      ? (error.data as { kind?: string; problem?: string })
+      : null;
+  if (data?.kind === "AccessDenied")
+    return "That move wasn't saved: your role in this Event can't move things.";
+  if (data?.problem === "deleted")
+    return "That move wasn't saved: the Section or Item was just deleted.";
+  return "That move wasn't saved. Try again.";
+}
+
+/** How long a notice about a refused move stays up. */
+const NOTICE_MS = 5000;
 
 function viewportKey(eventId: string) {
   return `utsavvy.canvas.viewport.${eventId}`;
@@ -151,55 +181,105 @@ function CanvasFlow({
     [presenceRaw],
   );
   const setPresenceSelection = useMutation(api.canvas.setPresenceSelection);
+  // Only the Item and Entry are shared, so a new passage on the same Entry sends nothing.
+  const presenceKey = JSON.stringify(presenceTargetOf(selection));
   useEffect(() => {
-    setPresenceSelection({ eventId, target: selection }).catch(() => {});
-  }, [eventId, selection, setPresenceSelection]);
+    const target = JSON.parse(presenceKey) as PresenceTarget | null;
+    setPresenceSelection({ eventId, target }).catch(() => {});
+  }, [eventId, presenceKey, setPresenceSelection]);
 
   const peopleById = useMemo(
     () => new Map(data.people.map((p) => [p.membershipId as string, p])),
     [data.people],
   );
-  const viewersByItem = useMemo(() => {
-    const map = new Map<string, CanvasViewer[]>();
+  const viewers = useMemo(() => {
+    const byItem = new Map<string, CanvasViewer[]>();
+    const byEntry = new Map<string, Map<string, CanvasViewer[]>>();
     for (const state of presence) {
       if (!state.online || state.userId === data.me.membershipId) continue;
       const target = selectionOf(state);
       const person = peopleById.get(state.userId);
       if (!target || !person) continue;
-      const list = map.get(target.itemId) ?? [];
-      list.push({
+      const viewer = {
         membershipId: person.membershipId,
         name: person.name,
         imageUrl: person.imageUrl,
-      });
-      map.set(target.itemId, list);
+      };
+      if (target.entryId === null) {
+        byItem.set(target.itemId, [
+          ...(byItem.get(target.itemId) ?? []),
+          viewer,
+        ]);
+      } else {
+        const entries = byEntry.get(target.itemId) ?? new Map();
+        entries.set(target.entryId, [
+          ...(entries.get(target.entryId) ?? []),
+          viewer,
+        ]);
+        byEntry.set(target.itemId, entries);
+      }
     }
-    return map;
+    return { byItem, byEntry };
   }, [presence, peopleById, data.me.membershipId]);
 
-  // The Assistant's pointing: highlights until they expire.
-  const [now, setNow] = useState<number | null>(null);
-  const latestExpiry = Math.max(0, ...data.highlights.map((h) => h.expiresAt));
+  // The Assistant's pointing: highlights until they expire. One timer runs
+  // to the next expiry, and none once every highlight has expired.
+  const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
-    const tick = () => setNow(Date.now());
-    tick();
-    if (latestExpiry === 0) return;
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [latestExpiry]);
+    const now = Date.now();
+    const upcoming = data.highlights
+      .map((h) => h.expiresAt)
+      .filter((at) => at > now);
+    if (upcoming.length === 0) {
+      // Catch up once if the clock still counts an expired highlight as live.
+      if (data.highlights.some((h) => h.expiresAt > clock)) {
+        const timer = window.setTimeout(() => setClock(Date.now()), 0);
+        return () => window.clearTimeout(timer);
+      }
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setClock(Date.now()),
+      Math.min(...upcoming) - now + 20,
+    );
+    return () => window.clearTimeout(timer);
+  }, [data.highlights, clock]);
   const activeHighlights = useMemo(
-    () =>
-      now === null ? [] : data.highlights.filter((h) => h.expiresAt > now),
-    [data.highlights, now],
+    () => data.highlights.filter((h) => h.expiresAt > clock),
+    [data.highlights, clock],
   );
-  const pointedIds = useMemo(
-    () =>
-      new Set(activeHighlights.flatMap((h) => h.targets.map((t) => t.itemId))),
-    [activeHighlights],
+  // Rebuilt only when the set of targets changes, so Items don't re-render on every tick.
+  const pointedKey = JSON.stringify(
+    activeHighlights
+      .flatMap((h) =>
+        h.targets.map((t) =>
+          t.kind === "item" ? [t.itemId, null] : [t.itemId, t.entryId],
+        ),
+      )
+      .sort(),
   );
+  const pointed = useMemo(() => {
+    const items = new Set<string>();
+    const entries = new Map<string, Set<string>>();
+    for (const [itemId, entryId] of JSON.parse(pointedKey) as [
+      string,
+      string | null,
+    ][]) {
+      items.add(itemId);
+      if (entryId) {
+        const set = entries.get(itemId) ?? new Set<string>();
+        set.add(entryId);
+        entries.set(itemId, set);
+      }
+    }
+    return { items, entries };
+  }, [pointedKey]);
 
-  // Items that arrive while this Canvas is open land marked as new.
+  // Items that arrive while this Canvas is open land marked as new for a few
+  // seconds. Each has its own timer, kept across later updates and cleared
+  // only when the Canvas closes.
   const knownIds = useRef<Set<string> | null>(null);
+  const arrivalTimers = useRef(new Map<string, number>());
   const [arrived, setArrived] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     const ids = data.items.map((item) => item._id as string);
@@ -209,24 +289,54 @@ function CanvasFlow({
     }
     const fresh = ids.filter((id) => !knownIds.current!.has(id));
     if (fresh.length === 0) return;
-    for (const id of fresh) knownIds.current.add(id);
+    for (const id of fresh) {
+      knownIds.current.add(id);
+      const timer = window.setTimeout(() => {
+        arrivalTimers.current.delete(id);
+        setArrived((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, ARRIVAL_MS);
+      arrivalTimers.current.set(id, timer);
+    }
     setArrived((prev) => new Set([...prev, ...fresh]));
-    const timer = window.setTimeout(() => {
-      setArrived((prev) => {
-        const next = new Set(prev);
-        for (const id of fresh) next.delete(id);
-        return next;
-      });
-    }, ARRIVAL_MS);
-    return () => window.clearTimeout(timer);
   }, [data.items]);
+  useEffect(() => {
+    const timers = arrivalTimers.current;
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer);
+    };
+  }, []);
 
-  // Sections with their drawn boxes, grown to hold their Items.
+  // A short notice when a move is refused.
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | null>(null);
+  const showNotice = useCallback((text: string) => {
+    setNotice(text);
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (noticeTimer.current !== null)
+        window.clearTimeout(noticeTimer.current);
+    },
+    [],
+  );
+
+  // Sections with their drawn boxes, grown to hold their Items and laid out
+  // so no two Sections overlap (layoutSections).
   const sections = useMemo(() => {
-    return data.sections.map((section) => {
-      const items = data.items.filter((i) => i.sectionId === section._id);
-      return { section, items, box: sectionBox(section.frame, items) };
-    });
+    const itemsOf = (sectionId: string) =>
+      data.items.filter((i) => i.sectionId === sectionId);
+    const boxes = layoutSections(data.sections, (s) => itemsOf(s._id));
+    return data.sections.map((section) => ({
+      section,
+      items: itemsOf(section._id),
+      box: boxes.get(section._id)!,
+    }));
   }, [data.sections, data.items]);
 
   const functionNames = useMemo(
@@ -234,6 +344,9 @@ function CanvasFlow({
     [data.functions],
   );
   const selectedItemId = selection?.itemId ?? null;
+  const noViewers: CanvasViewer[] = useMemo(() => [], []);
+  const noEntries = useMemo(() => new Map<string, CanvasViewer[]>(), []);
+  const noPointedEntries = useMemo(() => new Set<string>(), []);
 
   const built = useMemo<CanvasNode[]>(() => {
     const nodes: CanvasNode[] = [];
@@ -252,6 +365,7 @@ function CanvasFlow({
         zIndex: 0,
         data: {
           section,
+          eventId,
           itemCount: items.length,
           canMove: canEdit,
           canRename: starting
@@ -287,11 +401,22 @@ function CanvasFlow({
           zIndex: 1,
           data: {
             item,
-            isSelected: selectedItemId === item._id,
-            pointed: pointedIds.has(item._id),
-            dimmed: filter.dims(item.functionKey),
+            state: {
+              itemId: item._id,
+              selection: selectedItemId === item._id ? selection : null,
+              selected: selectedItemId === item._id,
+              pointed: pointed.items.has(item._id),
+              pointedEntryIds:
+                pointed.entries.get(item._id) ?? noPointedEntries,
+              viewers: viewers.byItem.get(item._id) ?? noViewers,
+              viewersByEntry: viewers.byEntry.get(item._id) ?? noEntries,
+              functionIndex: item.functionKey
+                ? filter.indexOf(item.functionKey)
+                : undefined,
+              functionName,
+              dimmed: filter.dims(item.functionKey),
+            } satisfies CanvasItemState,
             arrived: arrived.has(item._id),
-            viewers: viewersByItem.get(item._id) ?? [],
             canMove: canEdit,
           },
         });
@@ -305,10 +430,15 @@ function CanvasFlow({
     data.event.startingSectionRenameBlocked,
     functionNames,
     selectedItemId,
-    pointedIds,
+    selection,
+    pointed,
     filter,
     arrived,
-    viewersByItem,
+    viewers,
+    eventId,
+    noViewers,
+    noEntries,
+    noPointedEntries,
   ]);
 
   // React Flow's own copy of the nodes: the server's, except while dragging.
@@ -353,8 +483,8 @@ function CanvasFlow({
                   ...item,
                   sectionId: args.sectionId,
                   position: {
-                    x: Math.round(args.position.x),
-                    y: Math.round(args.position.y),
+                    x: Math.max(0, Math.round(args.position.x)),
+                    y: Math.max(0, Math.round(args.position.y)),
                   },
                 }
               : item,
@@ -396,13 +526,13 @@ function CanvasFlow({
         if (!internal) continue;
         const absolute = internal.internals.positionAbsolute;
         if (node.type === "section") {
-          void moveSection({
+          moveSection({
             sectionId: node.id as Id<"sections">,
             position: {
               x: absolute.x + SECTION_PAD_X,
               y: absolute.y + SECTION_HEADER,
             },
-          });
+          }).catch((error: unknown) => showNotice(moveProblem(error)));
           continue;
         }
         const item = node.data.item as Doc<"items">;
@@ -416,17 +546,17 @@ function CanvasFlow({
           setNodes(built);
           continue;
         }
-        void moveItem({
+        moveItem({
           itemId: item._id,
           sectionId: target.section._id,
           position: itemPositionFromBox({
             x: absolute.x - target.box.x,
             y: absolute.y - target.box.y,
           }),
-        });
+        }).catch((error: unknown) => showNotice(moveProblem(error)));
       }
     },
-    [flow, sections, moveItem, moveSection, built],
+    [flow, sections, moveItem, moveSection, built, showNotice],
   );
 
   // Pan only the asker's view to what the Assistant points at.
@@ -560,6 +690,16 @@ function CanvasFlow({
           ) : null}
           <ZoomControls />
         </Panel>
+        {notice ? (
+          <Panel position="top-center" className="mt-16!">
+            <p
+              role="status"
+              className="rounded-md border border-item-line bg-surface-raised px-4 py-2.5 text-label text-ink shadow-item"
+            >
+              {notice}
+            </p>
+          </Panel>
+        ) : null}
         {sections.length === 0 ? (
           <Panel position="top-center" className="mt-20!">
             <p className="rounded-md bg-surface px-4 py-3 text-label text-ink-2 shadow-item">

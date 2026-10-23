@@ -74,10 +74,26 @@ test("ornaments turn off and on from the account menu, without a flash or moving
         cornerShown: corner ? corner.checkVisibility() : null,
       };
     });
+    // The Canvas draws its Sections on the client, after the page loads, so
+    // also watch every change from then on: with ornaments off, a corner
+    // piece must never be visible, not even for one frame.
+    const w = window as unknown as { __cornerFlashed: boolean };
+    w.__cornerFlashed = false;
+    new MutationObserver(() => {
+      if (document.documentElement.dataset.ornaments !== "off") return;
+      for (const corner of document.querySelectorAll(
+        '[data-ornament="section-corners"] svg',
+      ))
+        if (corner.checkVisibility()) w.__cornerFlashed = true;
+    }).observe(document.documentElement, { childList: true, subtree: true });
   });
   const firstPaint = () =>
     page.evaluate(
       () => (window as unknown as { __firstPaint: unknown }).__firstPaint,
+    );
+  const cornerFlashed = () =>
+    page.evaluate(
+      () => (window as unknown as { __cornerFlashed: boolean }).__cornerFlashed,
     );
 
   test.skip(
@@ -104,10 +120,14 @@ test("ornaments turn off and on from the account menu, without a flash or moving
   await expectNoSeriousA11yViolations(page);
 
   await page.reload();
-  // The Canvas draws its Sections after it loads, so before hydration there is
-  // no corner piece to flash; <html> is already marked.
+  // Before hydration <html> is already marked and no Section exists yet; once
+  // the Canvas draws its Sections, no corner piece ever showed.
   expect(await firstPaint()).toEqual({ marked: "off", cornerShown: null });
+  await expect(page.locator(corners).first()).toBeAttached({
+    timeout: 20_000,
+  });
   await expect(page.locator(corners).first()).toBeHidden();
+  expect(await cornerFlashed()).toBe(false);
 
   await toggleOrnaments(page, "Turn ornaments on");
   await expect(page.locator(corners).first()).toBeVisible();
@@ -117,5 +137,6 @@ test("ornaments turn off and on from the account menu, without a flash or moving
 
   await page.reload();
   expect(await firstPaint()).toEqual({ marked: null, cornerShown: null });
+  await expect(page.locator(corners).first()).toBeVisible({ timeout: 20_000 });
   expect(cspViolations).toEqual([]);
 });

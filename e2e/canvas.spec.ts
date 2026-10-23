@@ -228,9 +228,21 @@ test.describe("canvas", () => {
 
   test("keyboard: Tab reaches an Item, Enter selects it, and the other person sees who has it", async () => {
     const { page } = meera;
-    const first = page.locator(".react-flow__node-item").first();
-    const id = (await first.getAttribute("data-id"))!;
-    await first.focus();
+    // Start from the top of the page and Tab until an Item has focus.
+    await page.locator("body").focus();
+    let reached: string | null = null;
+    for (let i = 0; i < 40 && reached === null; i++) {
+      await page.keyboard.press("Tab");
+      reached = await page.evaluate(() => {
+        const el = document.activeElement;
+        return el?.classList.contains("react-flow__node-item")
+          ? el.getAttribute("data-id")
+          : null;
+      });
+    }
+    expect(reached, "Tab reaches an Item").not.toBeNull();
+    const id = reached!;
+    const first = itemNode(page, id);
     await expect(first).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(first.locator("[data-item-id][data-selected]")).toBeVisible();
@@ -407,6 +419,26 @@ test.describe("canvas, seeded on a local deployment", () => {
         ).length;
       }, id);
       expect(overlaps).toBe(0);
+    }
+    // Another Item arriving a second later doesn't keep the first one marked.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const second = convexRun("canvas:addNoteForLocalCheck", {
+      eventId,
+      text: "Order the mehendi cones",
+    });
+    for (const { page } of [meera, rohan]) {
+      await expect(
+        itemNode(page, second).locator("[data-arrived]"),
+      ).toBeVisible({ timeout: 5_000 });
+      await expect(itemNode(page, id).locator("[data-arrived]")).toHaveCount(
+        0,
+        {
+          timeout: 6_000,
+        },
+      );
+      await expect(
+        itemNode(page, second).locator("[data-arrived]"),
+      ).toHaveCount(0, { timeout: 6_000 });
     }
   });
 

@@ -65,11 +65,6 @@ export function passageTargetFrom(
   };
 }
 
-/** The Item a selection target sits on. */
-export function itemIdOf(target: SelectionTarget | null): Id<"items"> | null {
-  return target?.itemId ?? null;
-}
-
 /** Whether two selection targets point at the same thing. */
 export function sameTarget(
   a: SelectionTarget | null,
