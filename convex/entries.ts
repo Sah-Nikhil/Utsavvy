@@ -6,6 +6,8 @@ import {
 } from "../components/items/checklist/status";
 import { can } from "../lib/access/permissions";
 import {
+  amountAt,
+  amountAtMost,
   lineRange,
   referenceTableBasis,
   researchedBasis,
@@ -406,30 +408,6 @@ export const add = mutation({
     return id;
   },
 });
-
-/*
- * The pricing step's rounding (IMPLEMENTATION_PLAN.md section 4.14), the same
- * rules as `amountAt` and `amountAtMost` in lib/pricing/pricePlan.ts. Those
- * aren't exported, and that file is S3's, so these mirror them until it
- * exports them; then call those and delete these.
- */
-function amountAt(unit: string, unitPrice: number, quantity: number): number {
-  if (unit === "per_plate") return Math.round(unitPrice / 10) * 10 * quantity;
-  return Math.round((unitPrice * quantity) / 1000) * 1000;
-}
-
-/** Rounded down instead, so a line never shows more than its own high. */
-function amountAtMost(
-  unit: string,
-  unitPrice: number,
-  quantity: number,
-): number {
-  const floorTo = (amount: number, step: number) =>
-    Math.floor(amount / step + 1e-9) * step;
-  if (unit === "per_plate") return floorTo(unitPrice, 10) * quantity;
-  const line = unitPrice * quantity;
-  return floorTo(line, line >= 1000 ? 1000 : 100);
-}
 
 /**
  * An Estimate moved to a new quantity at the same price per unit: low and
