@@ -90,6 +90,7 @@ async function reply(
   links: ChainLink[],
   abortSignal?: AbortSignal,
   firstOutputMs?: number,
+  lastLinkFirstOutputMs?: number,
 ) {
   const answered: string[] = [];
   const result = streamText({
@@ -98,7 +99,7 @@ async function reply(
       (id) => {
         answered.push(id);
       },
-      { firstOutputMs },
+      { firstOutputMs, lastLinkFirstOutputMs },
     ),
     prompt: "Plan the sangeet",
     maxRetries: 0,
@@ -427,6 +428,97 @@ describe("chainedModel, edge cases", () => {
     expect(answered).toEqual(["gemini-3.8-flash"]);
     // The silent call is cancelled, not left running.
     expect(claude[0]?.abortSignal?.aborted).toBe(true);
+  });
+});
+
+/** A model whose stream sends its first part only after `delayMs`. */
+function slow(id: string, delayMs: number, steps: Part[][]) {
+  let call = 0;
+  const model = mockModel({
+    modelId: id,
+    doGenerate: () => Promise.reject(new Error("not used")),
+    doStream: async () => {
+      const chunks = steps[call] ?? steps.at(-1)!;
+      call += 1;
+      return {
+        stream: simulateReadableStream({
+          chunks,
+          initialDelayInMs: delayMs,
+          chunkDelayInMs: 0,
+        }),
+      };
+    },
+  }) as Model;
+  return { id, model };
+}
+
+describe("the first-output timeout", () => {
+  it("gives a later step all the time it needs once the reply has started", async () => {
+    let call = 0;
+    const model = mockModel({
+      modelId: "claude-sonnet-5-5",
+      doGenerate: () => Promise.reject(new Error("not used")),
+      doStream: async () => {
+        call += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks:
+              call === 1
+                ? [
+                    { type: "stream-start", warnings: [] },
+                    clientToolCall("call-1"),
+                    finishToolCalls,
+                  ]
+                : textParts("Done after thinking"),
+            // The second step is silent for 150 ms, three times the timeout.
+            initialDelayInMs: call === 1 ? 0 : 150,
+            chunkDelayInMs: 0,
+          }),
+        };
+      },
+    }) as Model;
+    const result = streamText({
+      model: chainedModel([{ id: "claude-sonnet-5-5", model }], () => {}, {
+        firstOutputMs: 50,
+        lastLinkFirstOutputMs: 50,
+      }),
+      prompt: "Plan the sangeet",
+      maxRetries: 0,
+      tools: {
+        lookup: tool({ inputSchema: z.object({}), execute: async () => "ok" }),
+      },
+      stopWhen: stepCountIs(3),
+    });
+    let text = "";
+    let error: unknown = null;
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta") text += part.text;
+      if (part.type === "error") error = part.error;
+    }
+    expect(error).toBeNull();
+    expect(text).toBe("Done after thinking");
+  });
+
+  it("gives the last model, which can't fall back, a longer wait", async () => {
+    const { text, answered } = await reply(
+      [slow("gemini-3.8-flash", 150, [textParts("Gemini thought first")])],
+      undefined,
+      50,
+      1_000,
+    );
+    expect(text).toBe("Gemini thought first");
+    expect(answered).toEqual(["gemini-3.8-flash"]);
+  });
+
+  it("still times out the last model after its own, longer wait", async () => {
+    const { error, answered } = await reply(
+      [hanging("gemini-3.8-flash")],
+      undefined,
+      50,
+      100,
+    );
+    expect((error as Error | null)?.name).toBe("TimeoutError");
+    expect(answered).toEqual([]);
   });
 });
 
