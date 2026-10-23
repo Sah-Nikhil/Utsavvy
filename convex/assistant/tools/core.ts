@@ -56,6 +56,7 @@ import {
   rescaleEstimate,
 } from "../../entries";
 import { memberName } from "../../chat";
+import { checkNewComment, COMMENT_MAX, commentItem } from "../../comments";
 import { estimateLines, type EstimateDeps } from "../../estimates";
 import { requireAccess, requireAccessFor } from "../../lib/access";
 import { AccessDenied, VersionConflict } from "../../lib/errors";
@@ -1699,40 +1700,42 @@ export const createSectionForRun = internalMutation({
 // ---------------------------------------------------------------------------
 // addComment
 
-const COMMENT_MAX = 2000;
-const INVISIBLE = /[­​-‍⁠-⁤﻿]/g;
+/** How the model hears S8's Comment refusals. */
+const COMMENT_REFUSALS: Record<string, string> = {
+  passage:
+    "Comments on a highlighted passage aren't available yet. Comment on the Item or Entry instead.",
+  noTarget: "That Item or Entry isn't there any more. Re-read the Canvas.",
+  empty: "Write something in the Comment.",
+  tooLong: `Keep a Comment under ${COMMENT_MAX} characters.`,
+  tooMany: "That Item already holds as many Comments as it can.",
+  badReply: "That isn't a thread on the same Item or Entry.",
+};
 
 /**
- * The checks a Comment's target and body get before it is written. Stands in
- * for S8's own Comment rules (#91) until they merge, so swapping them in is
- * one line here.
+ * A new Comment's target and body, checked by S8's own rules
+ * (`convex/comments.ts`), so the Assistant's Comments and the Members' follow
+ * the same ones. The target's Item must also be in this run's Event.
  */
 async function checkComment(
-  ctx: Ctx,
+  ctx: MutationCtx,
   eventId: Id<"events">,
   target: typeof commentTargetValidator.type,
   body: string,
 ): Promise<{ itemId: Id<"items">; body: string } | ToolResult> {
-  if (target.kind === "passage")
-    return refusal(
-      "passage",
-      "Comments on a highlighted passage aren't available yet. Comment on the Item or Entry instead.",
-    );
-  const item = await liveDoc(ctx, "items", target.itemId, eventId);
-  if (target.kind === "entry") {
-    const entry = await liveDoc(ctx, "entries", target.entryId, eventId);
-    if (entry.itemId !== item._id)
-      return refusal("noTarget", "That Entry isn't in that Item.");
+  try {
+    const item = await commentItem(ctx, target);
+    if (item.eventId !== eventId)
+      throw new AccessDenied("wrongEvent", "comment.add");
+    const text = await checkNewComment(ctx, item, target, body, null);
+    return { itemId: item._id, body: text };
+  } catch (error) {
+    const data = error instanceof ConvexError ? error.data : null;
+    if (data?.kind === "CommentRefused") {
+      const problem = String(data.problem);
+      return refusal(problem, COMMENT_REFUSALS[problem] ?? "Refused.");
+    }
+    throw error;
   }
-  const trimmed = body.trim();
-  if (trimmed.replace(INVISIBLE, "") === "")
-    return refusal("empty", "Write something in the Comment.");
-  if ([...trimmed].length > COMMENT_MAX)
-    return refusal(
-      "tooLong",
-      `Keep a Comment under ${COMMENT_MAX} characters.`,
-    );
-  return { itemId: item._id, body: trimmed };
 }
 
 export const addCommentForRun = internalMutation({

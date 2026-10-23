@@ -815,6 +815,26 @@ describe("addComment", () => {
     });
   });
 
+  it("follows S8's rules: a body of invisible characters is refused", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Comment on the budget");
+    const result = await call(s, runId, "addComment", {
+      target: { kind: "item", itemId: s.items.budget },
+      body: "​ ‍",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "empty" });
+  });
+
+  it("refuses an Item in another Event", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Comment on that note");
+    const result = await call(s, runId, "addComment", {
+      target: { kind: "item", itemId: s.other.noteId },
+      body: "Hello",
+    });
+    expect(result).toMatchObject({ ok: false, error: "AccessDenied" });
+  });
+
   it("refuses a passage target", async () => {
     const s = await setUp();
     const runId = await ask(s, "Comment on that sentence");
