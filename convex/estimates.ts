@@ -1,5 +1,4 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import {
   APICallError,
   generateText,
@@ -39,6 +38,7 @@ import {
   claudeReachable,
   defaultModel,
   isClaude,
+  languageModel,
   modelChain,
   withModelFallback,
 } from "./lib/models";
@@ -1149,20 +1149,6 @@ function unparsedOutput(
   };
 }
 
-/** An AI SDK model for a Claude or Gemini model name, on the app's own key. */
-function languageModel(
-  id: string,
-  fetch?: typeof globalThis.fetch,
-): LanguageModel {
-  if (isClaude(id)) {
-    return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY, fetch })(id);
-  }
-  return createGoogleGenerativeAI({
-    apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
-    fetch,
-  })(id);
-}
-
 /** The real calls behind `researchLine`, on the deployment's keys. `fetch` is for tests. */
 export function liveResearchCalls(
   model: string,
@@ -1217,7 +1203,7 @@ export function liveResearchCalls(
         outcome = await withModelFallback(modelChain("helper", env), (id) => {
           tried = id;
           return generateText({
-            model: languageModel(id, options.fetch),
+            model: languageModel(id, env, { fetch: options.fetch }),
             system: call.system,
             prompt: call.prompt,
             output: call.output,
@@ -1300,7 +1286,7 @@ export async function liveKnowledge(
     outcome = await withModelFallback(modelChain("assistant", env), (id) => {
       tried = id;
       return generateText({
-        model: languageModel(id, options.fetch),
+        model: languageModel(id, env, { fetch: options.fetch }),
         system: KNOWLEDGE_SYSTEM,
         prompt,
         output: Output.object({
