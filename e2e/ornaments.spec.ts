@@ -103,6 +103,10 @@ test("ornaments turn off and on from the account menu, without a flash or moving
   await signIn();
   // A real Event, so the Canvas (S2) draws its Sections.
   await page.goto("/events");
+  // Wait until Clerk's token reaches Convex, or creating the Event is refused.
+  await expect(page.locator("[data-account-ready]")).toBeVisible({
+    timeout: 20_000,
+  });
   await page.getByRole("button", { name: "New Event" }).click();
   const dialog = page.getByRole("dialog", { name: "New Event" });
   await dialog.getByLabel("Event name").fill(`E2E ornaments ${Date.now()}`);

@@ -391,15 +391,41 @@ test.describe("canvas, seeded on a local deployment", () => {
     );
   });
 
-  test("a new Item lands marked as new, in free space in its starting Section", async () => {
-    const id = convexRun("canvas:addNoteForLocalCheck", {
+  /**
+   * Records every Item that shows the "new" outline, from now on. The Convex
+   * CLI that adds an Item takes seconds to return, longer than the outline
+   * lasts, so the test reads this record rather than racing the outline.
+   */
+  const watchArrivals = (page: Page) =>
+    page.evaluate(() => {
+      const w = window as unknown as { __arrived: string[] };
+      w.__arrived = [];
+      const record = () => {
+        for (const el of document.querySelectorAll("[data-arrived]")) {
+          const id = el.closest(".react-flow__node")?.getAttribute("data-id");
+          if (id && !w.__arrived.includes(id)) w.__arrived.push(id);
+        }
+      };
+      new MutationObserver(record).observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-arrived"],
+      });
+    });
+  const arrivals = (page: Page) =>
+    page.evaluate(
+      () => (window as unknown as { __arrived: string[] }).__arrived,
+    );
+
+  test("new Items land marked as new, in free space, and the mark clears for each", async () => {
+    for (const { page } of [meera, rohan]) await watchArrivals(page);
+    const first = convexRun("canvas:addNoteForLocalCheck", {
       eventId,
       text: "Book the dhol players",
     });
     for (const { page } of [meera, rohan]) {
-      await expect(itemNode(page, id).locator("[data-arrived]")).toBeVisible({
-        timeout: 5_000,
-      });
+      await expect.poll(() => arrivals(page)).toContain(first);
       // Its box overlaps no other Item's box.
       const overlaps = await page.evaluate((newId) => {
         const boxes = [
@@ -417,28 +443,21 @@ test.describe("canvas, seeded on a local deployment", () => {
             b.r.top < mine.bottom &&
             mine.top < b.r.bottom,
         ).length;
-      }, id);
+      }, first);
       expect(overlaps).toBe(0);
     }
-    // Another Item arriving a second later doesn't keep the first one marked.
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    // A second Item arriving soon after doesn't keep the first one marked.
     const second = convexRun("canvas:addNoteForLocalCheck", {
       eventId,
       text: "Order the mehendi cones",
     });
     for (const { page } of [meera, rohan]) {
-      await expect(
-        itemNode(page, second).locator("[data-arrived]"),
-      ).toBeVisible({ timeout: 5_000 });
-      await expect(itemNode(page, id).locator("[data-arrived]")).toHaveCount(
-        0,
-        {
-          timeout: 6_000,
-        },
-      );
-      await expect(
-        itemNode(page, second).locator("[data-arrived]"),
-      ).toHaveCount(0, { timeout: 6_000 });
+      await expect.poll(() => arrivals(page)).toContain(second);
+      for (const id of [first, second])
+        await expect(itemNode(page, id).locator("[data-arrived]")).toHaveCount(
+          0,
+          { timeout: 8_000 },
+        );
     }
   });
 
