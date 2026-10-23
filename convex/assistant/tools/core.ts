@@ -203,6 +203,15 @@ async function gate(
   ) {
     throw new AccessDenied("wrongEvent", action);
   }
+  // Stop sets the run to "stopping", and the action notices only at its next
+  // poll: a tool step in between must change nothing (section 4.5, "Stop").
+  if (run.status !== "running") {
+    throw new ConvexError({
+      kind: "RunStopped",
+      message:
+        "This reply was stopped. Read and change nothing more; end your reply in one short line.",
+    });
+  }
   const { membership } = await requireAccessFor(
     ctx,
     ref.forMembershipId,
