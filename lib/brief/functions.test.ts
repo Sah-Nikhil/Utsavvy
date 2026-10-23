@@ -139,11 +139,14 @@ describe("assumeFunctionDetails", () => {
       children: null,
       today: TODAY,
     });
-    expect(
-      functions.map((f) => [f.key, f.date, f.guests, f.assumed]),
-    ).toEqual([
+    expect(functions.map((f) => [f.key, f.date, f.guests, f.assumed])).toEqual([
       ["haldi", { kind: "day", value: "2027-02-14" }, 60, ["date", "guests"]],
-      ["mehendi", { kind: "day", value: "2027-02-13" }, 120, ["date", "guests"]],
+      [
+        "mehendi",
+        { kind: "day", value: "2027-02-13" },
+        120,
+        ["date", "guests"],
+      ],
       [
         "sangeet",
         { kind: "day", value: "2027-02-14" },

@@ -17,9 +17,7 @@ describe("festivalDates", () => {
 
   it("proposes the next festival after today", () => {
     // Today is 2026-10-21 in the first-brief worked examples; 2026's festival is over.
-    expect(nextFestival("ganesh-utsav", "2026-10-21")?.from).toBe(
-      "2027-09-04",
-    );
+    expect(nextFestival("ganesh-utsav", "2026-10-21")?.from).toBe("2027-09-04");
   });
 
   it("reads the community kinds the Member types", () => {

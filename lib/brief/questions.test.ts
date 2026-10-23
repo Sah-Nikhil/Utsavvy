@@ -240,7 +240,10 @@ describe("answerChip reads typed answers", () => {
     expect(q.id).toBe("budget");
     const read = (typed: string) =>
       answerChip(
-        { extraction: { ...jaipurWedding.extraction, budget: null }, progress: NO_PROGRESS },
+        {
+          extraction: { ...jaipurWedding.extraction, budget: null },
+          progress: NO_PROGRESS,
+        },
         q,
         typed,
         TODAY,
@@ -259,7 +262,10 @@ describe("answerChip reads typed answers", () => {
     )!;
     expect(() =>
       answerChip(
-        { extraction: { ...jaipurWedding.extraction, guests: null }, progress: NO_PROGRESS },
+        {
+          extraction: { ...jaipurWedding.extraction, guests: null },
+          progress: NO_PROGRESS,
+        },
         q,
         "lots",
         TODAY,
