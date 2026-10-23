@@ -329,6 +329,8 @@ const rowValidator = v.object({
   at: v.number(),
   kind: v.union(v.literal("canvas"), v.literal("people")),
   op: changeOpValidator,
+  /** Whether the Assistant made the change (for a Member, or through a Proposal). */
+  byAssistant: v.boolean(),
   /** "Rohan", "Aditi (left)", "Utsavvy for Meera" or "Utsavvy for Rohan, accepted by Meera". */
   who: v.string(),
   summary: v.string(),
@@ -436,6 +438,7 @@ export const list = query({
           at: change.at,
           kind: "people",
           op: change.op,
+          byAssistant: false,
           who,
           summary: peopleSummary(change, targetName, event.ownerLabel),
           groupKey: null,
@@ -485,6 +488,7 @@ export const list = query({
         at: change.at,
         kind: "canvas",
         op: change.op,
+        byAssistant: change.actor.kind === "assistant",
         who,
         summary: canvasSummary(change),
         groupKey: change.groupKey,
