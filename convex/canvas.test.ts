@@ -1,4 +1,9 @@
+/// <reference types="vite/client" />
+import agentTest from "@convex-dev/agent/test";
+import presenceTest from "@convex-dev/presence/test";
 import { describe, expect, it } from "vitest";
+import { itemOffsetInBox, layoutSections } from "../lib/canvas/layout";
+import { FALLBACK_ITEM_SIZE } from "../lib/canvas/placement";
 import { STARTING_SECTIONS } from "../lib/canvas/starting";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -427,5 +432,338 @@ describe("get", () => {
         .withIdentity(identityFor("stranger"))
         .query(api.canvas.get, { eventId: setup.eventId }),
     ).rejects.toThrow(/AccessDenied/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes: presence access (H1), layout (H2) and the Low findings
+
+/** A test with the presence component registered. */
+function presenceT() {
+  const t = newTest();
+  presenceTest.register(t);
+  return t;
+}
+
+/** Meera and Rohan, both Members, on one Event with the starting Sections. */
+async function twoPeople(ctx: MutationCtx) {
+  const meera = await setUp(ctx);
+  const rohan = await seedMembership(ctx, {
+    clerkId: "rohan",
+    eventId: meera.eventId,
+  });
+  return { ...meera, rohanMembershipId: rohan.membershipId };
+}
+
+async function heartbeatAs(
+  t: ReturnType<typeof newTest>,
+  clerkId: string,
+  eventId: Id<"events">,
+) {
+  return await t
+    .withIdentity(identityFor(clerkId))
+    .mutation(api.canvas.heartbeat, {
+      roomId: eventId,
+      userId: "ignored",
+      sessionId: `${clerkId}-session`,
+      interval: 10_000,
+    });
+}
+
+describe("presence access", () => {
+  it("lists the room for an active person", async () => {
+    const t = presenceT();
+    const setup = await t.run((ctx) => twoPeople(ctx));
+    const { roomToken } = await heartbeatAs(t, "meera", setup.eventId);
+    await heartbeatAs(t, "rohan", setup.eventId);
+    const rows = await t
+      .withIdentity(identityFor("meera"))
+      .query(api.canvas.list, { roomToken });
+    expect(rows.map((r) => r.userId).sort()).toEqual(
+      [setup.membershipId, setup.rohanMembershipId].sort(),
+    );
+  });
+
+  for (const [label, change] of [
+    ["removed", { status: "removed" as const }],
+    ["blocked", { blocked: true }],
+  ] as const) {
+    it(`gives a ${label} person nothing, even with a saved room token`, async () => {
+      const t = presenceT();
+      const setup = await t.run((ctx) => twoPeople(ctx));
+      await heartbeatAs(t, "meera", setup.eventId);
+      const { roomToken } = await heartbeatAs(t, "rohan", setup.eventId);
+      await t.run((ctx) =>
+        ctx.db.patch("memberships", setup.rohanMembershipId, change),
+      );
+      const rohan = t.withIdentity(identityFor("rohan"));
+      await expect(rohan.query(api.canvas.list, { roomToken })).rejects.toThrow(
+        /AccessDenied/,
+      );
+      await expect(heartbeatAs(t, "rohan", setup.eventId)).rejects.toThrow(
+        /AccessDenied/,
+      );
+      await expect(
+        rohan.mutation(api.canvas.setPresenceSelection, {
+          eventId: setup.eventId,
+          target: null,
+        }),
+      ).rejects.toThrow(/AccessDenied/);
+    });
+  }
+
+  it("shares only which Item and Entry someone has selected, never quoted text", async () => {
+    const t = presenceT();
+    const setup = await t.run((ctx) => twoPeople(ctx));
+    const itemId = await t.run((ctx) =>
+      insertNote(ctx, {
+        ...setup,
+        sectionId: setup.sections.notes,
+        x: 0,
+        y: 0,
+      }),
+    );
+    const { roomToken } = await heartbeatAs(t, "meera", setup.eventId);
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.canvas.setPresenceSelection, {
+      eventId: setup.eventId,
+      target: { itemId, entryId: null },
+    });
+    const rows = await meera.query(api.canvas.list, { roomToken });
+    expect(rows.find((r) => r.userId === setup.membershipId)?.data).toEqual({
+      selection: { itemId, entryId: null },
+    });
+  });
+
+  it("refuses a selection on an Item of another Event", async () => {
+    const t = presenceT();
+    const setup = await t.run((ctx) => twoPeople(ctx));
+    const otherItem = await t.run(async (ctx) => {
+      const other = await seedMembership(ctx, { clerkId: "stranger" });
+      const sections = await createStartingSections(ctx, other.eventId, {
+        kind: "member",
+        membershipId: other.membershipId,
+      });
+      return await insertNote(ctx, {
+        eventId: other.eventId,
+        membershipId: other.membershipId,
+        sectionId: sections.notes,
+        x: 0,
+        y: 0,
+      });
+    });
+    await expect(
+      t
+        .withIdentity(identityFor("meera"))
+        .mutation(api.canvas.setPresenceSelection, {
+          eventId: setup.eventId,
+          target: { itemId: otherItem, entryId: null },
+        }),
+    ).rejects.toThrow(/wrongEvent/);
+  });
+});
+
+describe("positions from the client", () => {
+  it("refuses a position that isn't a finite number, and keeps others within bounds", async () => {
+    const t = newTest();
+    const setup = await t.run((ctx) => setUp(ctx));
+    const itemId = await t.run((ctx) =>
+      insertNote(ctx, {
+        ...setup,
+        sectionId: setup.sections.notes,
+        x: 0,
+        y: 0,
+      }),
+    );
+    const meera = t.withIdentity(identityFor("meera"));
+    for (const x of [Number.POSITIVE_INFINITY, Number.NaN]) {
+      await expect(
+        meera.mutation(api.canvas.moveItem, {
+          itemId,
+          sectionId: setup.sections.notes,
+          position: { x, y: 0 },
+        }),
+      ).rejects.toThrow(/badPosition/);
+      await expect(
+        meera.mutation(api.canvas.moveSection, {
+          sectionId: setup.sections.notes,
+          position: { x, y: 0 },
+        }),
+      ).rejects.toThrow(/badPosition/);
+    }
+    await meera.mutation(api.canvas.moveItem, {
+      itemId,
+      sectionId: setup.sections.notes,
+      position: { x: -40, y: 9_000_000 },
+    });
+    const item = await t.run((ctx) => ctx.db.get("items", itemId));
+    expect(item?.position).toEqual({ x: 0, y: 50_000 });
+  });
+});
+
+describe("Section limits", () => {
+  it("allows at most 30 custom Sections", async () => {
+    const t = newTest();
+    const setup = await t.run((ctx) => setUp(ctx));
+    const meera = t.withIdentity(identityFor("meera"));
+    for (let i = 0; i < 30; i++)
+      await meera.mutation(api.canvas.createSection, {
+        eventId: setup.eventId,
+        name: `Section ${i}`,
+      });
+    await expect(
+      meera.mutation(api.canvas.createSection, {
+        eventId: setup.eventId,
+        name: "One too many",
+      }),
+    ).rejects.toThrow(/tooMany/);
+  });
+
+  it("never deletes the last starting Section", async () => {
+    const t = newTest();
+    const setup = await t.run((ctx) => setUp(ctx, "owner"));
+    const owner = t.withIdentity(identityFor("meera"));
+    for (const kind of ["money", "vendors", "inspirations"] as const)
+      await owner.mutation(api.canvas.deleteSection, {
+        sectionId: setup.sections[kind],
+      });
+    await expect(
+      owner.mutation(api.canvas.deleteSection, {
+        sectionId: setup.sections.notes,
+      }),
+    ).rejects.toThrow(/lastStarting/);
+  });
+
+  it("sends a Vendor checklist back to Vendors, where S1 puts it", async () => {
+    const t = newTest();
+    const setup = await t.run((ctx) => setUp(ctx));
+    const meera = t.withIdentity(identityFor("meera"));
+    const customId = await meera.mutation(api.canvas.createSection, {
+      eventId: setup.eventId,
+      name: "Wedding day",
+    });
+    const checklist = await t.run((ctx) =>
+      ctx.db.insert("items", {
+        eventId: setup.eventId,
+        sectionId: customId,
+        kind: "checklist",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: { note: null },
+        createdBy: setup.actor,
+        version: 1,
+        deletedAt: null,
+      }),
+    );
+    await meera.mutation(api.canvas.deleteSection, { sectionId: customId });
+    const item = await t.run((ctx) => ctx.db.get("items", checklist));
+    expect(item?.sectionId).toBe(setup.sections.vendors);
+  });
+});
+
+describe("a real Event from S1", () => {
+  it("draws no Item on top of an Item in another Section after 3 Suggestions and an Inspiration", async () => {
+    const t = newTest();
+    agentTest.register(t);
+    const meera = t.withIdentity({
+      subject: "user_meera",
+      name: "Meera",
+      email: "meera@example.com",
+    });
+    await meera.mutation(api.users.ensureMe, {});
+    const eventId = await meera.mutation(api.events.create, {
+      name: "Meera weds Rohan",
+      eventType: "wedding",
+    });
+    const membershipId = await t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", eventId))
+          .first())!._id,
+    );
+
+    await t.run(async (ctx) => {
+      const actor = { kind: "member" as const, membershipId };
+      const size = { w: 300, h: 200 };
+      for (const kind of [
+        "suggestion",
+        "suggestion",
+        "suggestion",
+        "inspiration",
+      ] as const) {
+        const { sectionId, position } = await placeNewItem(ctx, {
+          eventId,
+          kind,
+          size,
+        });
+        const common = {
+          eventId,
+          sectionId,
+          position,
+          size,
+          functionKey: null,
+          createdBy: actor,
+          version: 1,
+          deletedAt: null,
+        };
+        if (kind === "suggestion") {
+          await ctx.db.insert("items", {
+            ...common,
+            kind,
+            data: {
+              title: "Folk musicians",
+              body: "At the sangeet dinner",
+              costCategory: null,
+              quantity: null,
+              estimate: null,
+              status: "open",
+            },
+          });
+        } else {
+          await ctx.db.insert("items", {
+            ...common,
+            kind,
+            data: {
+              addedBy: membershipId,
+              memberNote: null,
+              source: {
+                kind: "pexels",
+                pexelsId: 1,
+                localPath: "/inspirations/x.webp",
+                photographer: "A",
+                photographerUrl: "https://www.pexels.com/@a",
+                pageUrl: "https://www.pexels.com/photo/1",
+                alt: "Marigolds",
+                tags: [],
+              },
+              seen: null,
+            },
+          });
+        }
+      }
+    });
+
+    const canvas = await meera.query(api.canvas.get, { eventId });
+    const boxes = layoutSections(canvas.sections, (s) =>
+      canvas.items.filter((i) => i.sectionId === s._id),
+    );
+    const drawn = canvas.items.map((item) => {
+      const box = boxes.get(item.sectionId)!;
+      const at = itemOffsetInBox(item.position);
+      const size = item.size ?? FALLBACK_ITEM_SIZE;
+      return { x: box.x + at.x, y: box.y + at.y, w: size.w, h: size.h };
+    });
+    // S1's Budget, Timeline and checklist, plus the four new Items.
+    expect(drawn).toHaveLength(7);
+    for (const [i, a] of drawn.entries())
+      for (const b of drawn.slice(i + 1))
+        expect(
+          a.x < b.x + b.w &&
+            b.x < a.x + a.w &&
+            a.y < b.y + b.h &&
+            b.y < a.y + a.h,
+        ).toBe(false);
   });
 });

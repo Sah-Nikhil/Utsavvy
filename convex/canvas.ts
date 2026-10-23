@@ -1,6 +1,12 @@
 import { Presence } from "@convex-dev/presence";
 import { ConvexError, v } from "convex/values";
-import { fitFrame, placeInFreeSpace, type Size } from "../lib/canvas/placement";
+import { layoutSections } from "../lib/canvas/layout";
+import {
+  fitFrame,
+  placeInFreeSpace,
+  type Position,
+  type Size,
+} from "../lib/canvas/placement";
 import {
   STARTING_SECTION_FOR_KIND,
   STARTING_SECTIONS,
@@ -10,11 +16,7 @@ import {
   type StartingSectionKind,
 } from "../lib/canvas/starting";
 import type { MemberActor } from "../lib/types/actors";
-import {
-  positionValidator,
-  selectionTargetValidator,
-  type ItemKind,
-} from "../lib/types/canvas";
+import { positionValidator, type ItemKind } from "../lib/types/canvas";
 import { components } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -44,41 +46,93 @@ import {
 type Ctx = QueryCtx | MutationCtx;
 
 /** Why the Canvas refused a Section change, for the UI to word. */
-type CanvasProblem = "empty" | "tooLong" | "notEmpty" | "deleted" | "noHome";
+type CanvasProblem =
+  | "empty"
+  | "tooLong"
+  | "notEmpty"
+  | "deleted"
+  | "noHome"
+  | "badPosition"
+  | "tooMany"
+  | "lastStarting";
 
 function refuse(problem: CanvasProblem): never {
   throw new ConvexError({ kind: "CanvasRefused", problem });
 }
 
-/** The most Sections and Items one Event's Canvas reads at once. */
-const MAX_SECTIONS = 100;
+/**
+ * The most live Sections and Items one Event's Canvas reads. Deleted rows are
+ * skipped, not counted, so deleting things never hides newer ones.
+ */
+const MAX_SECTIONS = 40;
 const MAX_ITEMS = 1000;
+/** The most custom Sections an Event can have at once, on top of the four starting ones. */
+export const MAX_CUSTOM_SECTIONS = 30;
+/** Positions stay within this distance of the Canvas origin. */
+const MAX_COORDINATE = 50_000;
 
 async function liveSections(
   ctx: Ctx,
   eventId: Id<"events">,
 ): Promise<Doc<"sections">[]> {
-  const sections = await ctx.db
+  const live: Doc<"sections">[] = [];
+  for await (const section of ctx.db
     .query("sections")
-    .withIndex("by_event", (q) => q.eq("eventId", eventId))
-    .take(MAX_SECTIONS);
-  return sections
-    .filter((s) => s.deletedAt === null)
-    .sort((a, b) => a.order - b.order);
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))) {
+    if (section.deletedAt !== null) continue;
+    live.push(section);
+    if (live.length >= MAX_SECTIONS) break;
+  }
+  return live.sort((a, b) => a.order - b.order);
 }
 
 async function liveItemsIn(
   ctx: Ctx,
   sectionId: Id<"sections">,
 ): Promise<Doc<"items">[]> {
-  const items = await ctx.db
+  const live: Doc<"items">[] = [];
+  for await (const item of ctx.db
     .query("items")
-    .withIndex("by_section", (q) => q.eq("sectionId", sectionId))
-    .take(MAX_ITEMS);
-  return items.filter((item) => item.deletedAt === null);
+    .withIndex("by_section", (q) => q.eq("sectionId", sectionId))) {
+    if (item.deletedAt !== null) continue;
+    live.push(item);
+    if (live.length >= MAX_ITEMS) break;
+  }
+  return live;
 }
 
-/** The live starting Section for an Item kind, or the first starting Section left. */
+async function liveItemsOf(
+  ctx: Ctx,
+  eventId: Id<"events">,
+): Promise<Doc<"items">[]> {
+  const live: Doc<"items">[] = [];
+  for await (const item of ctx.db
+    .query("items")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))) {
+    if (item.deletedAt !== null) continue;
+    live.push(item);
+    if (live.length >= MAX_ITEMS) break;
+  }
+  return live;
+}
+
+/**
+ * A position from the client: refused unless both numbers are finite, then
+ * rounded and kept within the Canvas. Items sit at or right of and below their
+ * frame's top left; Sections may sit anywhere within bounds.
+ */
+function cleanPosition(position: Position, min: number): Position {
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y))
+    refuse("badPosition");
+  const clamp = (n: number) =>
+    Math.min(MAX_COORDINATE, Math.max(min, Math.round(n)));
+  return { x: clamp(position.x), y: clamp(position.y) };
+}
+
+/**
+ * The live starting Section for an Item kind, or the first starting Section
+ * left, or, should none be left, the first Section of any kind.
+ */
 function homeFor(
   sections: readonly Doc<"sections">[],
   kind: ItemKind,
@@ -87,6 +141,7 @@ function homeFor(
   return (
     sections.find((s) => s.kind === wanted) ??
     sections.find((s) => isStartingSection(s.kind)) ??
+    sections[0] ??
     null
   );
 }
@@ -156,12 +211,7 @@ export const get = query({
     if (event === null) throw new AccessDenied("notAMember", "canvas.view");
 
     const sections = await liveSections(ctx, eventId);
-    const items = (
-      await ctx.db
-        .query("items")
-        .withIndex("by_event", (q) => q.eq("eventId", eventId))
-        .take(MAX_ITEMS)
-    ).filter((item) => item.deletedAt === null);
+    const items = await liveItemsOf(ctx, eventId);
 
     const functions = (
       await ctx.db
@@ -224,10 +274,6 @@ export const get = query({
 // ---------------------------------------------------------------------------
 // Moving Items and Sections
 
-function round(position: { x: number; y: number }) {
-  return { x: Math.round(position.x), y: Math.round(position.y) };
-}
-
 /**
  * Saves an Item's final position after a drag, in the Section it was dropped
  * in. The Section's frame grows to hold it and never shrinks.
@@ -240,6 +286,7 @@ export const moveItem = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const position = cleanPosition(args.position, 0);
     const item = await ctx.db.get("items", args.itemId);
     if (item === null || item.deletedAt !== null) refuse("deleted");
     const { membership } = await requireAccess(
@@ -253,7 +300,6 @@ export const moveItem = mutation({
     if (section.deletedAt !== null) refuse("deleted");
     const actor = { kind: "member" as const, membershipId: membership._id };
 
-    const position = round(args.position);
     await memberWrite(ctx, {
       table: "items",
       id: item._id,
@@ -280,6 +326,7 @@ export const moveSection = mutation({
   args: { sectionId: v.id("sections"), position: positionValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const position = cleanPosition(args.position, -MAX_COORDINATE);
     const section = await ctx.db.get("sections", args.sectionId);
     if (section === null || section.deletedAt !== null) refuse("deleted");
     const { membership } = await requireAccess(
@@ -290,7 +337,7 @@ export const moveSection = mutation({
     await memberWrite(ctx, {
       table: "sections",
       id: section._id,
-      patch: { frame: { ...section.frame, ...round(args.position) } },
+      patch: { frame: { ...section.frame, ...position } },
       actor: { kind: "member", membershipId: membership._id },
     });
     return null;
@@ -300,7 +347,10 @@ export const moveSection = mutation({
 // ---------------------------------------------------------------------------
 // Sections
 
-/** A new custom Section, below every Section on the Canvas. */
+/**
+ * A new custom Section, below every Section as the Canvas draws them. An Event
+ * has at most `MAX_CUSTOM_SECTIONS` custom Sections at once.
+ */
 export const createSection = mutation({
   args: { eventId: v.id("events"), name: v.string() },
   returns: v.id("sections"),
@@ -313,11 +363,19 @@ export const createSection = mutation({
     const name = cleanSectionName(args.name);
     if (!name.ok) refuse(name.problem);
     const sections = await liveSections(ctx, args.eventId);
+    if (
+      sections.filter((s) => s.kind === "custom").length >= MAX_CUSTOM_SECTIONS
+    )
+      refuse("tooMany");
+    const items = await liveItemsOf(ctx, args.eventId);
+    const boxes = layoutSections(sections, (s) =>
+      items.filter((item) => item.sectionId === s._id),
+    );
     const value: InsertValue<"sections"> = {
       eventId: args.eventId,
       kind: "custom",
       name: name.name,
-      frame: frameForNewSection(sections),
+      frame: frameForNewSection([...boxes.values()]),
       order: Math.max(-1, ...sections.map((s) => s.order)) + 1,
     };
     const { id } = await memberInsert(ctx, {
@@ -365,8 +423,9 @@ export const renameSection = mutation({
 /**
  * Deletes a Section (Restore can bring it back). A custom Section's Items move
  * back to their starting Section, each placed in free space. A starting
- * Section is the Owner's and Co-owners' to delete, and only once it is empty,
- * since its Items have nowhere else to go.
+ * Section is the Owner's and Co-owners' to delete, only once it is empty,
+ * since its Items have nowhere else to go, and never the last one left, so new
+ * Items always have a starting Section to land in.
  */
 export const deleteSection = mutation({
   args: { sectionId: v.id("sections") },
@@ -383,11 +442,12 @@ export const deleteSection = mutation({
     const actor = { kind: "member" as const, membershipId: membership._id };
     const items = await liveItemsIn(ctx, section._id);
 
-    if (starting && items.length > 0) refuse("notEmpty");
-
     const others = (await liveSections(ctx, section.eventId)).filter(
       (s) => s._id !== section._id,
     );
+    if (starting && !others.some((s) => isStartingSection(s.kind)))
+      refuse("lastStarting");
+    if (starting && items.length > 0) refuse("notEmpty");
     // Items placed so far per Section, so moved Items never land on each other.
     const placed = new Map<Id<"sections">, Doc<"items">[]>();
     for (const item of items) {
@@ -440,21 +500,39 @@ export const heartbeat = mutation({
   handler: async (ctx, args) => {
     const eventId = await eventIdFrom(ctx, args.roomId);
     const { membership } = await requireAccess(ctx, eventId, "canvas.view");
+    // A huge interval would keep someone "online" long after they left.
+    const interval = Number.isFinite(args.interval)
+      ? Math.min(60_000, Math.max(1_000, args.interval))
+      : 10_000;
     return await presence.heartbeat(
       ctx,
       eventId,
       membership._id,
       args.sessionId,
-      args.interval,
+      interval,
     );
   },
 });
 
-/** Everyone in the room. The room token comes only from an allowed heartbeat. */
+/**
+ * Everyone in the room. A room token never expires, so holding one proves
+ * nothing: the Event comes from a membership in the room, and the caller must
+ * still be allowed to view it. Someone removed or blocked gets nothing.
+ */
 export const list = query({
   args: { roomToken: v.string() },
   handler: async (ctx, { roomToken }) => {
-    return await presence.list(ctx, roomToken);
+    const rows = await presence.list(ctx, roomToken);
+    const first = rows[0];
+    if (!first) return [];
+    const membershipId = ctx.db.normalizeId("memberships", first.userId);
+    const membership = membershipId
+      ? await ctx.db.get("memberships", membershipId)
+      : null;
+    if (membership === null)
+      throw new AccessDenied("notAMember", "canvas.view");
+    await requireAccess(ctx, membership.eventId, "canvas.view");
+    return rows;
   },
 });
 
@@ -465,15 +543,34 @@ export const disconnect = mutation({
   },
 });
 
+/**
+ * What others learn about a person's selection: the Item, and the Entry when
+ * it is on one. Never a passage's text or offsets.
+ */
+export const presenceTargetValidator = v.object({
+  itemId: v.id("items"),
+  entryId: v.union(v.id("entries"), v.null()),
+});
+
 /** Shares what the person has selected, so others see their avatar on it. */
 export const setPresenceSelection = mutation({
   args: {
     eventId: v.id("events"),
-    target: v.union(selectionTargetValidator, v.null()),
+    target: v.union(presenceTargetValidator, v.null()),
   },
   returns: v.null(),
   handler: async (ctx, { eventId, target }) => {
     const { membership } = await requireAccess(ctx, eventId, "canvas.view");
+    if (target !== null) {
+      const item = await ctx.db.get("items", target.itemId);
+      if (item === null || item.eventId !== eventId)
+        throw new AccessDenied("wrongEvent", "canvas.view");
+      if (target.entryId !== null) {
+        const entry = await ctx.db.get("entries", target.entryId);
+        if (entry === null || entry.itemId !== target.itemId)
+          throw new AccessDenied("wrongEvent", "canvas.view");
+      }
+    }
     await presence.updateRoomUser(ctx, eventId, membership._id, {
       selection: target,
     });

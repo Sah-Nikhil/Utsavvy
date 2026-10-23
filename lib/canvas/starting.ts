@@ -1,11 +1,14 @@
 import type { ItemKind, SectionKind } from "../types/canvas";
+import { SECTION_HEADER, SECTION_PAD_X, SECTION_SPACING } from "./layout";
 import type { Frame } from "./placement";
 
 /*
  * The four starting Sections every Event begins with (CONTEXT.md, Section),
- * laid out two by two on the Canvas, and which starting Section each Item kind
- * belongs to. S1 creates the Sections with these frames when an Event is made;
- * new Items land in free space in their kind's starting Section (ADR 0007).
+ * and which starting Section each Item kind belongs to. New Items land in
+ * free space in their kind's starting Section (ADR 0007). S1's
+ * `api.events.create` makes the real ones; this layout matches it and is used
+ * for local seeds and tests. Whatever the stored frames, the Canvas draws
+ * Sections apart with `layoutSections` (lib/canvas/layout.ts).
  */
 
 export type StartingSectionKind = Exclude<SectionKind, "custom">;
@@ -17,32 +20,30 @@ export type StartingSection = {
   order: number;
 };
 
-/** The space between two Sections' frames, wide enough for a Section's label. */
-export const SECTION_GAP = 120;
-
+/** S1's starting layout (convex/events.ts): 720 x 560 frames, 40 px apart. */
 export const STARTING_SECTIONS: readonly StartingSection[] = [
   {
     kind: "money",
     name: "Money and dates",
-    frame: { x: 0, y: 0, w: 960, h: 680 },
+    frame: { x: 0, y: 0, w: 720, h: 560 },
     order: 0,
   },
   {
     kind: "vendors",
     name: "Vendors",
-    frame: { x: 960 + SECTION_GAP, y: 0, w: 960, h: 680 },
+    frame: { x: 760, y: 0, w: 720, h: 560 },
     order: 1,
   },
   {
     kind: "inspirations",
     name: "Inspirations",
-    frame: { x: 0, y: 680 + SECTION_GAP, w: 960, h: 520 },
+    frame: { x: 0, y: 600, w: 720, h: 560 },
     order: 2,
   },
   {
     kind: "notes",
     name: "Notes",
-    frame: { x: 960 + SECTION_GAP, y: 680 + SECTION_GAP, w: 960, h: 520 },
+    frame: { x: 760, y: 600, w: 720, h: 560 },
     order: 3,
   },
 ];
@@ -50,14 +51,14 @@ export const STARTING_SECTIONS: readonly StartingSection[] = [
 /**
  * The starting Section an Item kind lands in. Suggestions sit with the plan in
  * Money and dates, because adding one turns it into a budget Entry and a
- * Timeline Entry.
+ * Timeline Entry. The Vendor checklist sits in Vendors, where S1 creates it.
  */
 export const STARTING_SECTION_FOR_KIND: Readonly<
   Record<ItemKind, StartingSectionKind>
 > = {
   budget: "money",
   timeline: "money",
-  checklist: "money",
+  checklist: "vendors",
   suggestion: "money",
   shortlistedVendor: "vendors",
   googlePlace: "vendors",
@@ -84,15 +85,19 @@ export function cleanSectionName(
 }
 
 /**
- * Where a new custom Section goes: below every Section on the Canvas, at the
- * left edge, so it never covers one.
+ * Where a new custom Section's frame goes: below every Section as the Canvas
+ * draws them (`boxes` from `layoutSections`), lined up with the left edge.
  */
 export function frameForNewSection(
-  sections: readonly { frame: Frame }[],
-  size: { w: number; h: number } = { w: 960, h: 520 },
+  boxes: readonly Frame[],
+  size: { w: number; h: number } = { w: 720, h: 560 },
 ): Frame {
-  if (sections.length === 0) return { x: 0, y: 0, ...size };
-  const left = Math.min(...sections.map((s) => s.frame.x));
-  const bottom = Math.max(...sections.map((s) => s.frame.y + s.frame.h));
-  return { x: left, y: bottom + SECTION_GAP, ...size };
+  if (boxes.length === 0) return { x: 0, y: 0, ...size };
+  const left = Math.min(...boxes.map((b) => b.x));
+  const bottom = Math.max(...boxes.map((b) => b.y + b.h));
+  return {
+    x: left + SECTION_PAD_X,
+    y: bottom + SECTION_SPACING + SECTION_HEADER,
+    ...size,
+  };
 }
