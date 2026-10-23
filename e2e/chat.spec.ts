@@ -53,6 +53,11 @@ function chat(page: Page) {
 }
 
 test.describe("chat", () => {
+  test.skip(
+    process.env.E2E_TARGET === "production",
+    "Production never runs the stub model, so its canned replies can't be checked there; PR previews run this test.",
+  );
+
   test("a Member's message gets a streamed reply that a second Member sees too", async ({
     page,
     browser,
@@ -114,13 +119,15 @@ test.describe("chat", () => {
       /Utsavvy is replying to \S+/,
       { timeout: 20_000 },
     );
-    // Aditi reloads mid-reply and catches up on the same stream.
-    await expect(
-      chat(aditi).locator('[data-chat-row="reply"]').first(),
-    ).toContainText("Namaste", { timeout: 20_000 });
+    // Aditi reloads mid-reply and picks the same stream up where it is: the
+    // reply is partial before the reload and still streaming after it.
+    const aditiReply = chat(aditi).locator('[data-chat-row="reply"]').first();
+    await expect(aditiReply).toContainText("Namaste", { timeout: 20_000 });
+    await expect(aditiReply).toHaveAttribute("data-status", "streaming");
+    await expect(aditiReply).not.toContainText(STUB_REPLY_FULL);
     await aditi.reload();
     await expect(
-      chat(aditi).locator('[data-chat-row="reply"]').first(),
+      chat(aditi).locator('[data-chat-row="reply"][data-status="streaming"]'),
     ).toContainText("Namaste", { timeout: 20_000 });
     for (const viewer of [page, aditi]) {
       await expect(
