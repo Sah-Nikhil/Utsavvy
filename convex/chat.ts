@@ -525,6 +525,10 @@ export const postSystem = internalMutation({
  * answers, the asker, and labels for recent messages (who wrote each, and
  * whether it was a Don't-reply message), so the model reads the Chat with each
  * author's name (section 4.5, "Context").
+ *
+ * Null for a run with no Chat message, so `respond` fails it: S5 only queues
+ * Chat runs. A slice that queues runs from a Comment, Nudge or Brief without a
+ * Chat message (S10, S17) must post that message first or extend this.
  */
 export const runContext = internalQuery({
   args: { runId: v.id("runs") },
