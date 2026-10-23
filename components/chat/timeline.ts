@@ -104,3 +104,45 @@ export function buildTimeline(
   }
   return rows;
 }
+
+/** Older annotations and runs from `api.chat.history`. */
+export type ChatHistory = {
+  annotations: ChatDetails["annotations"];
+  runs: RunSummary[];
+};
+
+/**
+ * The stretch of older Chat whose annotations and runs `details` may be
+ * missing: from the oldest loaded message to where the details' recent
+ * windows start. Null when `details` already covers every loaded message.
+ */
+export function historyRange(
+  messages: readonly UIMessage[],
+  details: ChatDetails,
+): { since: number; until: number } | null {
+  const until = details.historyFrom;
+  if (until === null || messages.length === 0) return null;
+  const since = Math.min(...messages.map((message) => message._creationTime));
+  return since < until ? { since, until } : null;
+}
+
+/** `details` with the older annotations and runs added, oldest first. */
+export function withHistory(
+  details: ChatDetails,
+  history: ChatHistory | null | undefined,
+): ChatDetails {
+  if (!history) return details;
+  const annotationIds = new Set(details.annotations.map((a) => a._id));
+  const runIds = new Set(details.runs.map((run) => run._id));
+  return {
+    ...details,
+    annotations: [
+      ...history.annotations.filter((a) => !annotationIds.has(a._id)),
+      ...details.annotations,
+    ],
+    runs: [
+      ...history.runs.filter((run) => !runIds.has(run._id)),
+      ...details.runs,
+    ],
+  };
+}

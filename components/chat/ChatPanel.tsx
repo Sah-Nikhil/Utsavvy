@@ -26,7 +26,7 @@ import {
   type ChatDetails,
   type RunSummary,
 } from "./runState";
-import { buildTimeline, hasText } from "./timeline";
+import { buildTimeline, hasText, historyRange, withHistory } from "./timeline";
 
 export type ChatPanelProps = { eventId: string };
 
@@ -145,10 +145,15 @@ function ChatBody({
     () => (threadId ? results : []),
     [threadId, results],
   );
-  const rows = useMemo(
-    () => buildTimeline(messages, details),
-    [messages, details],
+  // Messages older than the details' recent windows get their annotations
+  // and runs from `chat.history`.
+  const range = historyRange(messages, details);
+  const history = useQuery(
+    api.chat.history,
+    range ? { eventId, since: range.since, until: range.until } : "skip",
   );
+  const full = useMemo(() => withHistory(details, history), [details, history]);
+  const rows = useMemo(() => buildTimeline(messages, full), [messages, full]);
 
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -205,7 +210,7 @@ function ChatBody({
           </ol>
         )}
       </div>
-      <ReplyAnnouncer messages={messages} details={details} />
+      <ReplyAnnouncer messages={messages} details={full} />
       {active ? (
         <ReplyingBar
           run={active}
