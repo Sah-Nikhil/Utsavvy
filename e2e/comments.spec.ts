@@ -223,6 +223,9 @@ test.describe("comments", () => {
     );
   });
   test("a Comment on an Entry shows its count on that row, for everyone", async () => {
+    // The last test left Papa's Budget sheet open over the Canvas.
+    await papa.page.keyboard.press("Escape");
+    await expect(sheet(papa.page)).toHaveCount(0);
     const checklist = (page: Page) =>
       page.locator('[data-canvas-item="checklist"]');
     await checklist(meera.page)
