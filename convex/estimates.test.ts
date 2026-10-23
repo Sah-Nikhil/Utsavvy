@@ -30,6 +30,7 @@ import {
   cachedOrTableEstimate,
   estimateLines,
   liveEstimateDeps,
+  liveKnowledge,
   liveResearchCalls,
   researchLine,
   researchPrompt,
@@ -1777,6 +1778,14 @@ describe("the live calls against canned Anthropic responses (L7)", () => {
     expect(resent).toContain("web_search_tool_result");
     // The extraction call has no tools.
     expect(bodies[2]!.tools).toBeUndefined();
+    // Low effort and the output caps reach both requests (N1).
+    const config = (body: Record<string, unknown>) =>
+      body.output_config as Record<string, unknown> | undefined;
+    expect(config(bodies[0]!)?.effort).toBe("low");
+    expect(bodies[0]!.max_tokens).toBe(2000);
+    expect(config(bodies[2]!)?.effort).toBe("low");
+    expect(config(bodies[2]!)?.format).toBeDefined();
+    expect(bodies[2]!.max_tokens).toBe(1000);
     expect(output).toMatchObject({
       searchResultUrls: ["https://caterer-a.in/menu"],
       searchesUsed: 1,
@@ -1796,5 +1805,114 @@ describe("the live calls against canned Anthropic responses (L7)", () => {
       "claude-sonnet-5-5",
       "claude-haiku-5-5",
     ]);
+  });
+
+  /** A reply cut off at the output cap, so its JSON doesn't parse. */
+  const truncated = (model: string) => ({
+    ...message(
+      [{ type: "text", text: '{"estimates":[{"key":0,"unitLow":11' }],
+      "max_tokens",
+      { output_tokens: 1000 },
+    ),
+    model,
+  });
+
+  function cannedFetch(replies: (body: Record<string, unknown>) => unknown) {
+    return vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify(replies(body)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  it("keeps the extraction's usage and says why when its output doesn't parse (N3)", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "");
+    vi.stubEnv("HELPER_MODEL", undefined);
+    const fetch = cannedFetch((body) =>
+      body.tools
+        ? message(
+            [{ type: "text", text: "Caterer A lists ₹1,100 a plate." }],
+            "end_turn",
+            { server_tool_use: { web_search_requests: 1 } },
+          )
+        : truncated("claude-haiku-5-5"),
+    );
+    const meter = { searches: 0, usage: [] as ModelUsage[] };
+    const output = await researchLine(
+      {
+        eventType: "wedding",
+        city: "Jaipur",
+        lines: [
+          {
+            key: 0,
+            label: "Catering, main dinner",
+            category: "catering_main",
+            unit: "per_plate",
+            listedPrices: [],
+          },
+        ],
+        maxSearches: 1,
+        abortSignal: new AbortController().signal,
+      },
+      liveResearchCalls("claude-sonnet-5-5", "test-key", { fetch }),
+      meter,
+    );
+    expect(output.results).toEqual([]);
+    expect(output.failure?.reason).toBe("noOutput");
+    expect(output.failure?.detail).toMatch(/didn't parse.*length/);
+    expect(meter.usage.map((u) => u.model)).toEqual([
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+    ]);
+    expect(meter.usage[1]!.outputTokens).toBe(1000);
+    expect(output.usage).toHaveLength(2);
+  });
+
+  it("keeps the Assistant's own estimate's usage when its output doesn't parse (N3)", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "");
+    vi.stubEnv("DEFAULT_MODEL", undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const output = await liveKnowledge(
+      {
+        eventType: "wedding",
+        city: "Jaipur",
+        lines: [{ key: 0, label: "tent house", unit: "per_function" }],
+      },
+      { fetch: cannedFetch(() => truncated("claude-sonnet-5-5")) },
+    );
+    expect(output?.results).toEqual([]);
+    expect(output?.usage).toEqual([
+      { model: "claude-sonnet-5-5", inputTokens: 100, outputTokens: 1000 },
+    ]);
+  });
+});
+
+describe("the report times the Assistant's own estimate too (N2)", () => {
+  it("adds the knowledge call's time as knowledgeMs", async () => {
+    const { ctx, eventId } = await setup();
+    const { reports, onResearch } = reporter();
+    await estimateLines(
+      ctx,
+      args(eventId, [
+        { category: "tent house", quantity: 1, unit: "per_function" },
+      ]),
+      deps({
+        onResearch,
+        knowledge: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          return {
+            model: "claude-sonnet-5-5",
+            results: [
+              { key: 0, unitLow: 20000, unitHigh: 60000, reasoning: "x" },
+            ],
+          };
+        },
+      }),
+    );
+    expect(reports[0]!.knowledgeMs).toBeGreaterThanOrEqual(30);
   });
 });
