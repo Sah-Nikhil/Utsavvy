@@ -87,7 +87,9 @@ function amountAtMost(
   const floorTo = (amount: number, step: number) =>
     Math.floor(amount / step + 1e-9) * step;
   if (unit === "per_plate") return floorTo(unitPrice, 10) * quantity;
-  return floorTo(unitPrice * quantity, 1000);
+  // A line whose high is under ₹1,000 rounds down to ₹100, not to ₹0.
+  const line = unitPrice * quantity;
+  return floorTo(line, line >= 1000 ? 1000 : 100);
 }
 
 /** A figure for a sentence: nearest ₹10,000 from ₹10L up, else nearest ₹1,000. */

@@ -235,6 +235,41 @@ describe("above high", () => {
   });
 });
 
+describe("a line whose high is under ₹1,000 (N4)", () => {
+  it("rounds down to ₹100 above high instead of flooring to ₹0", () => {
+    // Prasad at ₹20 to ₹40 for 20 Guest-days: a high of ₹800.
+    const result = pricePlan(
+      plan(line("prasad", 20, "per_guest_day")),
+      [range("per_guest_day", 20, 40)],
+      { budget: 10000, ...C },
+    );
+    expect(result.budgetCheck.band).toBe("aboveHigh");
+    expect(result.entries[0]?.amount).toBe(800);
+    expect(total(result)).toBe(10000);
+  });
+
+  it("rounds down to ₹100 at f = 1 in the comfortable band", () => {
+    // ₹500 to ₹850; nearest-₹1,000 rounding would give ₹1,000, above the high.
+    const result = pricePlan(
+      plan(line("prasad", 20, "per_guest_day")),
+      [range("per_guest_day", 25, 42.5)],
+      { budget: 935, ...C },
+    );
+    expect(result.budgetCheck.band).toBe("comfortable");
+    expect(result.entries[0]?.amount).toBe(800);
+    expect(total(result)).toBe(935);
+  });
+
+  it("still floors to ₹1,000 when the high is ₹1,000 or more", () => {
+    const result = pricePlan(
+      plan(line("cards", 150, "per_card")),
+      [range("per_card", 80, 250)],
+      { budget: 1000000, ...C },
+    );
+    expect(result.entries[0]?.amount).toBe(37000);
+  });
+});
+
 describe("rounding never takes the Contingency below zero (L6)", () => {
   it("reduces the largest Entry, a rounding step at a time, instead", () => {
     // Three ₹2,400 lows scaled to ₹1,500 each round up to ₹2,000: ₹6,000 against ₹4,950.

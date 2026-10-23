@@ -71,7 +71,7 @@ afterAll(() => {
       case: name,
       models: models([...report.usage, ...report.knowledgeUsage]),
       searches: report.searchesUsed,
-      seconds: (report.ms / 1000).toFixed(1),
+      seconds: ((report.ms + report.knowledgeMs) / 1000).toFixed(1),
       dollars: dollars(report),
       fellThrough: report.failures
         .map((f) => `${f.reason}: ${f.detail}`)
