@@ -2,7 +2,7 @@
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EntryFields } from "../lib/types/canvas";
-import { api } from "./_generated/api";
+import { api, components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { buildProposeTools } from "./assistant/tools/propose";
@@ -238,6 +238,78 @@ describe("Accept", () => {
     expect((await card(s, "Meera", proposalId)).status).toEqual({
       kind: "accepted",
       text: "Accepted by Aditi",
+    });
+  });
+});
+
+describe("Out of date", () => {
+  it("refuses Accept after a Member edits what it touches, applies nothing, and offers Ask again", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+
+    // While the Proposal is open, Meera sets Decor to ₹2,50,000 herself.
+    await s.as("Meera").mutation(api.entries.update, {
+      entryId: s.decor,
+      patch: { kind: "budget", plannedAmount: 250_000 },
+    });
+
+    // The card turns out of date at once, before anyone taps Accept.
+    const live = await card(s, "Rohan", proposalId);
+    expect(live.status).toEqual({
+      kind: "outOfDate",
+      text: "Out of date: Meera changed this since",
+    });
+    expect(live.canDecide).toBe(false);
+    expect(live.canAskAgain).toBe(true);
+
+    const result = await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(result).toEqual({
+      ok: false,
+      reason: "outOfDate",
+      message: "Out of date: Meera changed this since.",
+    });
+    expect(await plannedOf(s, s.decor)).toBe(250_000);
+    expect(await plannedOf(s, s.contingency)).toBe(100_000);
+    const drone = await s.t.run((ctx) => ctx.db.get("entries", s.drone));
+    expect(drone?.deletedAt).toBeNull();
+
+    // Rohan taps "Ask again": his request goes to the Assistant again.
+    const { runId } = await s
+      .as("Rohan")
+      .mutation(api.proposals.askAgain, { eventId: s.eventId, proposalId });
+    const run = await s.t.run((ctx) => ctx.db.get("runs", runId));
+    expect(run?.requestedBy).toBe(s.people.Rohan);
+    expect(run?.status).toBe("queued");
+    const [message] = await s.t.run((ctx) =>
+      ctx.runQuery(components.agent.messages.getMessagesByIds, {
+        messageIds: [run!.messageId!],
+      }),
+    );
+    expect(message?.text).toBe(
+      "Ask again: Cut decor to ₹2,20,000 and drop the drone shoot.",
+    );
+  });
+
+  it("is out of date when a guarded parent changed, too", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Add a note about the band, just a suggestion.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Note the band",
+      changes: [{ op: "addItem", item: { kind: "note", text: "Ask the band for a sample set" } }],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const proposalId = (result as unknown as { proposalId: Id<"proposals"> }).proposalId;
+
+    // Aditi renames the Notes Section the Note would go in.
+    await s.as("Aditi").mutation(api.canvas.renameSection, {
+      sectionId: s.sections.notes,
+      name: "Ideas",
+    });
+    expect((await card(s, "Aditi", proposalId)).status).toEqual({
+      kind: "outOfDate",
+      text: "Out of date: Aditi changed this since",
     });
   });
 });
