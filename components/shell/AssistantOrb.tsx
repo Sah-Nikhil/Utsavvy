@@ -1,13 +1,20 @@
-import type { CSSProperties } from "react";
+"use client";
+
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 
 /*
  * The Assistant, drawn as a soft circular gradient (after Google's Gemini visual
  * design, IMPLEMENTATION_PLAN.md section 7.4). Its colours come from the Event's
- * Theme, so every Event's Assistant looks a little different. While it thinks or
- * streams, colour drifts inside the circle ("inner activity"); at idle it settles
- * and stops. Hues close to marigold are dropped so the pointing ring stays the
- * only marigold on screen. With reduced motion it is a still gradient.
+ * Theme, so every Event's Assistant looks a little different; without a Theme it
+ * wears the brand palette (`--orb-1` to `--orb-4` in app/globals.css).
+ *
+ * While it thinks or streams, colour moves inside the circle ("inner activity"):
+ * a conic field turns, two soft lights wander, and the whole orb breathes, more
+ * slowly while thinking than while streaming. When the run ends it settles: the
+ * motion stops and one soft glow fades out around it. Hues close to marigold are
+ * dropped, so the pointing ring stays the only marigold on screen. With reduced
+ * motion it is a still gradient.
  */
 
 export type AssistantOrbState = "idle" | "thinking" | "streaming";
@@ -25,10 +32,10 @@ export type AssistantOrbProps = {
 
 // Used when the Theme gives fewer than three usable colours.
 const FALLBACK = [
-  "color-mix(in oklab, var(--action) 72%, var(--surface))",
-  "color-mix(in oklab, var(--quote) 55%, var(--surface))",
-  "color-mix(in oklab, var(--avatar-1) 50%, var(--surface))",
-  "color-mix(in oklab, var(--avatar-2) 60%, var(--surface))",
+  "var(--orb-1)",
+  "var(--orb-2)",
+  "var(--orb-3)",
+  "var(--orb-4)",
 ];
 
 type Hsl = { h: number; s: number; l: number };
@@ -59,21 +66,40 @@ function isNearMarigold({ h, s, l }: Hsl) {
   return h >= 25 && h <= 52 && s >= 0.35 && l >= 0.25 && l <= 0.82;
 }
 
-/** Keeps the Theme's usable hues, in order, and pads with token colours. */
+/** Keeps the Theme's usable hues, in order, and pads with the brand palette. */
 export function orbColours(palette: string[]): string[] {
   const kept: string[] = [];
   for (const raw of palette) {
     const hsl = parseHex(raw);
     if (!hsl || isNearMarigold(hsl)) continue;
-    // Near-black and near-white make the gradient muddy or invisible.
-    if (hsl.l < 0.12 || hsl.l > 0.94) continue;
+    // Near-black, near-white and grey make the gradient muddy or invisible.
+    if (hsl.l < 0.12 || hsl.l > 0.94 || hsl.s < 0.12) continue;
     kept.push(raw.startsWith("#") ? raw : `#${raw}`);
   }
   for (const token of FALLBACK) {
     if (kept.length >= 3) break;
-    kept.push(token);
+    if (!kept.includes(token)) kept.push(token);
   }
   return kept.slice(0, 4);
+}
+
+/**
+ * True for a moment after the orb goes from working to idle, so the settle
+ * glow plays once when a reply finishes (and never on first render).
+ */
+function useSettling(active: boolean) {
+  const [settling, setSettling] = useState(false);
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (wasActive.current && !active) {
+      setSettling(true);
+      const timer = setTimeout(() => setSettling(false), 900);
+      wasActive.current = active;
+      return () => clearTimeout(timer);
+    }
+    wasActive.current = active;
+  }, [active]);
+  return settling;
 }
 
 export function AssistantOrb({
@@ -89,23 +115,25 @@ export function AssistantOrb({
     string,
     string?,
   ];
-  const blur = Math.max(2, Math.round(size * 0.14));
+  const active = state !== "idle";
+  const settling = useSettling(active);
+  const blur = Math.max(2, Math.round(size * 0.16));
 
-  const blob = (
-    colour: string,
-    x: string,
-    y: string,
-    scale: number,
-  ): CSSProperties => ({
+  const light = (colour: string, x: string, y: string): CSSProperties => ({
     position: "absolute",
     left: x,
     top: y,
-    width: `${scale * 100}%`,
-    height: `${scale * 100}%`,
+    width: "70%",
+    height: "70%",
     borderRadius: "9999px",
-    background: `radial-gradient(circle, ${colour} 0%, ${colour} 30%, transparent 70%)`,
+    background: `radial-gradient(circle, ${colour} 0%, transparent 68%)`,
     translate: "-50% -50%",
   });
+
+  // Layers pause rather than stop at idle, so the orb keeps the colours it
+  // settled on instead of snapping back to its starting position.
+  const run =
+    "motion-reduce:animate-none group-data-[state=idle]/orb:[animation-play-state:paused]";
 
   return (
     <span
@@ -113,52 +141,75 @@ export function AssistantOrb({
       aria-label={label}
       aria-hidden={label ? undefined : true}
       data-state={state}
-      className={cn(
-        "group/orb relative inline-block shrink-0 overflow-hidden rounded-full",
-        "shadow-[inset_0_0_0_1px_rgb(255_255_255/0.35)]",
-        className,
-      )}
-      style={{
-        width: size,
-        height: size,
-        background: `linear-gradient(140deg, ${c1}, ${c2} 55%, ${c3})`,
-      }}
+      className={cn("group/orb relative inline-block shrink-0", className)}
+      style={{ width: size, height: size }}
     >
-      {/* Inner activity: two layers turning at different speeds and directions.
-          Streaming adds a slow swell on top, so a reply in progress feels alive. */}
+      {/* A soft halo of the same colours while working, and once on settling. */}
       <span
+        aria-hidden
         className={cn(
-          "absolute inset-0",
-          "group-data-[state=streaming]/orb:animate-[orb-breathe_1.8s_var(--ease-standard)_infinite]",
+          "pointer-events-none absolute inset-0 rounded-full opacity-0 transition-opacity duration-(--dur-arrival) ease-standard",
+          "group-data-[state=streaming]/orb:opacity-45 group-data-[state=thinking]/orb:opacity-30",
         )}
-      >
-        <span
-          className="absolute inset-0 animate-orb-drift group-data-[state=idle]/orb:[animation-play-state:paused]"
-          style={{ filter: `blur(${blur}px)` }}
-        >
-          <span style={blob(c3, "28%", "30%", 0.8)} />
-          <span style={blob(c4, "74%", "68%", 0.75)} />
-        </span>
-        <span
-          className="absolute inset-0 animate-orb-drift group-data-[state=idle]/orb:[animation-play-state:paused]"
-          style={{
-            filter: `blur(${blur}px)`,
-            animationDuration: "4.6s",
-            animationDirection: "reverse",
-          }}
-        >
-          <span style={blob(c2, "70%", "26%", 0.7)} />
-          <span style={blob(c1, "30%", "76%", 0.65)} />
-        </span>
-      </span>
-      {/* A soft light from the upper left gives the orb its roundness */}
-      <span
-        className="absolute inset-0 rounded-full"
         style={{
-          background:
-            "radial-gradient(circle at 32% 26%, rgb(255 255 255 / 0.32), rgb(255 255 255 / 0) 58%)",
+          background: `conic-gradient(from 90deg, ${c1}, ${c2}, ${c3}, ${c4}, ${c1})`,
+          filter: `blur(${Math.max(4, Math.round(size * 0.28))}px)`,
+          scale: "1.15",
         }}
       />
+      {settling ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 animate-[orb-settle_0.9s_var(--ease-emphasized)_forwards] rounded-full motion-reduce:hidden"
+          style={{
+            background: `conic-gradient(from 200deg, ${c1}, ${c3}, ${c2}, ${c1})`,
+            filter: `blur(${Math.max(3, Math.round(size * 0.2))}px)`,
+          }}
+        />
+      ) : null}
+      <span
+        className={cn(
+          "absolute inset-0 overflow-hidden rounded-full",
+          "shadow-[inset_0_0_0_1px_var(--orb-rim)]",
+          "group-data-[state=streaming]/orb:animate-[orb-breathe_2.2s_var(--ease-standard)_infinite]",
+          "group-data-[state=thinking]/orb:animate-[orb-breathe_3.4s_var(--ease-standard)_infinite]",
+          "motion-reduce:animate-none",
+        )}
+        style={{
+          background: `linear-gradient(140deg, ${c1}, ${c2} 55%, ${c3})`,
+        }}
+      >
+        {/* Inner activity: a turning conic field under two wandering lights. */}
+        <span
+          className={cn(
+            "absolute -inset-1/4 animate-orb-drift group-data-[state=thinking]/orb:[animation-duration:11s] group-data-[state=streaming]/orb:[animation-duration:5s]",
+            run,
+          )}
+          style={{
+            background: `conic-gradient(from 0deg, ${c1}, ${c2}, ${c3}, ${c4}, ${c1})`,
+            filter: `blur(${blur}px)`,
+            opacity: 0.85,
+          }}
+        />
+        <span
+          className={cn(
+            "absolute inset-0 animate-[orb-wander_6s_var(--ease-standard)_infinite] group-data-[state=streaming]/orb:[animation-duration:3.2s]",
+            run,
+          )}
+          style={{ filter: `blur(${blur}px)` }}
+        >
+          <span style={light(c4, "30%", "30%")} />
+          <span style={light(c2, "72%", "70%")} />
+        </span>
+        {/* A soft light from the upper left gives the orb its roundness. */}
+        <span
+          className="absolute inset-0 rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle at 32% 26%, var(--orb-sheen), transparent 56%)",
+          }}
+        />
+      </span>
     </span>
   );
 }
