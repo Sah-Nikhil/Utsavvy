@@ -49,6 +49,13 @@ function Chat({ eventId }: { eventId: string }) {
   const active = details?.runs.find(
     (run) => run.status === "running" || run.status === "stopping",
   );
+  // The orb is drawn from the Event's Theme colours. Only asked once the Chat
+  // is open to this person, so a refused Event keeps its own message.
+  const event = useQuery(
+    api.events.get,
+    details ? { eventId: eventId as Id<"events"> } : "skip",
+  );
+  const palette = useMemo(() => event?.theme.palette ?? [], [event]);
 
   // On phones the Chat sits under the Canvas; a fixed height keeps the Canvas
   // reachable until S16 gives phones their Chat and Canvas tabs.
@@ -58,11 +65,11 @@ function Chat({ eventId }: { eventId: string }) {
       className="flex h-[60dvh] min-h-0 flex-col md:h-full"
       data-chat
     >
-      <ChatHeader details={details} active={active} />
+      <ChatHeader details={details} active={active} palette={palette} />
       {details === undefined ? (
         <ChatLoading />
       ) : details === null ? (
-        <p className="m-4 rounded-md border border-dashed border-rule-strong p-4 text-label text-ink-2">
+        <p className="m-4 rounded-lg bg-surface-high p-4 text-label text-ink-2">
           This Chat isn&apos;t open to you. Ask the Event&apos;s Owner for an
           invite link.
         </p>
@@ -71,6 +78,7 @@ function Chat({ eventId }: { eventId: string }) {
           eventId={eventId as Id<"events">}
           details={details}
           active={active}
+          palette={palette}
         />
       )}
     </section>
@@ -80,16 +88,18 @@ function Chat({ eventId }: { eventId: string }) {
 function ChatHeader({
   details,
   active,
+  palette,
 }: {
   details: ChatDetails | null | undefined;
   active: RunSummary | undefined;
+  palette: string[];
 }) {
   return (
-    <header className="flex shrink-0 items-center gap-3 border-b border-rule px-4 py-3">
+    <header className="flex shrink-0 items-center gap-3 px-4 pt-4 pb-3">
       <AssistantOrb
-        palette={[]}
+        palette={palette}
         state={active ? "streaming" : "idle"}
-        size={36}
+        size={40}
       />
       <div className="min-w-0">
         <h2
@@ -117,7 +127,7 @@ function ChatLoading() {
       {[0.7, 0.5, 0.8].map((width) => (
         <div
           key={width}
-          className="h-10 animate-pulse rounded-lg bg-surface-sunk motion-reduce:animate-none"
+          className="h-10 animate-pulse rounded-lg bg-surface-high motion-reduce:animate-none"
           style={{ width: `${width * 100}%` }}
         />
       ))}
@@ -131,10 +141,12 @@ function ChatBody({
   eventId,
   details,
   active,
+  palette,
 }: {
   eventId: Id<"events">;
   details: ChatDetails;
   active: RunSummary | undefined;
+  palette: string[];
 }) {
   const threadId = details.threadId;
   const { results, status, loadMore } = useUIMessages(
@@ -210,7 +222,7 @@ function ChatBody({
                 row={row}
                 eventId={eventId}
                 myMembershipId={details.me.membershipId}
-                palette={[]}
+                palette={palette}
               />
             ))}
           </ol>
@@ -221,11 +233,13 @@ function ChatBody({
         details={full}
         loading={status === "LoadingFirstPage"}
       />
-      {active ? <ReplyingBar run={active} me={details.me} /> : null}
+      {active ? (
+        <ReplyingBar run={active} me={details.me} palette={palette} />
+      ) : null}
       {details.me.canPost ? (
         <Composer eventId={eventId} />
       ) : (
-        <p className="border-t border-rule px-4 py-3 text-label text-ink-2">
+        <p className="m-3 mt-0 rounded-lg bg-surface-high px-4 py-3 text-label text-ink-2">
           Viewers can read the Chat. Only Members can post or ask Utsavvy.
         </p>
       )}
@@ -236,7 +250,7 @@ function ChatBody({
 function EmptyChat({ canPost }: { canPost: boolean }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <p className="font-display text-title text-ink">Plan out loud here</p>
+      <p className="font-display text-headline text-ink">Plan out loud here</p>
       <p className="max-w-64 text-label text-ink-2">
         {canPost
           ? "Ask Utsavvy to plan, or leave a note for the other Members. Everyone in the Event sees this Chat."
@@ -258,7 +272,15 @@ function useNow(enabled: boolean): number {
 }
 
 /** "Utsavvy is replying to Rohan" with Stop (rules 20 and 21). */
-function ReplyingBar({ run, me }: { run: RunSummary; me: ChatDetails["me"] }) {
+function ReplyingBar({
+  run,
+  me,
+  palette,
+}: {
+  run: RunSummary;
+  me: ChatDetails["me"];
+  palette: string[];
+}) {
   const stop = useMutation(api.runs.stop);
   const [error, setError] = useState<string | null>(null);
   const stopping = run.status === "stopping";
@@ -299,10 +321,10 @@ function ReplyingBar({ run, me }: { run: RunSummary; me: ChatDetails["me"] }) {
 
   return (
     <div
-      className="flex shrink-0 items-center gap-2.5 border-t border-rule bg-surface-header px-4 py-2"
+      className="mx-3 mb-2 flex shrink-0 items-center gap-2.5 rounded-full bg-surface-high py-1.5 pr-1.5 pl-2.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-(--dur-arrival) ease-emphasized motion-reduce:animate-none"
       data-replying
     >
-      <AssistantOrb palette={[]} size={20} state="streaming" />
+      <AssistantOrb palette={palette} size={22} state="streaming" />
       <p className="min-w-0 flex-1 truncate text-label text-ink-2">
         {stopping
           ? "Stopping…"

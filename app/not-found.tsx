@@ -1,18 +1,27 @@
 import Link from "next/link";
 import { SiteChrome } from "@/components/shell/SiteChrome";
+import { StatusPage } from "@/components/shell/StatusPage";
+import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <SiteChrome>
-      <h1 className="mb-2 font-display text-headline font-semibold text-ink">
-        Page not found
-      </h1>
-      <p className="text-body text-ink-2">
-        This page doesn&apos;t exist.{" "}
-        <Link href="/" className="text-action underline">
-          Go home
-        </Link>
-      </p>
+    <SiteChrome wide>
+      <StatusPage hindi="यह पन्ना नहीं मिला" title="Page not found">
+        <p>This page doesn&apos;t exist.</p>
+        <div className="flex flex-wrap gap-3">
+          <Button size="lg" nativeButton={false} render={<Link href="/" />}>
+            Go home
+          </Button>
+          <Button
+            size="lg"
+            variant="tonal"
+            nativeButton={false}
+            render={<Link href="/events" />}
+          >
+            Your Events
+          </Button>
+        </div>
+      </StatusPage>
     </SiteChrome>
   );
 }

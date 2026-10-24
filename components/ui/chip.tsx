@@ -36,9 +36,10 @@ export function Chip({
         onSelectedChange ? (pressed) => onSelectedChange(pressed) : undefined
       }
       className={cn(
-        "state-layer group inline-flex h-8 items-center gap-1.5 rounded-sm border border-rule-strong px-3 text-label font-medium text-ink-2",
-        "transition-[background-color,border-color,color,border-radius] duration-(--dur-feedback) ease-standard active:rounded-xs",
-        "data-pressed:border-transparent data-pressed:bg-selected data-pressed:text-on-selected",
+        "state-layer group inline-flex h-8 items-center gap-1.5 rounded-sm border border-rule-strong bg-surface-container px-3 text-label font-medium text-ink-2",
+        "transition-[background-color,border-color,color,border-radius] duration-(--dur-shape) ease-standard active:rounded-xs",
+        // Selected chips round off a little more: the shape says "on".
+        "data-pressed:rounded-[16px] data-pressed:border-transparent data-pressed:bg-selected data-pressed:text-on-selected",
         "data-disabled:cursor-not-allowed data-disabled:opacity-40",
         className,
       )}

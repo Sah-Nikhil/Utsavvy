@@ -11,11 +11,11 @@ import { cn } from "@/lib/utils";
  */
 
 const controlClass = cn(
-  "w-full min-w-0 rounded-sm border border-rule-strong bg-surface px-3 text-body text-ink",
-  "transition-[border-color,box-shadow] duration-(--dur-feedback) ease-standard",
+  "w-full min-w-0 rounded-md border border-rule-strong bg-surface px-3.5 text-body text-ink",
+  "transition-[border-color,box-shadow,border-radius] duration-(--dur-shape) ease-standard",
   "placeholder:text-ink-3",
   "hover:border-ink-2",
-  "focus-visible:border-action focus-visible:shadow-[inset_0_0_0_1px_var(--action)] focus-visible:outline-none",
+  "focus-visible:rounded-sm focus-visible:border-action focus-visible:shadow-[inset_0_0_0_1px_var(--action)] focus-visible:outline-none",
   "data-invalid:border-warn data-invalid:focus-visible:shadow-[inset_0_0_0_1px_var(--warn)]",
   "disabled:cursor-not-allowed disabled:bg-surface-sunk disabled:text-ink-3",
 );
@@ -31,7 +31,7 @@ export function Input({ className, ...props }: InputProps) {
   return (
     <InputPrimitive
       data-slot="input"
-      className={cn(controlClass, "h-10", className)}
+      className={cn(controlClass, "h-11", className)}
       {...props}
     />
   );

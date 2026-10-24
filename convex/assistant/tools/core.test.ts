@@ -38,6 +38,8 @@ afterEach(() => {
 /** A Jaipur wedding planned by Meera and Aditi, viewed by Papa, with a ₹12L Budget. */
 async function seedWedding(ctx: MutationCtx) {
   const eventId = await insertEvent(ctx, "Meera weds Rohan");
+  // Past its first Brief, so a Chat message asks Utsavvy.
+  await ctx.db.patch("events", eventId, { briefState: "summary" });
   await ctx.db.patch("events", eventId, {
     city: { name: "Jaipur", tier: "Y", centre: null },
     budgetTotal: 1_200_000,

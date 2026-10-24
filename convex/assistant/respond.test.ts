@@ -34,6 +34,8 @@ async function setUp(defaultModel: string) {
   agentTest.register(t);
   const { eventId, rohan, aditi } = await t.run(async (ctx) => {
     const eventId = await insertEvent(ctx, "Meera weds Rohan");
+    // Past its first Brief, so a Chat message asks Utsavvy.
+    await ctx.db.patch("events", eventId, { briefState: "summary" });
     const rohan = await seedMembership(ctx, { clerkId: "Rohan", eventId });
     const aditi = await seedMembership(ctx, { clerkId: "Aditi", eventId });
     return {
@@ -187,12 +189,14 @@ async function say(
   text: string,
   dontReply: boolean,
 ) {
-  return await as.mutation(api.chat.send, {
+  const sent = await as.mutation(api.chat.send, {
     eventId,
     text,
     dontReply,
     pointing: [],
   });
+  // These Events are past their first Brief, so every message is posted.
+  return { ...sent, messageId: sent.messageId! };
 }
 
 describe("the context a reply reads", { timeout: 20_000 }, () => {
@@ -495,7 +499,7 @@ describe("review of #94", { timeout: 120_000 }, () => {
       dontReply: true,
       pointing: [],
     });
-    const runId = await parkRun(s, s.aditi, messageId);
+    const runId = await parkRun(s, s.aditi, messageId!);
     const calls = stubCallCount();
     await s.t.action(internal.assistant.agent.respond, { runId });
     await s.t.finishInProgressScheduledFunctions();

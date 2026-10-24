@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { EnsureUser } from "@/components/providers/EnsureUser";
+import { clerkAppearance } from "@/components/shell/clerkAppearance";
 import { ConvexClientProvider } from "@/components/providers/ConvexClientProvider";
 import { ornamentsScript } from "@/lib/ornaments";
 import { anek, fraunces, tiro } from "./fonts";
@@ -20,7 +21,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      appearance={clerkAppearance}
+    >
       <html
         lang="en"
         className={`${anek.variable} ${fraunces.variable} ${tiro.variable}`}

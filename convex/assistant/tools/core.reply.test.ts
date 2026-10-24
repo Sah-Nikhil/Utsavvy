@@ -112,6 +112,8 @@ describe("a reply that calls a tool", { timeout: 30_000 }, () => {
     agentTest.register(t);
     const { eventId, meera, budget } = await t.run(async (ctx) => {
       const eventId = await insertEvent(ctx, "Meera weds Rohan");
+      // Past its first Brief, so a Chat message asks Utsavvy.
+      await ctx.db.patch("events", eventId, { briefState: "summary" });
       const { membershipId } = await seedMembership(ctx, {
         clerkId: "Meera",
         eventId,
