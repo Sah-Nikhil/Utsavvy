@@ -8,6 +8,7 @@ import type { MutationCtx } from "./_generated/server";
 import { buildProposeTools } from "./assistant/tools/propose";
 import type { ToolResult } from "./assistant/tools/core";
 import { createStartingSections } from "./canvas";
+import { MAX_COMMENTS_PER_ITEM } from "./comments";
 import { stubEstimateDeps } from "./estimates";
 import {
   identityFor,
@@ -311,5 +312,69 @@ describe("Out of date", () => {
       kind: "outOfDate",
       text: "Out of date: Aditi changed this since",
     });
+  });
+});
+
+describe("All or nothing", () => {
+  it("applies none of the changes when the third one's handler refuses", async () => {
+    const s = await setUp();
+    const runId = await ask(
+      s,
+      "Rohan",
+      "Cut decor to ₹2,20,000, drop the drone shoot and leave a Comment on the Budget.",
+    );
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Cut Decor, drop the Drone shoot, note why",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { memberStated: 220_000 } },
+        },
+        { op: "deleteEntry", entryId: s.drone, expectedVersion: 1 },
+        {
+          op: "addComment",
+          target: { kind: "item", itemId: s.budget },
+          body: "Cut to keep the Contingency healthy.",
+        },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const proposalId = (result as unknown as { proposalId: Id<"proposals"> })
+      .proposalId;
+
+    // Before anyone accepts, the Budget fills up with Comments, so the
+    // addComment handler refuses in validate.
+    await s.t.run(async (ctx) => {
+      for (let i = 0; i < MAX_COMMENTS_PER_ITEM; i++) {
+        await ctx.db.insert("comments", {
+          eventId: s.eventId,
+          itemId: s.budget,
+          target: { kind: "item", itemId: s.budget },
+          rootId: null,
+          author: { kind: "member", membershipId: s.people.Papa },
+          body: `Comment ${i}`,
+          resolved: false,
+          createdAt: Date.now(),
+          editedAt: null,
+        });
+      }
+    });
+
+    const accepted = await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(accepted.ok).toBe(false);
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+    const drone = await s.t.run((ctx) => ctx.db.get("entries", s.drone));
+    expect(drone?.deletedAt).toBeNull();
+    const rows = await s.t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_group", (q) => q.eq("groupKey", proposalId))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
   });
 });
