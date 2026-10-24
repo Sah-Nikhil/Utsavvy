@@ -43,6 +43,8 @@ const JAIPUR: Theme = {
 
 async function seedWedding(ctx: MutationCtx) {
   const eventId = await insertEvent(ctx, "Meera weds Rohan");
+  // Past its first Brief, so a Chat message asks Utsavvy.
+  await ctx.db.patch("events", eventId, { briefState: "summary" });
   await ctx.db.patch("events", eventId, {
     city: { name: "Jaipur", tier: "Y", centre: null },
     tradition: "North Indian Hindu",
