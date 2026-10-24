@@ -151,6 +151,16 @@ async function insertUpload(
       deletedAt,
     }),
   );
+  // saveUpload claims the file with its Item (review of #107, H1).
+  await s.t.run((ctx) =>
+    ctx.db.insert("uploadClaims", {
+      fileId,
+      eventId: s.eventId,
+      itemId,
+      membershipId: s.meera,
+      claimedAt: T0,
+    }),
+  );
   return { fileId, itemId };
 }
 
@@ -612,7 +622,7 @@ describe("the palette addUpload takes (review of #107, Decision 3 and L1)", () =
         "#1f6f78",
         "red",
         "#12345",
-        "#ABCDEF;x",
+        "#ABCDE;",
         "#c9a23a",
         "#f4a300",
         "#c2185b",

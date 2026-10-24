@@ -240,11 +240,28 @@ export function themeUpdateFromImage<Id extends string>(
   };
 }
 
+const THEME_WORD = /\b(theme|palette|colou?rs?|colou?r scheme)\b|थीम|रंग/i;
+const CHANGE_VERB =
+  /\b(change|update|set|make|use|add|switch|replace|swap|remove|drop|include|apply)\b|बदल|जोड़|डाल|हटा/i;
+const NEGATION = /\b(don'?t|do not|doesn'?t|not|never|stop)\b|मत|नहीं/i;
+const QUESTION =
+  /\?\s*$|^\s*(what|which|how|why|should|shall|could|would|can|do|does|is|are)\b/i;
+
 /**
- * Whether a Member's message asks about the Theme, so the Assistant may change
- * it at once (rule 16). Any other change to the Theme is the Assistant's own
- * idea and goes to the Members as a Proposal.
+ * Whether a Member's message asks to change the Theme, so the Assistant may
+ * change it at once (rule 16): one sentence names the Theme (or its palette or
+ * colours) with a change verb, and isn't a question or a "don't". Anything
+ * else, including a question about colours, isn't a request: the Assistant's
+ * change then goes to the Members as a Proposal. When in doubt it says no,
+ * because a Proposal is always safe.
  */
 export function asksForTheme(text: string): boolean {
-  return /\b(theme|palette|colou?rs?|colou?r scheme)\b|थीम/i.test(text);
+  const about = text
+    .split(/(?<=[.!?।\n])/)
+    .filter((sentence) => THEME_WORD.test(sentence));
+  // A "don't" anywhere about the Theme outweighs a request beside it.
+  if (about.some((sentence) => NEGATION.test(sentence))) return false;
+  return about.some(
+    (sentence) => CHANGE_VERB.test(sentence) && !QUESTION.test(sentence),
+  );
 }

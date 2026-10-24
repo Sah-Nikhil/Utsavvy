@@ -253,6 +253,8 @@ export const updateThemeForRun = internalMutation({
         const item = await ctx.db.get("items", update.fromInspiration);
         if (item === null || item.eventId !== args.eventId)
           return refusal("invalid", "That Inspiration isn't in this Event.");
+        if (item.kind !== "inspiration" || item.deletedAt !== null)
+          return refusal("invalid", "That isn't a live Inspiration.");
       }
       const theme = mergeTheme(g.event.theme, update);
       const { version } = await assistantWrite(ctx, {
@@ -329,6 +331,8 @@ export const updateThemeOp: ProposalOpHandler<"updateTheme"> = {
 
 const NOT_ASKED_TAG =
   "Only tag an Inspiration with a Function the Member's own message names. Suggest the tag in your reply instead; a Member can tap the Function chip on the card.";
+const NO_CLEARING_TAG =
+  "You can't clear an Inspiration's Function; you can only tag it (rule 8). Say in one line that a Member can clear it with the Function chip on the card.";
 
 export const tagForRun = internalMutation({
   args: {
@@ -341,12 +345,11 @@ export const tagForRun = internalMutation({
     const g = await gate(ctx, args, "canvas.edit");
     return await once(ctx, callKey(args), async (): Promise<ToolResult> => {
       if (!asked(g.run)) return refusal("notAsked", NOT_ASKED_TAG);
+      if (args.functionKey === null)
+        return refusal("notAsked", NO_CLEARING_TAG);
       const functions = await functionsOf(ctx, args.eventId);
       const named = functionsNamedIn(await requestText(ctx, g.run), functions);
-      if (
-        named.length === 0 ||
-        (args.functionKey !== null && !named.includes(args.functionKey))
-      )
+      if (!named.includes(args.functionKey))
         return refusal("notAsked", NOT_ASKED_TAG);
       const item = await ctx.db.get("items", args.itemId);
       if (item === null || item.eventId !== args.eventId)
@@ -456,7 +459,7 @@ const tools = {
     AssistantToolCtx
   >({
     description:
-      'Tag one Inspiration with a Function key, or null for Event-wide. Only when the Member\'s message names that Function ("find mehendi decor"); otherwise suggest it in your reply.',
+      "Tag one Inspiration with a Function key. Only when the Member's message names that Function (\"find mehendi decor\"); otherwise suggest it in your reply. You can't clear a tag: a Member does that with the chip on the card.",
     inputSchema: z.strictObject({
       itemId: z.string().min(1),
       functionKey: z.string().min(1).nullable(),

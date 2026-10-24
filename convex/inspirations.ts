@@ -309,17 +309,82 @@ export const generateUploadUrl = mutation({
   },
 });
 
-export const uploadGate = internalQuery({
-  args: { eventId: v.id("events") },
-  returns: v.object({ uploadRightsOn: v.boolean() }),
+/**
+ * How long after its upload a file can still become an Inspiration. A fresh
+ * file that no Inspiration claims yet is known only to the person who just
+ * uploaded it; an older one may be someone else's, read off another Canvas.
+ */
+export const UPLOAD_FRESH_FOR_MS = 15 * 60 * 1000;
+
+const fileStateValidator = v.union(
+  v.literal("fresh"),
+  v.literal("missing"),
+  v.literal("claimed"),
+  v.literal("expired"),
+);
+type FileState = typeof fileStateValidator.type;
+
+/** Whether a storage ID is a fresh upload no Inspiration has claimed (review of #107, H1). */
+async function fileState(
+  ctx: Ctx,
+  fileId: Id<"_storage">,
+  now: number,
+): Promise<FileState> {
+  const file = await ctx.db.system.get("_storage", fileId);
+  if (file === null) return "missing";
+  const claim = await ctx.db
+    .query("uploadClaims")
+    .withIndex("by_file", (q) => q.eq("fileId", fileId))
+    .first();
+  if (claim !== null) return "claimed";
+  if (now - file._creationTime > UPLOAD_FRESH_FOR_MS) return "expired";
+  return "fresh";
+}
+
+/** Refuses a file that isn't the caller's own fresh, unclaimed upload, without touching it. */
+function refuseUnlessFresh(state: FileState): void {
+  if (state === "missing")
+    throw new InspirationRefused("missing", "That upload didn't arrive.");
+  if (state === "claimed")
+    throw new InspirationRefused(
+      "claimed",
+      "That photo is already on a Canvas. Upload it again from your device.",
+    );
+  if (state === "expired")
+    throw new InspirationRefused("expired", "That upload expired. Try again.");
+}
+
+export const uploadCheck = internalQuery({
+  args: { eventId: v.id("events"), fileId: v.id("_storage"), now: v.number() },
+  returns: v.object({
+    uploadRightsOn: v.boolean(),
+    file: fileStateValidator,
+  }),
   handler: async (ctx, args) => {
     await requireAccess(ctx, args.eventId, "canvas.edit");
     const event = await loadEvent(ctx, args.eventId);
-    return { uploadRightsOn: event.uploadRightsOn };
+    return {
+      uploadRightsOn: event.uploadRightsOn,
+      file: await fileState(ctx, args.fileId, args.now),
+    };
+  },
+});
+
+/** Deletes a refused upload, but only while it is still fresh and unclaimed. */
+export const discardUpload = internalMutation({
+  args: { fileId: v.id("_storage") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if ((await fileState(ctx, args.fileId, Date.now())) === "fresh")
+      await ctx.storage.delete(args.fileId);
+    return null;
   },
 });
 
 const paletteValidator = v.array(v.string());
+
+/** A browser palette reading is at most this many `#RRGGBB` strings (review of #107, L1). */
+const MAX_PALETTE_SENT = 10;
 
 function cleanPalette(palette: readonly string[]): string[] {
   return palette
@@ -329,12 +394,13 @@ function cleanPalette(palette: readonly string[]): string[] {
 }
 
 /**
- * Saves one uploaded file as an Inspiration. The file's own first bytes must
- * be a JPEG, PNG or WebP, whatever type the browser claimed, and it must be
- * at most 10 MB; a refused file is deleted. With the Event's upload rights
- * setting off, the batch's tick is required. `palette` is the browser's
- * node-vibrant reading of the shrunk photo. The helper model describes the
- * photo once, after it is saved.
+ * Saves one uploaded file as an Inspiration. The file must be the caller's
+ * own fresh upload that no Inspiration claims yet; anything else is refused
+ * and left alone. Its own first bytes must be a JPEG, PNG or WebP, whatever
+ * type the browser claimed, and it must be at most 10 MB; a refused fresh
+ * file is deleted. With the Event's upload rights setting off, the batch's
+ * tick is required. `palette` is the browser's node-vibrant reading of the
+ * shrunk photo. The helper model describes the photo once, after it is saved.
  */
 export const addUpload = action({
   args: {
@@ -347,14 +413,29 @@ export const addUpload = action({
   },
   returns: v.object({ itemId: v.id("items") }),
   handler: async (ctx, args): Promise<{ itemId: Id<"items"> }> => {
-    const { uploadRightsOn } = await ctx.runQuery(
-      internal.inspirations.uploadGate,
-      { eventId: args.eventId },
-    );
+    const check = await ctx.runQuery(internal.inspirations.uploadCheck, {
+      eventId: args.eventId,
+      fileId: args.fileId,
+      now: Date.now(),
+    });
+    refuseUnlessFresh(check.file);
+    if (
+      args.palette.length > MAX_PALETTE_SENT ||
+      args.palette.some((c) => c.length > 7)
+    )
+      throw new InspirationRefused(
+        "palette",
+        "That photo's palette didn't come through. Try again.",
+      );
+    // From here the file is this caller's own fresh upload, so a refusal
+    // deletes it (if it is still fresh and unclaimed).
     const refuse = async (problem: string, message: string) => {
-      await ctx.storage.delete(args.fileId);
+      await ctx.runMutation(internal.inspirations.discardUpload, {
+        fileId: args.fileId,
+      });
       throw new InspirationRefused(problem, message);
     };
+    const { uploadRightsOn } = check;
     if (!uploadRightsOn && !args.rightsTicked)
       return await refuse(
         "rights",
@@ -399,6 +480,9 @@ export const saveUpload = internalMutation({
       "canvas.edit",
     );
     const event = await loadEvent(ctx, args.eventId);
+    // Checked again here, in the transaction that claims the file, so two
+    // saves of one file can't both win.
+    refuseUnlessFresh(await fileState(ctx, args.fileId, Date.now()));
     if (!event.uploadRightsOn && !args.rightsTicked)
       throw new InspirationRefused(
         "rights",
@@ -447,6 +531,13 @@ export const saveUpload = internalMutation({
           seen: null,
         },
       },
+    });
+    await ctx.db.insert("uploadClaims", {
+      fileId: args.fileId,
+      eventId: args.eventId,
+      itemId: id,
+      membershipId: membership._id,
+      claimedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.inspirations.describe, {
       itemId: id,
@@ -536,7 +627,7 @@ export const saveSeen = internalMutation({
   },
 });
 
-/** Describes one upload and saves it; a failed model call leaves only the palette. */
+/** Describes one upload and saves it; an unreadable file or a failed model call leaves only the palette. */
 export async function describeUpload(
   ctx: Pick<EstimateCtx, "runQuery" | "runMutation"> & {
     storage: { get(id: Id<"_storage">): Promise<Blob | null> };
@@ -548,11 +639,13 @@ export async function describeUpload(
     itemId: args.itemId,
   });
   if (input === null) return null;
-  const blob = await ctx.storage.get(input.fileId);
-  if (blob === null) return null;
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  // Whatever goes wrong, `seen` is written, so "Use for Theme" never waits
+  // forever (review of #107, L3).
   let described: UploadDescription | null = null;
   try {
+    const blob = await ctx.storage.get(input.fileId);
+    if (blob === null) throw new Error("The upload's file is gone");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     described = await describer({
       bytes,
       mediaType: sniffImageType(bytes.slice(0, 16)) ?? "image/jpeg",
@@ -739,6 +832,13 @@ export const purgeDeletedFiles = internalMutation({
         // Library photos and References have no stored file.
         if (item.data.source.kind !== "upload") continue;
         const fileId = item.data.source.fileId;
+        // Only the Item that claimed the file may delete it, so a file that
+        // another Inspiration still uses is never purged (review of #107, H1).
+        const claim = await ctx.db
+          .query("uploadClaims")
+          .withIndex("by_file", (q) => q.eq("fileId", fileId))
+          .first();
+        if (claim === null || claim.itemId !== item._id) continue;
         if ((await ctx.db.system.get("_storage", fileId)) === null) continue;
         await ctx.storage.delete(fileId);
       }

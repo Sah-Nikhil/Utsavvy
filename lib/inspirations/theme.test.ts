@@ -201,6 +201,7 @@ describe("asksForTheme (review of #107, M1)", () => {
     "थीम मत बदलो",
     "find some haldi decor ideas",
     "love these colours",
+    "Add teal to the theme. Don't touch the palette.",
   ])("is not: %s", (text) => {
     expect(asksForTheme(text)).toBe(false);
   });

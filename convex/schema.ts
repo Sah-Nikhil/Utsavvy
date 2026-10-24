@@ -194,6 +194,20 @@ export default defineSchema({
     .index("by_event_kind", ["eventId", "kind"])
     .index("by_section", ["sectionId"]),
 
+  /**
+   * Which Inspiration an uploaded file belongs to (S13, review of #107). One
+   * row per file, written with its Item, so a storage ID can back only one
+   * Inspiration in one Event, and only that Item's purge deletes the file.
+   * Internal functions only.
+   */
+  uploadClaims: defineTable({
+    fileId: v.id("_storage"),
+    eventId: v.id("events"),
+    itemId: v.id("items"),
+    membershipId: v.id("memberships"),
+    claimedAt: v.number(),
+  }).index("by_file", ["fileId"]),
+
   entries: defineTable(entryValidator)
     .index("by_item", ["itemId"])
     .index("by_event_kind", ["eventId", "kind"]),

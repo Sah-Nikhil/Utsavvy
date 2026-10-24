@@ -280,7 +280,7 @@ describe("updateTheme", () => {
     const runId = await ask(s, "Add teal to our Theme");
     const result = await call(s, runId, "updateTheme", {
       ...teal,
-      fromInspiration: s.itemId,
+      fromInspirationId: s.itemId,
     });
     expect(result).toMatchObject({ ok: false, reason: "invalid" });
     expect((await eventOf(s)).theme).toEqual(JAIPUR);
