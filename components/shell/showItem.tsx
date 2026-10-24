@@ -6,22 +6,24 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { PhoneTarget } from "./phoneView";
+import type { Selection } from "@/lib/types/canvas";
 
 /*
  * "Show me that Item", for anything in the workspace that names one (a
  * reference in the Chat, a history row). On a phone it follows the person's
  * mobile pointing: the Canvas tab with the Item highlighted and "Back to
  * Chat", or a preview sheet over the Chat. On desktop it selects the Item.
+ * Showing nothing (null) clears the selection on desktop and does nothing on a
+ * phone.
  */
 
-const ShowItemContext = createContext<(target: PhoneTarget) => void>(() => {});
+const ShowItemContext = createContext<(target: Selection) => void>(() => {});
 
 export function ShowItemProvider({
   show,
   children,
 }: {
-  show: (target: PhoneTarget) => void;
+  show: (target: Selection) => void;
   children: ReactNode;
 }) {
   return (
@@ -30,7 +32,7 @@ export function ShowItemProvider({
 }
 
 /** Shows an Item the way this person and this screen want it shown. */
-export function useShowItem(): (target: PhoneTarget) => void {
+export function useShowItem(): (target: Selection) => void {
   return useContext(ShowItemContext);
 }
 

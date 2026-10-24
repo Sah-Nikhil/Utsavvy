@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { useMembership } from "@/components/people/useMembership";
 import { AssistantOrb } from "@/components/shell/AssistantOrb";
-import { useSetSelection } from "@/components/shell/selection";
+import { useShowItem } from "@/components/shell/showItem";
 import { Button } from "@/components/ui/button";
 import { SheetClose } from "@/components/ui/sheet";
 import { VisuallyHidden } from "@/components/ui/visually-hidden";
@@ -296,7 +296,7 @@ function ChangeRow({
   onRestore,
   inGroup = false,
 }: { row: HistoryRow; inGroup?: boolean } & RowActions) {
-  const setSelection = useSetSelection();
+  const setSelection = useShowItem();
   const meta = inGroup
     ? timeLabel(row.at)
     : `${row.who} · ${timeLabel(row.at)}`;

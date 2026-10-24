@@ -13,7 +13,15 @@ import {
 } from "lucide-react";
 import { useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
-import { useCallback, useReducer, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { CompactView } from "@/components/compact/CompactView";
@@ -38,11 +46,11 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip } from "@/components/ui/tooltip";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Selection } from "@/lib/types/canvas";
 import { cn } from "@/lib/utils";
 import { AccountButton } from "./AccountButton";
 import { EventHeading } from "./EventHeading";
-import { initialPhoneView, phoneView, type PhoneTarget } from "./phoneView";
+import { initialPhoneView, phoneView } from "./phoneView";
 import { PointingChip } from "./PointingChip";
 import { SelectionProvider, useSetSelection } from "./selection";
 import { ShowItemProvider, useIsDesktop } from "./showItem";
@@ -89,9 +97,16 @@ function useViewPrefs(eventId: string) {
   );
 }
 
+/** How the current layout shows an Item; the body that is mounted sets it. */
+type ShowRef = RefObject<(target: Selection) => void>;
+
 function Workspace({ eventId }: { eventId: string }) {
   const desktop = useIsDesktop();
   const [panel, setPanel] = useState<PanelKey | null>(null);
+  // The header's panels (History) show Items too, so the provider wraps the
+  // header and the body, and passes each call on to the body's own way.
+  const showRef: ShowRef = useRef(() => {});
+  const show = useCallback((target: Selection) => showRef.current(target), []);
   const header = (
     <WorkspaceHeader
       eventId={eventId}
@@ -100,17 +115,16 @@ function Workspace({ eventId }: { eventId: string }) {
       phone={desktop === false}
     />
   );
-  // Until the browser says which layout fits, show the header alone.
-  if (desktop === null) return header;
   return (
-    <>
+    <ShowItemProvider show={show}>
       {header}
-      {desktop ? (
-        <DesktopBody eventId={eventId} />
+      {/* Until the browser says which layout fits, the header shows alone. */}
+      {desktop === null ? null : desktop ? (
+        <DesktopBody eventId={eventId} showRef={showRef} />
       ) : (
-        <PhoneBody eventId={eventId} />
+        <PhoneBody eventId={eventId} showRef={showRef} />
       )}
-    </>
+    </ShowItemProvider>
   );
 }
 
@@ -132,7 +146,13 @@ function readSavedView(eventId: string): DesktopView | null {
   }
 }
 
-function DesktopBody({ eventId }: { eventId: string }) {
+function DesktopBody({
+  eventId,
+  showRef,
+}: {
+  eventId: string;
+  showRef: ShowRef;
+}) {
   const prefs = useViewPrefs(eventId);
   const setSelection = useSetSelection();
   // This browser's last choice, else the Event's default view.
@@ -152,13 +172,17 @@ function DesktopBody({ eventId }: { eventId: string }) {
     [eventId],
   );
   const show = useCallback(
-    (target: PhoneTarget) =>
-      setSelection({ kind: "item", itemId: target.itemId as Id<"items"> }),
+    // The whole target, so an Entry or a passage stays what is selected.
+    (target: Selection) => setSelection(target),
     [setSelection],
   );
 
+  useEffect(() => {
+    showRef.current = show;
+  }, [showRef, show]);
+
   return (
-    <ShowItemProvider show={show}>
+    <>
       <div className="flex min-h-0 flex-1 flex-row">
         <main
           id="main"
@@ -208,28 +232,40 @@ function DesktopBody({ eventId }: { eventId: string }) {
           <ChatPanel eventId={eventId} />
         </aside>
       </div>
-    </ShowItemProvider>
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Phone: the Chat first, with a Canvas tab in Compact mode
 
-function PhoneBody({ eventId }: { eventId: string }) {
+function PhoneBody({
+  eventId,
+  showRef,
+}: {
+  eventId: string;
+  showRef: ShowRef;
+}) {
   const prefs = useViewPrefs(eventId);
   const [state, dispatch] = useReducer(phoneView, initialPhoneView);
   const show = useCallback(
-    (target: PhoneTarget) =>
+    (target: Selection) => {
+      if (target === null) return;
       dispatch({
         type: "reference",
         target,
         pointing: prefs?.mobilePointing ?? "jump",
-      }),
+      });
+    },
     [prefs?.mobilePointing],
   );
 
+  useEffect(() => {
+    showRef.current = show;
+  }, [showRef, show]);
+
   return (
-    <ShowItemProvider show={show}>
+    <>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="relative min-h-0 flex-1">
           <aside
@@ -286,7 +322,7 @@ function PhoneBody({ eventId }: { eventId: string }) {
         onClose={() => dispatch({ type: "closeSheet" })}
         onOpenOnCanvas={() => dispatch({ type: "openSheetOnCanvas" })}
       />
-    </ShowItemProvider>
+    </>
   );
 }
 
