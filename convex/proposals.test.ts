@@ -193,7 +193,7 @@ async function riskyProposal(s: Setup): Promise<Id<"proposals">> {
     ],
   });
   expect(result.ok, JSON.stringify(result)).toBe(true);
-  return (result as { proposalId: Id<"proposals"> }).proposalId;
+  return (result as unknown as { proposalId: Id<"proposals"> }).proposalId;
 }
 
 const plannedOf = (s: Setup, id: Id<"entries">) =>
