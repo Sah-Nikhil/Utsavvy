@@ -338,7 +338,7 @@ async function overThresholds(
 // Input checks (the same rules as the Members' own mutations in S4)
 
 const MAX_NOTE_TEXT = 4000;
-const MAX_ENTRY_NOTE = 500;
+export const MAX_ENTRY_NOTE = 500;
 const MAX_SUGGESTION_BODY = 1000;
 const MAX_QUANTITY = 100_000;
 
@@ -350,7 +350,7 @@ function cleanText(text: string, max: number, what: string): string {
   return trimmed;
 }
 
-function cleanOptionalNote(text: string | null): string | null {
+export function cleanOptionalNote(text: string | null): string | null {
   if (text === null || text.trim() === "") return null;
   return cleanText(text, MAX_ENTRY_NOTE, "note");
 }
@@ -361,7 +361,7 @@ function cleanQuantity(quantity: number): number {
   return quantity;
 }
 
-function cleanDate(date: string | null): string | null {
+export function cleanDate(date: string | null): string | null {
   if (date === null) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) invalid("A date looks like 2027-02-14.");
@@ -372,7 +372,7 @@ function cleanDate(date: string | null): string | null {
   return date;
 }
 
-function cleanTime(time: string | null): string | null {
+export function cleanTime(time: string | null): string | null {
   if (time === null) return null;
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time))
     invalid("A time looks like 19:30.");

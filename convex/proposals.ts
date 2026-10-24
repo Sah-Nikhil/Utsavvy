@@ -21,6 +21,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { MAX_CUSTOM_SECTIONS } from "./canvas";
 import { requireAccess, requireAccessFor } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { handlerFor } from "./lib/proposalOps";
@@ -183,6 +184,50 @@ async function changedBy(
   return await memberDisplayName(ctx, latest.actor.membershipId);
 }
 
+/** What the card and Accept say when the asker can no longer ask. */
+export const ASKER_LEFT =
+  "The Member who asked for this has left; ask Utsavvy again.";
+
+/** Whether the Member a Proposal is for can still ask the Assistant: active, unblocked, a Member. */
+async function askerActive(ctx: Ctx, proposal: Doc<"proposals">) {
+  const asker = await ctx.db.get("memberships", proposal.requestedBy);
+  return (
+    asker !== null &&
+    asker.status === "active" &&
+    !asker.blocked &&
+    can(asker.role, "chat.post")
+  );
+}
+
+/**
+ * Limits that depend on the whole Event rather than one change, checked when
+ * the Proposal is made and again at Accept, so a card never offers what
+ * Accept would refuse: the custom Section limit.
+ */
+async function eventLimitsProblem(
+  ctx: Ctx,
+  eventId: Id<"events">,
+  changes: readonly ProposedChange[],
+): Promise<string | null> {
+  const newSections = changes.filter((c) => c.op === "createSection").length;
+  if (newSections === 0) return null;
+  const custom = (
+    await ctx.db
+      .query("sections")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(MAX_CUSTOM_SECTIONS + 50)
+  ).filter((s) => s.kind === "custom" && s.deletedAt === null).length;
+  return custom + newSections > MAX_CUSTOM_SECTIONS
+    ? "This Event has as many Sections as it can hold."
+    : null;
+}
+
+/** The once-key of a Proposal's "Ask again", so it queues one run however many taps. */
+const askAgainKey = (proposalId: Id<"proposals">) => `askAgain:${proposalId}`;
+
+/** Open Proposals in one Event are few (each expires in 24 hours); a newer one looks at this many. */
+const OPEN_SCAN_LIMIT = 100;
+
 // ---------------------------------------------------------------------------
 // Creating a Proposal
 
@@ -224,8 +269,16 @@ export async function createProposal(
     );
 
   const touched = new Set<string>();
+  const seen = new Set<string>();
   for (const change of args.changes) {
     await checkInEvent(ctx, args.eventId, change);
+    // Two identical changes would apply once; refuse rather than show both.
+    const same = JSON.stringify([change.op, change.docId, change.values]);
+    if (seen.has(same))
+      proposalRefused(
+        "Two changes in this Proposal are the same. Keep one, or make them differ.",
+      );
+    seen.add(same);
     if (change.docId !== null) {
       if (touched.has(change.docId))
         proposalRefused(
@@ -243,6 +296,8 @@ export async function createProposal(
     const refusal = await handlerFor(change.op).validate(ctx, change as never);
     if (refusal !== null) proposalRefused(refusal);
   }
+  const limit = await eventLimitsProblem(ctx, args.eventId, args.changes);
+  if (limit !== null) proposalRefused(limit);
 
   const now = Date.now();
   const proposalId = await ctx.db.insert("proposals", {
@@ -261,11 +316,13 @@ export async function createProposal(
   });
 
   // Rule 12: a revised Proposal replaces the one it revises.
-  for await (const open of ctx.db
+  const openOnes = await ctx.db
     .query("proposals")
     .withIndex("by_event_status", (q) =>
       q.eq("eventId", args.eventId).eq("status", "open"),
-    )) {
+    )
+    .take(OPEN_SCAN_LIMIT);
+  for (const open of openOnes) {
     if (open._id === proposalId) continue;
     const overlaps = open.changes.some(
       (c) => c.docId !== null && touched.has(c.docId),
@@ -404,11 +461,27 @@ export async function applyProposal(
     return { ok: false, reason: "outOfDate", message };
   };
 
+  // Accept checks the 24 hours itself, so a late expiry job can't let it through.
+  if (Date.now() >= proposal.expiresAt) {
+    await ctx.db.patch("proposals", proposalId, {
+      status: "expired",
+      decidedAt: Date.now(),
+    });
+    return { ok: false, reason: "closed", message: closedMessage("expired") };
+  }
+  // The changes are made "for" the asker, who must still be able to ask.
+  if (!(await askerActive(ctx, proposal))) return await outOfDate(ASKER_LEFT);
   const stale = await staleDependencies(ctx, proposal);
   if (stale.length > 0) {
     const who = await changedBy(ctx, stale, proposal.createdAt);
     return await outOfDate(`Out of date: ${who} changed this since.`);
   }
+  const limit = await eventLimitsProblem(
+    ctx,
+    proposal.eventId,
+    proposal.changes,
+  );
+  if (limit !== null) return await outOfDate(limit);
   for (const change of proposal.changes) {
     await checkInEvent(ctx, proposal.eventId, change);
     const refusal = await handlerFor(change.op).validate(ctx, change as never);
@@ -547,50 +620,56 @@ export const askAgain = mutation({
     const proposal = await ctx.db.get("proposals", proposalId);
     if (proposal === null || proposal.eventId !== eventId)
       throw new AccessDenied("wrongEvent", "chat.post");
-    if (proposal.status === "open") {
-      if ((await staleDependencies(ctx, proposal)).length === 0)
-        throw new ConvexError({
-          kind: "ProposalStillOpen",
-          message: "This Proposal can still be accepted.",
+    // One "Ask again" per Proposal: a second tap, by anyone, gets the first run.
+    return await once(ctx, askAgainKey(proposalId), async () => {
+      if (proposal.status === "open") {
+        if (
+          (await askerActive(ctx, proposal)) &&
+          (await staleDependencies(ctx, proposal)).length === 0
+        )
+          throw new ConvexError({
+            kind: "ProposalStillOpen",
+            message: "This Proposal can still be accepted.",
+          });
+        await ctx.db.patch("proposals", proposalId, {
+          status: "outOfDate",
+          decidedAt: Date.now(),
         });
-      await ctx.db.patch("proposals", proposalId, {
-        status: "outOfDate",
-        decidedAt: Date.now(),
-      });
-    } else if (proposal.status !== "outOfDate") {
-      throw new ConvexError({
-        kind: "ProposalClosed",
-        message: closedMessage(proposal.status),
-      });
-    }
-    await checkQueueRoom(ctx, eventId, membership._id);
-    const event = await ctx.db.get("events", eventId);
-    if (event === null || event.agentThreadId === null)
-      throw new AccessDenied("wrongEvent", "chat.post");
+      } else if (proposal.status !== "outOfDate") {
+        throw new ConvexError({
+          kind: "ProposalClosed",
+          message: closedMessage(proposal.status),
+        });
+      }
+      await checkQueueRoom(ctx, eventId, membership._id);
+      const event = await ctx.db.get("events", eventId);
+      if (event === null || event.agentThreadId === null)
+        throw new AccessDenied("wrongEvent", "chat.post");
 
-    const request = (await requestTextOf(ctx, proposal)) ?? proposal.summary;
-    const { messageId } = await saveMessage(ctx, components.agent, {
-      threadId: event.agentThreadId,
-      userId: membership._id,
-      prompt: `Ask again: ${request}`,
+      const request = (await requestTextOf(ctx, proposal)) ?? proposal.summary;
+      const { messageId } = await saveMessage(ctx, components.agent, {
+        threadId: event.agentThreadId,
+        userId: membership._id,
+        prompt: `Ask again: ${request}`,
+      });
+      await ctx.db.insert("chatAnnotations", {
+        eventId,
+        messageId,
+        authorMembershipId: membership._id,
+        dontReply: false,
+        mentions: [],
+        pointing: [],
+        card: null,
+      });
+      const runId = await enqueueRun(ctx, {
+        eventId,
+        requestedBy: membership._id,
+        source: "chat",
+        messageId,
+        commentId: null,
+      });
+      return { messageId, runId };
     });
-    await ctx.db.insert("chatAnnotations", {
-      eventId,
-      messageId,
-      authorMembershipId: membership._id,
-      dontReply: false,
-      mentions: [],
-      pointing: [],
-      card: null,
-    });
-    const runId = await enqueueRun(ctx, {
-      eventId,
-      requestedBy: membership._id,
-      source: "chat",
-      messageId,
-      commentId: null,
-    });
-    return { messageId, runId };
   },
 });
 
@@ -709,9 +788,15 @@ async function describeChange(
         unknown
       >;
       const parts: string[] = [];
-      if (before?.kind === "budget" && "plannedAmount" in patch) {
+      if (
+        before?.kind === "budget" &&
+        ("plannedAmount" in patch || "estimate" in patch)
+      ) {
         const from = entryAmount(fields as EntryFields<"budget">);
-        const to = patch.plannedAmount as number;
+        const to = entryAmount({
+          ...fields,
+          ...patch,
+        } as EntryFields<"budget">);
         parts.push(`${name} ${formatINR(from)} → ${formatINR(to)}`);
       }
       for (const [key, value] of Object.entries(patch)) {
@@ -876,7 +961,10 @@ export const get = query({
     let text: string;
     if (kind === "open" || kind === "outOfDate") {
       const stale = await staleDependencies(ctx, proposal);
-      if (stale.length > 0) {
+      if (!(await askerActive(ctx, proposal))) {
+        kind = "outOfDate";
+        text = ASKER_LEFT;
+      } else if (stale.length > 0) {
         kind = "outOfDate";
         text = `Out of date: ${await changedBy(ctx, stale, proposal.createdAt)} changed this since`;
       } else if (kind === "outOfDate") {
@@ -895,6 +983,11 @@ export const get = query({
     }
 
     const member = can(membership.role, "proposal.decide");
+    const askedAgain =
+      (await ctx.db
+        .query("toolCalls")
+        .withIndex("by_key", (q) => q.eq("key", askAgainKey(proposalId)))
+        .unique()) !== null;
     return {
       proposalId,
       summary: proposal.summary,
@@ -904,7 +997,7 @@ export const get = query({
       lines: await describeProposal(ctx, proposal),
       status: { kind, text },
       canDecide: member && kind === "open",
-      canAskAgain: member && kind === "outOfDate",
+      canAskAgain: member && kind === "outOfDate" && !askedAgain,
     };
   },
 });

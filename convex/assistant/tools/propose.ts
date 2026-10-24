@@ -53,7 +53,13 @@ import {
 } from "../../lib/write";
 import type { AssistantToolCtx } from "../agent";
 import { checkMemberStatedAmount } from "../amounts";
-import { priceLine, type ToolResult } from "./core";
+import {
+  cleanDate,
+  cleanOptionalNote,
+  cleanTime,
+  priceLine,
+  type ToolResult,
+} from "./core";
 
 /*
  * S10 (Proposals): the `propose` tool and the handlers for every Proposal op
@@ -82,7 +88,6 @@ const NOTE_SIZE: Size = { w: 300, h: 200 };
 const SUGGESTION_SIZE: Size = { w: 300, h: 220 };
 const MAX_NOTE_TEXT = 4000;
 const MAX_SUGGESTION_BODY = 1000;
-const MAX_ENTRY_NOTE = 500;
 const MAX_QUANTITY = 100_000;
 /** ₹100 crore, as for a Member's own amount (`convex/entries.ts`). */
 const MAX_AMOUNT = 1_000_000_000;
@@ -91,7 +96,7 @@ const PLAN_KINDS: readonly ItemKind[] = ["budget", "timeline", "checklist"];
 
 /** Which fields an `updateEntry` change may set, per Entry kind. */
 const ENTRY_PATCH_FIELDS: Record<Doc<"entries">["kind"], readonly string[]> = {
-  budget: ["label", "quantity", "plannedAmount"],
+  budget: ["label", "quantity", "plannedAmount", "estimate"],
   timeline: ["title", "date", "time", "note", "done"],
   checklist: ["freeLabel", "functionKeys"],
 };
@@ -127,6 +132,18 @@ function isText(value: unknown, max: number, nullable = false): boolean {
   );
 }
 
+/** The direct tools' own check (S7), as a refusal message or null. */
+function refusalOf(check: () => unknown): string | null {
+  try {
+    check();
+    return null;
+  } catch (error) {
+    if (error instanceof ConvexError && typeof error.data?.message === "string")
+      return error.data.message as string;
+    return "That value isn't allowed.";
+  }
+}
+
 function fieldProblem(key: string, value: unknown): string | null {
   switch (key) {
     case "label":
@@ -145,19 +162,11 @@ function fieldProblem(key: string, value: unknown): string | null {
         ? null
         : "An amount is a whole number of rupees.";
     case "date":
-      return value === null ||
-        (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))
-        ? null
-        : "A date looks like 2027-02-14.";
+      return refusalOf(() => cleanDate(value as string | null));
     case "time":
-      return value === null ||
-        (typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value))
-        ? null
-        : "A time looks like 19:30.";
+      return refusalOf(() => cleanTime(value as string | null));
     case "note":
-      return isText(value, MAX_ENTRY_NOTE, true)
-        ? null
-        : "A note is short text.";
+      return refusalOf(() => cleanOptionalNote(value as string | null));
     case "done":
       return typeof value === "boolean" ? null : "Done is true or false.";
     case "functionKeys":
@@ -249,6 +258,29 @@ async function writeOptions(
 // ---------------------------------------------------------------------------
 // The op handlers
 
+/**
+ * An `estimate` patch may only move the line's Estimate amount within its own
+ * range (a cut to its low end); its range, label and basis stay as they are.
+ */
+function estimateProblem(entry: Doc<"entries">, value: unknown): string | null {
+  if (entry.kind !== "budget" || entry.fields.estimate === null)
+    return "That line has no Estimate.";
+  const current = entry.fields.estimate;
+  const next = value as typeof current | null;
+  if (next === null || typeof next !== "object") return "An Estimate stays.";
+  const { amount, ...rest } = next;
+  const { amount: _amount, ...same } = current;
+  if (JSON.stringify(rest) !== JSON.stringify(same))
+    return "Only an Estimate's amount can move, within its range.";
+  if (
+    !Number.isInteger(amount) ||
+    amount < current.low ||
+    amount > current.high
+  )
+    return "An Estimate's amount stays within its range.";
+  return null;
+}
+
 export const updateEntryOp: ProposalOpHandler<"updateEntry"> = {
   validate: async (ctx, change) => {
     const entry = await liveDoc(ctx, "entries", change.docId);
@@ -262,7 +294,12 @@ export const updateEntryOp: ProposalOpHandler<"updateEntry"> = {
     const allowed = ENTRY_PATCH_FIELDS[entry.kind];
     for (const [key, value] of Object.entries(patch)) {
       if (!allowed.includes(key)) return `${key} can't be changed this way.`;
-      const problem = fieldProblem(key, value);
+      const problem =
+        key === "estimate"
+          ? estimateProblem(entry, value)
+          : key === "plannedAmount" && value === null
+            ? null
+            : fieldProblem(key, value);
       if (problem) return problem;
     }
     const keys: (string | null)[] = [];
@@ -297,7 +334,9 @@ export const updateEntryOp: ProposalOpHandler<"updateEntry"> = {
           before.quantity,
           next.quantity,
         );
-      if ("plannedAmount" in patch) next.editedByMember = true;
+      // A Member's own amount (their words) marks the line as theirs; a cut
+      // to the Estimate's low end stays an Estimate.
+      if (typeof patch.plannedAmount === "number") next.editedByMember = true;
     }
     const touched = Object.keys(patch);
     const extra: { functionKey?: string | null } = {};
@@ -352,6 +391,12 @@ export const addEntryOp: ProposalOpHandler<"addEntry"> = {
     };
     for (const key of kindFields[change.values.kind]!) {
       if (!(key in fields)) return `That isn't a ${change.values.kind} Entry.`;
+    }
+    if (change.values.kind === "timeline") {
+      for (const key of ["title", "date", "time", "note"] as const) {
+        const problem = fieldProblem(key, fields[key]);
+        if (problem) return problem;
+      }
     }
     if (change.values.kind === "budget") {
       const f = fields as EntryFields<"budget">;
@@ -955,17 +1000,31 @@ export async function resolveChanges(
               "this line's amount",
             );
           } else if (amount && "estimateLow" in amount) {
-            if (entry.fields.estimate === null)
+            const estimate = entry.fields.estimate;
+            if (estimate === null)
               refuse(
                 "noEstimate",
                 `${entry.fields.label} has no Estimate to cut to.`,
               );
-            fields.plannedAmount = entry.fields.estimate.low;
+            if (estimate.low >= before)
+              refuse(
+                "notACut",
+                `${entry.fields.label} is already at or below its Estimate's low end (${formatINR(estimate.low)}).`,
+              );
+            // The line goes back to its Estimate, at the low end: never the
+            // Estimate's figure written in as a Member's own amount.
+            fields.plannedAmount = null;
+            fields.estimate = { ...estimate, amount: estimate.low };
           } else if (amount && "receiveFreedFrom" in amount) {
             pendingFreed.push(i);
           }
           if ("plannedAmount" in fields)
-            freed[i] = before - (fields.plannedAmount as number);
+            freed[i] =
+              before -
+              entryAmount({
+                ...entry.fields,
+                ...fields,
+              } as EntryFields<"budget">);
         } else if (patch.kind === "timeline") {
           for (const key of [
             "title",
@@ -976,8 +1035,14 @@ export async function resolveChanges(
           ] as const) {
             if (patch[key] !== undefined) fields[key] = patch[key];
           }
+          // The direct tools' checks (S7), so a Proposal can't store what
+          // updateEntry would refuse.
           if (typeof fields.title === "string")
             fields.title = cleanLabel(fields.title, "Timeline Entry");
+          if (patch.date !== undefined) fields.date = cleanDate(patch.date);
+          if (patch.time !== undefined) fields.time = cleanTime(patch.time);
+          if (patch.note !== undefined)
+            fields.note = cleanOptionalNote(patch.note);
         } else if (patch.kind === "checklist") {
           if (patch.label !== undefined)
             fields.freeLabel = cleanLabel(patch.label, "Vendor");
@@ -1044,15 +1109,12 @@ export async function resolveChanges(
         } else if (entry.kind === "timeline") {
           fields = {
             title: cleanLabel(entry.title, "Timeline Entry"),
-            date: entry.date,
-            time: entry.time,
+            date: cleanDate(entry.date),
+            time: cleanTime(entry.time),
             leadKey: null,
             priority: null,
             late: false,
-            note:
-              entry.note === null || entry.note.trim() === ""
-                ? null
-                : entry.note.trim(),
+            note: cleanOptionalNote(entry.note),
             vendorCategory: null,
             done: false,
           };
@@ -1274,12 +1336,21 @@ export async function resolveChanges(
   }
 
   // Code, not the model, works out the rupees that move (section 3, item 1).
+  // Each change's freed rupees go to one line at most, so a Proposal only
+  // moves money; it never makes more.
+  const claimed = new Set<number>();
   for (const i of pendingFreed) {
     const spec = specs[i] as Extract<ChangeSpec, { op: "updateEntry" }>;
     const from = (spec.patch as { amount: { receiveFreedFrom: number[] } })
       .amount.receiveFreedFrom;
     let total = 0;
     for (const j of new Set(from)) {
+      if (claimed.has(j))
+        refuse(
+          "badFreed",
+          `Change ${j}'s freed rupees already go to another line. Each change's freed rupees can go to one line only.`,
+        );
+      claimed.add(j);
       const amount = freed[j];
       if (j === i || amount === null || amount === undefined || amount <= 0)
         refuse(
@@ -1573,7 +1644,7 @@ export function buildProposeTools(
   const deps = options.estimateDeps;
   const propose = createTool<ProposeInput, ToolResult, AssistantToolCtx>({
     description:
-      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (the line's Estimate low end) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines); never your own number.",
+      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (lowers the line to its Estimate's low end, never raises it) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines; each change's freed rupees go to one line only); never your own number.",
     inputSchema: proposeInput,
     execute: async (ctx, input, { toolCallId }): Promise<ToolResult> => {
       try {
