@@ -116,6 +116,23 @@ describe("events.create", () => {
       state.items.find((i) => i.kind === k)!,
     );
     expect(budget!.position).not.toEqual(timeline!.position);
+    // Each starts big enough to show its content at a readable zoom, inside
+    // its Section's frame and a gap apart from the other Items.
+    expect(
+      Object.fromEntries(state.items.map((i) => [i.kind, i.size])),
+    ).toEqual({
+      budget: { w: 332, h: 400 },
+      timeline: { w: 332, h: 400 },
+      checklist: { w: 332, h: 400 },
+    });
+    for (const item of state.items) {
+      const frame = state.sections.find((s) => s._id === item.sectionId)!.frame;
+      expect(item.position.x + item.size!.w).toBeLessThanOrEqual(frame.w);
+      expect(item.position.y + item.size!.h).toBeLessThanOrEqual(frame.h);
+    }
+    expect(budget!.position.x + budget!.size!.w + 20).toBeLessThanOrEqual(
+      timeline!.position.x,
+    );
 
     expect(state.links.map((l) => l.role).sort()).toEqual(["member", "viewer"]);
     const [first, second] = state.links;

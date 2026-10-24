@@ -46,16 +46,35 @@ const STARTING_SECTIONS: readonly {
  * The empty Budget, Timeline and Vendor checklist every Event starts with,
  * positioned inside their Section's frame (relative to its top-left corner):
  * the Budget and Timeline side by side in Money and dates, the checklist in
- * Vendors.
+ * Vendors. Each starts 332 x 400, tall enough to show its lines and the row
+ * for adding one at a readable zoom: as wide as fits beside its neighbour
+ * with the 20 px Item gap, and inside the 720 x 560 frame.
  */
+const STARTING_ITEM_SIZE = { w: 332, h: 400 };
 const STARTING_ITEMS: readonly {
   kind: "budget" | "timeline" | "checklist";
   section: Exclude<SectionKind, "custom">;
   position: { x: number; y: number };
+  size: { w: number; h: number };
 }[] = [
-  { kind: "budget", section: "money", position: { x: 24, y: 64 } },
-  { kind: "timeline", section: "money", position: { x: 376, y: 64 } },
-  { kind: "checklist", section: "vendors", position: { x: 24, y: 64 } },
+  {
+    kind: "budget",
+    section: "money",
+    position: { x: 24, y: 64 },
+    size: STARTING_ITEM_SIZE,
+  },
+  {
+    kind: "timeline",
+    section: "money",
+    position: { x: 376, y: 64 },
+    size: STARTING_ITEM_SIZE,
+  },
+  {
+    kind: "checklist",
+    section: "vendors",
+    position: { x: 24, y: 64 },
+    size: STARTING_ITEM_SIZE,
+  },
 ];
 
 function cleanName(name: string): string {
@@ -105,7 +124,7 @@ async function createStartingCanvas(
         sectionId: sectionIds.get(item.section)!,
         kind: item.kind,
         position: item.position,
-        size: null,
+        size: item.size,
         functionKey: null,
         data: { note: null },
         createdBy: actor,
