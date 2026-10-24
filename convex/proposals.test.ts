@@ -1223,6 +1223,89 @@ describe("A line's amount on the card is the amount Accept writes", () => {
     expect(await sumOf(s, [s.contingency])).toBe(300_000);
     expect(await sumOf(s, touched)).toBe(before);
   });
+
+  // Review of PR #105, round 3 (N3-L1): freed rupees land as a fixed amount,
+  // so a new quantity in the same change would leave a "Member's own" amount
+  // below the line's rescaled Estimate.
+  it("refuses freed rupees and a new quantity on an Estimate line in one change", async () => {
+    const s = await setUp();
+    await decorPerGuest(s);
+    const runId = await ask(
+      s,
+      "Rohan",
+      "Drop the drone and put it into decor for 200 guests.",
+    );
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Drone money to Decor, for 200 guests",
+      changes: [
+        { op: "deleteEntry", entryId: s.drone, expectedVersion: 1 },
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: {
+            kind: "budget",
+            quantity: 200,
+            amount: { receiveFreedFrom: [0] },
+          },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "freedWithQuantity" });
+    expect(await s.t.run((ctx) => ctx.db.query("proposals").collect())).toEqual(
+      [],
+    );
+  });
+
+  it("leaves an unchanged quantity off the card", async () => {
+    const s = await setUp();
+    await decorPerGuest(s);
+    const runId = await ask(s, "Rohan", "Trim decor.");
+    const trimmed = await propose(s, runId, s.people.Rohan, {
+      summary: "Trim Decor",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: {
+            kind: "budget",
+            quantity: 100,
+            amount: { estimateLow: true },
+          },
+        },
+        {
+          op: "updateEntry",
+          entryId: s.contingency,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { receiveFreedFrom: [0] } },
+        },
+      ],
+    });
+    expect(trimmed.ok, JSON.stringify(trimmed)).toBe(true);
+    expect((await card(s, "Aditi", proposalIdOf(trimmed))).lines).toEqual([
+      "Decor ₹4,00,000 → ₹3,50,000",
+      "Contingency ₹1,00,000 → ₹1,50,000",
+    ]);
+  });
+
+  it("refuses a change that leaves the line as it is", async () => {
+    const s = await setUp();
+    await decorPerGuest(s);
+    const runId = await ask(s, "Rohan", "Plan decor for 100 guests.");
+    const same = await propose(s, runId, s.people.Rohan, {
+      summary: "Decor for 100 guests",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", quantity: 100 },
+        },
+      ],
+    });
+    expect(same).toMatchObject({ ok: false, reason: "noChange" });
+  });
 });
 
 describe("Accept's own checks, round 2", () => {
