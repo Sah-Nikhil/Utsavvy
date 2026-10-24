@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, History, ImagePlus, Settings, Users } from "lucide-react";
+import { useQuery } from "convex/react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CanvasView } from "@/components/canvas/CanvasView";
@@ -15,6 +16,7 @@ import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { AddInspirationPanel } from "@/components/inspirations/AddInspirationPanel";
 import { EventSettingsPanel } from "@/components/people/EventSettingsPanel";
 import { PeoplePanel } from "@/components/people/PeoplePanel";
+import { useMembership } from "@/components/people/useMembership";
 import {
   PinterestIdeasProvider,
   PinterestIdeasSheet,
@@ -22,7 +24,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip } from "@/components/ui/tooltip";
+import { api } from "@/convex/_generated/api";
 import { AccountButton } from "./AccountButton";
+import { EventHeading } from "./EventHeading";
 import { SelectionProvider } from "./selection";
 
 /**
@@ -88,12 +92,7 @@ function WorkspaceHeader({ eventId }: { eventId: string }) {
         </Button>
       </Tooltip>
       <div className="min-w-0 flex-1 border-l border-rule-strong/40 pl-3">
-        <h1 className="truncate font-display text-title font-semibold tracking-[-0.01em]">
-          Your Event
-        </h1>
-        <p className="truncate text-caption text-ink-3">
-          The Event&apos;s name and dates arrive with S1
-        </p>
+        <WorkspaceTitle eventId={eventId} />
       </div>
       <div data-mount="presence" className="hidden items-center sm:flex" />
       <div className="flex items-center gap-1">
@@ -135,6 +134,25 @@ function WorkspaceHeader({ eventId }: { eventId: string }) {
         <AccountButton />
       </div>
     </header>
+  );
+}
+
+/**
+ * The Event's name and subtitle, live. Asked only once the caller is known to
+ * be in the Event, so a refused Event shows no title rather than an error.
+ */
+function WorkspaceTitle({ eventId }: { eventId: string }) {
+  const me = useMembership(eventId);
+  const event = useQuery(
+    api.events.get,
+    me?.status === "active" ? { eventId: me.eventId } : "skip",
+  );
+  return (
+    <EventHeading
+      event={
+        me === undefined ? undefined : me.status === "denied" ? null : event
+      }
+    />
   );
 }
 
