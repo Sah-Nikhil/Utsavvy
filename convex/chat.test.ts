@@ -137,7 +137,7 @@ describe("chat.send", () => {
     const annotation = await s.t.run((ctx) =>
       ctx.db
         .query("chatAnnotations")
-        .withIndex("by_message", (q) => q.eq("messageId", messageId))
+        .withIndex("by_message", (q) => q.eq("messageId", messageId!))
         .unique(),
     );
     expect(annotation).toMatchObject({
@@ -162,7 +162,7 @@ describe("chat.send", () => {
     const annotation = await s.t.run((ctx) =>
       ctx.db
         .query("chatAnnotations")
-        .withIndex("by_message", (q) => q.eq("messageId", messageId))
+        .withIndex("by_message", (q) => q.eq("messageId", messageId!))
         .unique(),
     );
     expect(annotation?.dontReply).toBe(true);
