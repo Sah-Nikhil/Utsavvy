@@ -7,9 +7,10 @@ import {
 import {
   colourName,
   mergeTheme,
+  THEME_LIMITS,
   themeUpdateFromImage,
 } from "../inspirations/theme";
-import type { BriefExtraction, Theme, ThemeUpdate } from "../types/brief";
+import type { BriefExtraction, Theme } from "../types/brief";
 
 /*
  * S18: the vibe pick (first-brief.md "Vibe pick", inspirations.md rules 21 to
@@ -95,65 +96,100 @@ const PLAIN_COLOURS = new Set([
   "black",
 ]);
 
-/** What one stock photo adds to the Theme, by S13's "Use for Theme" rule. */
-function fromPhoto(
-  seen: { palette: readonly string[]; decorKeywords: readonly string[] },
-  theme: Theme,
-): ThemeUpdate {
-  return { ...themeUpdateFromImage(seen, theme, null), fromInspiration: null };
-}
-
 /** How many style words one vibe pick adds. */
 const STYLE_WORDS_FROM_PICK = 3;
 
+const same = (a: string, b: string) =>
+  a.trim().toLowerCase() === b.trim().toLowerCase();
+
 /**
- * The Theme the tapped photos make, merged into the current one with S13's
- * rules (`themeUpdateFromImage`, `mergeTheme`): each photo brings its leading
- * colours and decor keywords. When the photos' leading colours are too alike
- * to give 3 colours, their next colours fill in. The style words are the
- * names of the new colours ("marigold", "rani pink"): stock photos need no
- * model call (inspirations.md rule 19), so the words come from the curated
- * palettes. Anything the Member already wrote stays, ahead of the new values.
+ * The Theme the tapped photos make, added to the current one with S13's rules
+ * (`themeUpdateFromImage`, `mergeTheme`): each photo brings its leading
+ * colours and decor keywords, taken in turn so every photo counts. When the
+ * photos' leading colours are too alike to give 3 colours, their next colours
+ * fill in. A pick only fills the Theme's free places: everything the Member
+ * already has stays, ahead of the new values, and a full list gets nothing.
  */
 export function vibeTheme(
   theme: Theme,
   photos: readonly LibraryPhoto[],
 ): Theme {
   if (photos.length === 0) return theme;
-  let next = theme;
-  for (const photo of photos) {
-    next = mergeTheme(
-      next,
-      fromPhoto({ palette: photo.palette, decorKeywords: photo.tags }, next),
-    );
+  const palette = [...theme.palette];
+  const decorKeywords = [...theme.decorKeywords];
+  const current = (): Theme => ({
+    palette,
+    styleWords: theme.styleWords,
+    decorKeywords,
+  });
+
+  // Each photo's next new colour and decor keyword, a photo at a time, as
+  // long as the Theme has room.
+  for (let round = 0; round < 2; round++) {
+    for (const photo of photos) {
+      const update = themeUpdateFromImage(
+        { palette: photo.palette, decorKeywords: photo.tags },
+        current(),
+        null,
+      );
+      const colour = update.addPalette[0];
+      if (colour !== undefined && palette.length < THEME_LIMITS.palette)
+        palette.push(colour);
+      const keyword = update.addDecorKeywords[0];
+      if (
+        keyword !== undefined &&
+        decorKeywords.length < THEME_LIMITS.decorKeywords
+      )
+        decorKeywords.push(keyword);
+    }
   }
   // Top up to 3 colours from the photos' later colours, one at a time.
   for (const photo of photos) {
     for (const colour of photo.palette.slice(1)) {
-      if (next.palette.length >= VIBE_PICK.min) break;
-      next = mergeTheme(
-        next,
-        fromPhoto({ palette: [colour], decorKeywords: [] }, next),
+      if (palette.length >= VIBE_PICK.min) break;
+      const update = themeUpdateFromImage(
+        { palette: [colour], decorKeywords: [] },
+        current(),
+        null,
       );
+      palette.push(...update.addPalette);
     }
   }
-  // Name the new colours first, then the photos' other colours, so even a
-  // pick of mostly plain colours gets words.
-  const before = new Set(theme.palette.map((c) => c.toUpperCase()));
+
+  const added = palette.slice(theme.palette.length);
+  const words = styleWordsFor(photos, added).slice(
+    0,
+    Math.max(0, THEME_LIMITS.styleWords - theme.styleWords.length),
+  );
+  return mergeTheme(theme, {
+    addPalette: added,
+    removePalette: [],
+    addStyleWords: words.filter(
+      (w) => !theme.styleWords.some((t) => same(t, w)),
+    ),
+    addDecorKeywords: decorKeywords.slice(theme.decorKeywords.length),
+    fromInspiration: null,
+  });
+}
+
+/**
+ * The style words a pick suggests: the names of its new colours ("marigold",
+ * "rani pink"), then the photos' other colours, so even a pick of mostly
+ * plain colours gets words. Stock photos need no model call (inspirations.md
+ * rule 19), so the words come from the curated palettes.
+ */
+function styleWordsFor(
+  photos: readonly LibraryPhoto[],
+  added: readonly string[],
+): string[] {
   const names: string[] = [];
   for (const colour of [
-    ...next.palette.filter((c) => !before.has(c)),
+    ...added,
     ...photos.flatMap((photo) => photo.palette),
   ]) {
     if (names.length >= STYLE_WORDS_FROM_PICK) break;
     const name = colourName(colour);
     if (!PLAIN_COLOURS.has(name) && !names.includes(name)) names.push(name);
   }
-  return mergeTheme(next, {
-    addPalette: [],
-    removePalette: [],
-    addStyleWords: names,
-    addDecorKeywords: [],
-    fromInspiration: null,
-  });
+  return names;
 }
