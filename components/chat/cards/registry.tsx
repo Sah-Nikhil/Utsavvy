@@ -1,10 +1,10 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { ProposalChatCard } from "@/components/chat/cards/proposal/ProposalChatCard";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { BriefChipsCard } from "./brief/BriefChipsCard";
 import { BriefSummaryCard } from "./brief/BriefSummaryCard";
+import { ProposalChatCard } from "./proposal/ProposalChatCard";
 
 /** The card kinds a Chat message can carry (`chatAnnotations.card.kind`). */
 export type ChatCardKind = NonNullable<Doc<"chatAnnotations">["card"]>["kind"];
