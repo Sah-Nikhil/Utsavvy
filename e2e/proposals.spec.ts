@@ -184,11 +184,12 @@ test.describe("proposals, seeded on a local deployment", () => {
     });
 
     // The history groups the three changes under who asked and who accepted.
+    // The Owner is the shared e2e user, whose Clerk name isn't always Meera.
     await page.getByRole("button", { name: "History" }).click();
     const panel = page.getByRole("dialog", { name: "Edit history" });
     await expect(
       panel.getByText(
-        /^Utsavvy for Meera( E2E)?, accepted by Aditi( E2E)? \(3 changes\)$/,
+        /^Utsavvy for [^,]+, accepted by Aditi( E2E)? \(3 changes\)$/,
       ),
     ).toBeVisible({ timeout: 10_000 });
     await testInfo.attach("history", {
@@ -215,7 +216,7 @@ test.describe("proposals, seeded on a local deployment", () => {
       amount: 250_000,
     });
     await expect(secondCard.locator("[data-proposal-reason]")).toHaveText(
-      /^Out of date: Meera( E2E)? changed this since$/,
+      /^Out of date: (?!Aditi|Papa).+ changed this since$/,
       { timeout: 10_000 },
     );
     await expect(
