@@ -12,7 +12,11 @@ import {
 // Event's upload rights setting off, each batch needs the tick.
 
 const MB = 1024 * 1024;
-const jpeg = (size = 2 * MB) => ({ name: "stage.jpg", type: "image/jpeg", size });
+const jpeg = (size = 2 * MB) => ({
+  name: "stage.jpg",
+  type: "image/jpeg",
+  size,
+});
 
 describe("checkUploadBatch", () => {
   it("accepts JPEG, PNG and WebP up to 10 MB", () => {
@@ -61,13 +65,13 @@ describe("checkUploadBatch", () => {
 
   it("refuses more than 10 at a time", () => {
     const eleven = Array.from({ length: 11 }, () => jpeg());
-    expect(
-      checkUploadBatch(eleven, { rightsOn: true, ticked: false }),
-    ).toEqual({
-      ok: false,
-      problem: "count",
-      message: "Upload up to 10 photos at a time.",
-    });
+    expect(checkUploadBatch(eleven, { rightsOn: true, ticked: false })).toEqual(
+      {
+        ok: false,
+        problem: "count",
+        message: "Upload up to 10 photos at a time.",
+      },
+    );
     expect(
       checkUploadBatch(eleven.slice(1), { rightsOn: true, ticked: false }),
     ).toEqual({ ok: true });
@@ -75,13 +79,11 @@ describe("checkUploadBatch", () => {
 
   it("with the rights setting off, the batch needs the tick", () => {
     const four = Array.from({ length: 4 }, () => jpeg());
-    expect(checkUploadBatch(four, { rightsOn: false, ticked: false })).toEqual(
-      {
-        ok: false,
-        problem: "rights",
-        message: "Tick the box to confirm you may use these photos.",
-      },
-    );
+    expect(checkUploadBatch(four, { rightsOn: false, ticked: false })).toEqual({
+      ok: false,
+      problem: "rights",
+      message: "Tick the box to confirm you may use these photos.",
+    });
     expect(checkUploadBatch(four, { rightsOn: false, ticked: true })).toEqual({
       ok: true,
     });

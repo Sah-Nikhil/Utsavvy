@@ -91,9 +91,7 @@ describe("mergeTheme", () => {
   });
 
   it("reports when nothing changed", () => {
-    expect(isThemeUnchanged(JAIPUR, mergeTheme(JAIPUR, update({})))).toBe(
-      true,
-    );
+    expect(isThemeUnchanged(JAIPUR, mergeTheme(JAIPUR, update({})))).toBe(true);
     expect(
       isThemeUnchanged(
         JAIPUR,
@@ -109,7 +107,7 @@ function hex(short: string): string {
 }
 
 describe("themeChangeLine", () => {
-  it('reads "Utsavvy updated the Theme for Meera: + teal #1F6F78, + \'lantern-lit\'"', () => {
+  it("reads \"Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'\"", () => {
     const after = mergeTheme(
       JAIPUR,
       update({ addPalette: ["#1F6F78"], addStyleWords: ["lantern-lit"] }),
