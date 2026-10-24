@@ -92,9 +92,9 @@ describe("vibePickPhotos", () => {
     const photos = vibePickPhotos("wedding-north-indian-hindu", 0);
     expect(photos).toHaveLength(VIBE_PICK.page);
     expect(photos.every((p) => p.vibePick)).toBe(true);
-    expect(
-      photos.every((p) => p.setKey === "wedding-north-indian-hindu"),
-    ).toBe(true);
+    expect(photos.every((p) => p.setKey === "wedding-north-indian-hindu")).toBe(
+      true,
+    );
     expect(photos[0]!.pexelsId).toBe(31002035);
   });
 
@@ -130,9 +130,7 @@ describe("isVibeCandidate", () => {
 });
 
 /** Three of the North Indian Hindu set's vibe pick photos: two haldi, one mandap. */
-const PICKS = [31002035, 19569602, 33417236].map(
-  (id) => findLibraryPhoto(id)!,
-);
+const PICKS = [31002035, 19569602, 33417236].map((id) => findLibraryPhoto(id)!);
 
 const EMPTY: Theme = { palette: [], styleWords: [], decorKeywords: [] };
 
@@ -162,7 +160,7 @@ describe("vibeTheme", () => {
     expect(vibeTheme(EMPTY, same).palette.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("keeps what the Member already wrote and adds after it", () => {
+  it("keeps the Member's own style words and adds after them; a full palette drops its oldest colours (S13's rule)", () => {
     const theme = vibeTheme(
       {
         palette: ["#1F6F78"],
@@ -171,7 +169,7 @@ describe("vibeTheme", () => {
       },
       PICKS,
     );
-    expect(theme.palette[0]).toBe("#1F6F78");
+    expect(theme.palette).toHaveLength(5);
     expect(theme.styleWords[0]).toBe("royal Rajputana");
   });
 
