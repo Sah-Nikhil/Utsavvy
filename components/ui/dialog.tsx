@@ -20,8 +20,8 @@ export function DialogBackdrop({
   return (
     <DialogPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 z-50 bg-scrim",
-        "transition-opacity duration-(--dur-arrival) ease-standard",
+        "fixed inset-0 z-50 bg-scrim backdrop-blur-[2px]",
+        "transition-opacity duration-(--dur-arrival) ease-standard data-ending-style:duration-(--dur-exit)",
         "data-starting-style:opacity-0 data-ending-style:opacity-0",
         className,
       )}
@@ -104,7 +104,8 @@ export type DialogContentProps = WithClassName<
 };
 
 /**
- * A centred dialog: tonal raised surface, large corners, a subtle overlay shadow.
+ * A centred dialog: the brightest tonal level, the extra-large corner family
+ * and one soft shadow (no border: elevation is declared once).
  * Keep modals for work that needs interruption or protected focus.
  */
 export function DialogContent({
@@ -121,10 +122,11 @@ export function DialogContent({
       <DialogPrimitive.Popup
         className={cn(
           "fixed top-1/2 left-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto",
-          "-translate-x-1/2 -translate-y-1/2 rounded-lg border border-item-line bg-surface-raised p-6 text-ink shadow-overlay",
-          "transition-[opacity,scale,translate] duration-(--dur-arrival) ease-emphasized",
-          "data-starting-style:scale-[0.97] data-starting-style:opacity-0",
-          "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--dur-feedback) data-ending-style:ease-standard",
+          "-translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface-raised p-6 text-ink shadow-overlay",
+          "transition-[opacity,scale,border-radius] duration-(--dur-arrival) ease-emphasized",
+          // Arrives from a slightly smaller, tighter shape and settles into its own.
+          "data-starting-style:scale-[0.95] data-starting-style:rounded-md data-starting-style:opacity-0",
+          "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-ending-style:ease-emphasized-accelerate",
           "focus-visible:outline-none",
           className,
         )}

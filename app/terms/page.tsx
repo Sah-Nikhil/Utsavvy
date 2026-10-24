@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { OrnamentRule } from "@/components/shell/Rangoli";
 import { SiteChrome } from "@/components/shell/SiteChrome";
 
 export const metadata: Metadata = { title: "Terms and privacy" };
@@ -61,30 +62,31 @@ export default function TermsPage() {
   const reportEmail = process.env.NEXT_PUBLIC_REPORT_EMAIL;
   return (
     <SiteChrome>
-      <article className="grid max-w-2xl gap-8">
-        <header className="grid gap-3">
-          <h1 className="font-display text-headline font-semibold text-ink">
+      <article className="mx-auto grid max-w-3xl gap-10">
+        <header className="grid gap-4">
+          <h1 className="font-display text-[clamp(2.25rem,5vw,3.25rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-ink">
             Terms and privacy
           </h1>
-          <p className="text-body text-ink-2">
+          <p className="max-w-[60ch] text-[1.0625rem] leading-relaxed text-ink-2">
             Utsavvy is a non-commercial hackathon prototype, built for
             PromptWars. It comes with no warranty: use it to try planning an
             Event, not as the only record of one.
           </p>
+          <OrnamentRule className="mt-2" />
         </header>
 
-        <section aria-labelledby="services" className="grid gap-3">
+        <section aria-labelledby="services" className="grid gap-4">
           <h2
             id="services"
-            className="font-display text-title font-semibold text-ink"
+            className="font-display text-headline font-semibold text-ink"
           >
             What each outside service receives
           </h2>
-          <dl className="grid divide-y divide-rule rounded-lg border border-item-line bg-surface-raised">
+          <dl className="grid divide-y divide-rule overflow-hidden rounded-xl bg-surface-raised shadow-item">
             {SERVICES.map((service) => (
               <div
                 key={service.name}
-                className="grid gap-1 px-5 py-4 sm:grid-cols-[12rem_1fr] sm:gap-6"
+                className="grid gap-1 px-5 py-4 transition-colors duration-(--dur-feedback) ease-standard hover:bg-surface-container sm:grid-cols-[12rem_1fr] sm:gap-6 sm:px-6"
               >
                 <dt className="text-label font-semibold text-ink">
                   {service.name}
@@ -98,7 +100,7 @@ export default function TermsPage() {
         <section aria-labelledby="content" className="grid gap-3">
           <h2
             id="content"
-            className="font-display text-title font-semibold text-ink"
+            className="font-display text-headline font-semibold text-ink"
           >
             Photos and the demo Event
           </h2>
@@ -111,7 +113,7 @@ export default function TermsPage() {
         <section aria-labelledby="report" className="grid gap-3">
           <h2
             id="report"
-            className="font-display text-title font-semibold text-ink"
+            className="font-display text-headline font-semibold text-ink"
           >
             Asking for something to be taken down
           </h2>

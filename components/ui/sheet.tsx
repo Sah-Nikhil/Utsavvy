@@ -66,9 +66,9 @@ export function SheetContent({
       <SheetPrimitive.Popup
         data-side={side}
         className={cn(
-          "fixed z-50 flex flex-col border-item-line bg-surface-raised text-ink shadow-sheet",
+          "fixed z-50 flex flex-col border-transparent bg-surface-container text-ink shadow-sheet",
           "transition-[translate,opacity] duration-(--dur-arrival) ease-emphasized",
-          "data-ending-style:duration-(--dur-feedback) data-ending-style:ease-standard",
+          "data-ending-style:duration-(--dur-exit) data-ending-style:ease-emphasized-accelerate",
           "focus-visible:outline-none",
           sideClass[side],
           className,
@@ -78,10 +78,10 @@ export function SheetContent({
         {side === "bottom" ? (
           <div
             aria-hidden
-            className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-rule-strong/50"
+            className="mx-auto mt-2.5 h-1 w-8 shrink-0 rounded-full bg-rule-strong/60"
           />
         ) : null}
-        <div className="flex items-start gap-3 border-b border-rule px-5 pt-4 pb-3">
+        <div className="flex items-start gap-3 px-5 pt-5 pb-3">
           <div className="grid min-w-0 flex-1 gap-0.5">
             <DialogTitle className="text-title">{title}</DialogTitle>
             {description ? (
@@ -95,7 +95,7 @@ export function SheetContent({
         </div>
         <div
           className={cn(
-            "min-h-0 flex-1 overflow-y-auto px-5 py-4",
+            "min-h-0 flex-1 overflow-y-auto px-5 pt-1 pb-5",
             bodyClassName,
           )}
         >

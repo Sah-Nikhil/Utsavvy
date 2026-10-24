@@ -108,11 +108,11 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
   return (
     <form
       onSubmit={(event) => void submit(event)}
-      className="flex flex-col gap-2 border-t border-rule bg-surface px-3 pt-2.5 pb-3"
+      className="m-3 mt-1 flex flex-col gap-2 rounded-xl bg-surface p-2.5 shadow-item transition-shadow duration-(--dur-feedback) ease-standard focus-within:shadow-[0_0_0_2px_var(--action)]"
       aria-label="Message the Chat"
     >
       {selection ? (
-        <div className="flex items-center gap-1.5 self-start rounded-sm bg-selected py-0.5 pr-0.5 pl-2 text-caption font-medium text-on-selected">
+        <div className="flex items-center gap-1.5 self-start rounded-full bg-selected py-0.5 pr-0.5 pl-2.5 text-caption font-medium text-on-selected">
           <Crosshair aria-hidden className="size-3" />
           <span>Asking about {describePointing(pointing)}</span>
           <Button
@@ -140,7 +140,7 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
         maxLength={MAX_MESSAGE_LENGTH}
         placeholder={mode.placeholder}
         aria-describedby={error ? errorId : undefined}
-        className="max-h-40 min-h-[3.25rem] w-full resize-none [field-sizing:content] rounded-md border border-rule-strong bg-surface-raised px-3 py-2 text-body text-ink placeholder:text-ink-3 focus-visible:border-action focus-visible:outline-none"
+        className="max-h-40 min-h-[3.25rem] w-full resize-none [field-sizing:content] rounded-md bg-transparent px-1.5 py-1 text-body text-ink placeholder:text-ink-3 focus-visible:outline-none"
       />
       {error ? (
         <p id={errorId} className="text-caption text-warn">
@@ -152,7 +152,7 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
           {mode.note}
         </p>
       ) : null}
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3 pl-1.5">
         <Tooltip content={mode.note ?? DONT_REPLY_TIP}>
           <span className="inline-flex" data-dont-reply>
             <Switch

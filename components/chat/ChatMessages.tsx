@@ -93,10 +93,10 @@ function MemberMessage({
         </p>
         <div
           className={cn(
-            "max-w-full rounded-lg px-3 py-2 text-body break-words whitespace-pre-wrap",
+            "max-w-full rounded-xl px-3.5 py-2 text-body break-words whitespace-pre-wrap",
             mine
               ? "rounded-tr-xs bg-action-tonal text-on-action-tonal"
-              : "rounded-tl-xs border border-rule bg-surface-raised text-ink",
+              : "rounded-tl-xs bg-surface-raised text-ink",
             dontReply &&
               "border border-dashed border-rule-strong bg-surface-sunk text-ink-2",
           )}
@@ -233,7 +233,7 @@ function Reply({
     >
       <AssistantOrb
         palette={palette}
-        size={24}
+        size={26}
         state={waiting ? "thinking" : streaming ? "streaming" : "idle"}
         className="mt-5"
       />
@@ -247,9 +247,9 @@ function Reply({
               className="inline-flex items-center gap-1 py-1.5"
               aria-label="Utsavvy is thinking"
             >
-              <span className="size-1.5 animate-pulse rounded-full bg-ink-3 motion-reduce:animate-none" />
-              <span className="size-1.5 animate-pulse rounded-full bg-ink-3 [animation-delay:150ms] motion-reduce:animate-none" />
-              <span className="size-1.5 animate-pulse rounded-full bg-ink-3 [animation-delay:300ms] motion-reduce:animate-none" />
+              <span className="size-1.5 animate-pulse rounded-full bg-orb-1 motion-reduce:animate-none" />
+              <span className="size-1.5 animate-pulse rounded-full bg-orb-2 [animation-delay:150ms] motion-reduce:animate-none" />
+              <span className="size-1.5 animate-pulse rounded-full bg-orb-3 [animation-delay:300ms] motion-reduce:animate-none" />
             </span>
           ) : (
             visible
@@ -306,7 +306,7 @@ function SystemMessage({
   const Card = card.kind === "system" ? null : CHAT_CARDS[card.kind];
   return (
     <li className="flex gap-2.5 pr-4" data-chat-row="system">
-      <AssistantOrb palette={palette} size={24} className="mt-0.5" />
+      <AssistantOrb palette={palette} size={26} className="mt-0.5" />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {hasText(row.message) ? (
           <p className="text-body break-words whitespace-pre-wrap text-ink-2">
