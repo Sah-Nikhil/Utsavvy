@@ -1090,7 +1090,7 @@ describe("pointing", () => {
       api.inspirations.addFromLibrary,
       { eventId: s.eventId, pexelsId: HALDI_URLI },
     );
-    const { itemId: upload } = await insertUpload(s, {
+    const { itemId: upload, fileId } = await insertUpload(s, {
       description: "A stage with marigold strings.",
       palette: ["#F4A300"],
       decorKeywords: ["stage"],
@@ -1121,9 +1121,9 @@ describe("pointing", () => {
         itemId: upload,
         kind: "upload",
         description: "A stage with marigold strings.",
-        imageUrl: expect.any(String),
+        fileId,
       },
     ]);
-    expect(seen[0]).not.toHaveProperty("imageUrl");
+    expect(seen[0]).not.toHaveProperty("fileId");
   });
 });
