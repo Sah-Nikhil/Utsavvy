@@ -1,4 +1,4 @@
-import { createTool } from "@convex-dev/agent";
+import { createThread, createTool, saveMessage } from "@convex-dev/agent";
 import type { Tool } from "ai";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import type { ProposalOpHandler } from "../../../lib/types/proposals";
 import { components, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
+  env,
   internalMutation,
   type MutationCtx,
   type QueryCtx,
@@ -474,3 +475,100 @@ const tools = {
 };
 
 export const imageTools: ImageTools = tools as unknown as ImageTools;
+
+// ---------------------------------------------------------------------------
+// Local browser checks only
+
+function refuseOutsideLocal() {
+  const url = env.CONVEX_CLOUD_URL ?? "";
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    throw new Error("Only for a local Convex deployment");
+  }
+}
+
+/**
+ * What "find some haldi decor ideas" leaves behind, without a model: the
+ * request from the person with `email`, a haldi Function if the Event has
+ * none, and the real `searchStockImages` mutation's strip. For
+ * e2e/inspirations.spec.ts against `bun run dev`; refuses anything but a
+ * local deployment.
+ */
+export const stripForLocalCheck = internalMutation({
+  args: { eventId: v.id("events"), email: v.string() },
+  handler: async (ctx, { eventId, email }): Promise<ToolResult> => {
+    refuseOutsideLocal();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    const membership =
+      user &&
+      (await ctx.db
+        .query("memberships")
+        .withIndex("by_event_user", (q) =>
+          q.eq("eventId", eventId).eq("userId", user._id),
+        )
+        .unique());
+    if (!membership) throw new Error(`${email} is not in that Event`);
+    const functions = await functionsOf(ctx, eventId);
+    if (!functions.some((f) => f.key === "haldi")) {
+      await ctx.db.insert("eventFunctions", {
+        eventId,
+        key: "haldi",
+        name: "Haldi",
+        date: null,
+        guests: null,
+        assumed: [],
+        order: functions.length,
+        version: 1,
+      });
+    }
+    const event = (await ctx.db.get("events", eventId))!;
+    let threadId = event.agentThreadId;
+    if (threadId === null) {
+      threadId = await createThread(ctx, components.agent, {
+        title: event.name,
+      });
+      await ctx.db.patch("events", eventId, { agentThreadId: threadId });
+    }
+    const request = await saveMessage(ctx, components.agent, {
+      threadId,
+      userId: membership._id,
+      prompt: "find some haldi decor ideas",
+    });
+    await ctx.db.insert("chatAnnotations", {
+      eventId,
+      messageId: request.messageId,
+      authorMembershipId: membership._id,
+      dontReply: false,
+      mentions: [],
+      pointing: [],
+      card: null,
+    });
+    const runId = await ctx.db.insert("runs", {
+      eventId,
+      requestedBy: membership._id,
+      source: "chat",
+      messageId: request.messageId,
+      commentId: null,
+      status: "running",
+      stoppedBy: null,
+      model: "check",
+      createdAt: Date.now(),
+      startedAt: Date.now(),
+      endedAt: null,
+    });
+    const result: ToolResult = await ctx.runMutation(
+      internal.assistant.tools.images.searchForRun,
+      {
+        runId,
+        eventId,
+        forMembershipId: membership._id,
+        toolCallId: "check_strip",
+        query: "haldi decor",
+      },
+    );
+    await ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() });
+    return result;
+  },
+});

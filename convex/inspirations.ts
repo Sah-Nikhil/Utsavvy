@@ -21,6 +21,7 @@ import {
   sniffImageType,
   UPLOAD_RIGHTS_WORDING,
 } from "../lib/inspirations/uploads";
+import { can } from "../lib/access/permissions";
 import { selectionTargetValidator } from "../lib/types/canvas";
 import type { CityTier, EventType, Theme } from "../lib/types/brief";
 import { pricedEstimateValidator } from "../lib/types/estimates";
@@ -66,7 +67,7 @@ import {
 type Ctx = QueryCtx | MutationCtx;
 
 /** An image Inspiration's size on the Canvas: a 4:3 photo, its credit and actions. */
-export const INSPIRATION_CARD_SIZE = { w: 300, h: 360 };
+export const INSPIRATION_CARD_SIZE = { w: 300, h: 400 };
 const SUGGESTION_SIZE = { w: 300, h: 220 };
 
 /** A Member's request we turn down, with words the panel can show as they are. */
@@ -1134,5 +1135,32 @@ export const suggestForTheme = internalAction({
       estimateDeps: liveEstimateDeps(),
     });
     return null;
+  },
+});
+
+/** What the Add Inspiration panel needs: whether this person may add, the upload rights setting and the Theme. */
+export const panel = query({
+  args: { eventId: v.id("events") },
+  returns: v.object({
+    canEdit: v.boolean(),
+    uploadRightsOn: v.boolean(),
+    theme: v.object({
+      palette: v.array(v.string()),
+      styleWords: v.array(v.string()),
+      decorKeywords: v.array(v.string()),
+    }),
+  }),
+  handler: async (ctx, args) => {
+    const { membership } = await requireAccess(
+      ctx,
+      args.eventId,
+      "canvas.view",
+    );
+    const event = await loadEvent(ctx, args.eventId);
+    return {
+      canEdit: can(membership.role, "canvas.edit"),
+      uploadRightsOn: event.uploadRightsOn,
+      theme: event.theme,
+    };
   },
 });

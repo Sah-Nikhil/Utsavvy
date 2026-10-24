@@ -118,6 +118,20 @@ function distance(a: string, b: string): number {
   );
 }
 
+const COLOUR_WORDS = new Set<string>([
+  ...NAMED_COLOURS.flatMap(([name]) => name.split(" ")),
+  "golden",
+  "green",
+  "blue",
+  "colourful",
+  "colorful",
+]);
+
+/** Whether a tag only names a colour ("yellow", "gold"), not a piece of decor. */
+export function isColourWord(word: string): boolean {
+  return COLOUR_WORDS.has(word.trim().toLowerCase());
+}
+
 /** The nearest decor colour's name: "#1F6F78" is "teal". */
 export function colourName(hex: string): string {
   let best = NAMED_COLOURS[0]!;
