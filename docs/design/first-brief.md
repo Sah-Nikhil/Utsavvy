@@ -72,6 +72,8 @@ After the essentials, the Assistant offers: "Want to pick a look? Tap 3 to 5 ima
 
 Output: a Theme, `{ palette: 3-5 hex colours, styleWords: 2-4 short phrases, decorKeywords: 3-6 words }`, extracted locally (palette) and by one LLM call (words), as described in the Inspiration sources research. The Theme appears on the Brief summary, where Members can edit it. The tapped images become Inspirations on the Canvas with their credit.
 
+> Amended on 2026-10-24 (S18, [#51](https://github.com/Sah-Nikhil/Utsavvy/issues/51), decided for Sah-Nikhil at the PR #112 review): the vibe pick makes no model call. The palette and decor keywords come from the photos' curated palettes and tags, and the style words from a short map of the curators' look tags in `lib/brief/vibeSets.ts` ("jungle" gives "jungle safari", "palace" or "heritage" gives "royal heritage", "pirate" gives "pirate adventure"), with at most one colour name when the tags give fewer than 2 words. A pick only fills the Theme's free places, so nothing a Member typed is pushed out. "Show me more" shows the set's other library photos, with no live search (ADR 0012).
+
 Skipping leaves the Theme empty. Suggestions then lean on the Tradition and the Brief's words alone.
 
 ### Brief summary

@@ -809,7 +809,7 @@ After the essentials, a Member can tap 3 to 5 images to seed the Theme, or skip;
 Parent: Slices. Blocked by: S11, S13, D1.
 
 ### Owned paths
-`components/brief/vibe-pick/`, `lib/brief/vibeSets.ts`, `e2e/vibe-pick.spec.ts`.
+`components/brief/vibe-pick/`, `lib/brief/vibeSets.ts`, `e2e/vibe-pick.spec.ts`, and `convex/vibePick.ts` with its test (added in PR #112: the pick needed its own mutation, which reuses S13's `addFromLibrary` and `mergeTheme` rules).
 
 ### Interfaces
 - Uses: `seed/vibe-sets.json` (its `vibePick` records), `api.inspirations.addFromLibrary`, `mergeTheme`, S11's vibe-pick mount point.

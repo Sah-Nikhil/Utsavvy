@@ -53,6 +53,7 @@ import type * as runs from "../runs.js";
 import type * as suggestions from "../suggestions.js";
 import type * as users from "../users.js";
 import type * as vendors from "../vendors.js";
+import type * as vibePick from "../vibePick.js";
 import type * as viewPrefs from "../viewPrefs.js";
 
 import type {
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   suggestions: typeof suggestions;
   users: typeof users;
   vendors: typeof vendors;
+  vibePick: typeof vibePick;
   viewPrefs: typeof viewPrefs;
 }>;
 
