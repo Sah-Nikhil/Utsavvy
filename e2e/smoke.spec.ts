@@ -143,6 +143,8 @@ test.describe("smoke", () => {
     ]) {
       await expect(page.getByRole("button", { name: label })).toBeVisible();
     }
+    // No Event behind this ID, so the header shows no title and no dev placeholder.
+    await expect(page.getByRole("banner")).not.toContainText(/arrive with S\d/);
     await page.getByRole("button", { name: "People" }).click();
     await expect(page.locator('[data-mount="people-panel"]')).toBeVisible();
     await page.keyboard.press("Escape");

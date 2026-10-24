@@ -97,6 +97,11 @@ test.describe("people", () => {
     await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
     const workspaceUrl = page.url();
 
+    // The header names the new Event, honest about the dates the Brief hasn't set.
+    const header = page.getByRole("banner");
+    await expect(header.getByRole("heading", { level: 1 })).toHaveText(name);
+    await expect(header).toContainText("Wedding · Dates not set yet");
+
     // The Owner sees both links and copies the Viewer link's address.
     await openPeople(page);
     const viewerLink = page.getByRole("textbox", {
