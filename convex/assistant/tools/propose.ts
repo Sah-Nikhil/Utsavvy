@@ -33,10 +33,7 @@ import type {
 } from "../../../lib/types/proposals";
 import { components, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
-import {
-  type MutationCtx,
-  type QueryCtx,
-} from "../../_generated/server";
+import { type MutationCtx, type QueryCtx } from "../../_generated/server";
 import { MAX_CUSTOM_SECTIONS, placeNewItem } from "../../canvas";
 import { checkNewComment, commentItem } from "../../comments";
 import {
@@ -125,7 +122,9 @@ async function liveDoc<T extends "items" | "entries" | "sections">(
 
 function isText(value: unknown, max: number, nullable = false): boolean {
   if (value === null) return nullable;
-  return typeof value === "string" && value.trim() !== "" && value.length <= max;
+  return (
+    typeof value === "string" && value.trim() !== "" && value.length <= max
+  );
 }
 
 function fieldProblem(key: string, value: unknown): string | null {
@@ -156,7 +155,9 @@ function fieldProblem(key: string, value: unknown): string | null {
         ? null
         : "A time looks like 19:30.";
     case "note":
-      return isText(value, MAX_ENTRY_NOTE, true) ? null : "A note is short text.";
+      return isText(value, MAX_ENTRY_NOTE, true)
+        ? null
+        : "A note is short text.";
     case "done":
       return typeof value === "boolean" ? null : "Done is true or false.";
     case "functionKeys":
@@ -166,7 +167,9 @@ function fieldProblem(key: string, value: unknown): string | null {
     case "text":
       return isText(value, MAX_NOTE_TEXT) ? null : "A Note needs text.";
     case "body":
-      return isText(value, MAX_SUGGESTION_BODY) ? null : "A Suggestion needs text.";
+      return isText(value, MAX_SUGGESTION_BODY)
+        ? null
+        : "A Suggestion needs text.";
     default:
       return `${key} can't be changed this way.`;
   }
@@ -283,7 +286,11 @@ export const updateEntryOp: ProposalOpHandler<"updateEntry"> = {
     if (entry.kind === "budget") {
       const before = entry.fields;
       const next = fields as EntryFields<"budget">;
-      if ("quantity" in patch && before.estimate !== null && next.quantity !== before.quantity)
+      if (
+        "quantity" in patch &&
+        before.estimate !== null &&
+        next.quantity !== before.quantity
+      )
         next.estimate = rescaleEstimate(
           before.estimate,
           before.unit,
@@ -428,7 +435,11 @@ export const updateItemOp: ProposalOpHandler<"updateItem"> = {
     const item = await liveDoc(ctx, "items", change.docId);
     if (item === null) return "That Item isn't on the Canvas any more.";
     const { data, ...rest } = change.values.patch;
-    if (Object.keys(rest).length > 0 || typeof data !== "object" || data === null)
+    if (
+      Object.keys(rest).length > 0 ||
+      typeof data !== "object" ||
+      data === null
+    )
       return "Only an Item's text can change.";
     const allowed = ITEM_PATCH_FIELDS[item.kind];
     if (!allowed)
@@ -527,7 +538,9 @@ export const createSectionOp: ProposalOpHandler<"createSection"> = {
     const name = cleanSectionName(change.values.name);
     if (!name.ok) proposalRefused("Give the Section a name.");
     const sections = await liveSections(ctx, eventId);
-    if (sections.filter((s) => s.kind === "custom").length >= MAX_CUSTOM_SECTIONS)
+    if (
+      sections.filter((s) => s.kind === "custom").length >= MAX_CUSTOM_SECTIONS
+    )
       proposalRefused("This Event has as many Sections as it can hold.");
     const items = (
       await ctx.db
@@ -566,7 +579,13 @@ export const addCommentOp: ProposalOpHandler<"addComment"> = {
   validate: async (ctx, change) => {
     try {
       const item = await commentItem(ctx, change.values.target);
-      await checkNewComment(ctx, item, change.values.target, change.values.body, null);
+      await checkNewComment(
+        ctx,
+        item,
+        change.values.target,
+        change.values.body,
+        null,
+      );
       return null;
     } catch (error) {
       if (error instanceof ConvexError && error.data?.kind === "CommentRefused")
@@ -793,7 +812,10 @@ export const callRef = {
 };
 
 export class Refusal extends Error {
-  constructor(readonly reason: string, message: string) {
+  constructor(
+    readonly reason: string,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -804,7 +826,11 @@ export function refuse(reason: string, message: string): never {
 /** The run must be this Event's and answer this Member, who may still change it (section 4.3). */
 export async function gate(
   ctx: MutationCtx,
-  ref: { runId: Id<"runs">; eventId: Id<"events">; forMembershipId: Id<"memberships"> },
+  ref: {
+    runId: Id<"runs">;
+    eventId: Id<"events">;
+    forMembershipId: Id<"memberships">;
+  },
 ) {
   const run = await ctx.db.get("runs", ref.runId);
   if (
@@ -831,7 +857,10 @@ export async function gate(
 }
 
 /** The words of the message this run answers, for the member-stated amount check. */
-async function requestText(ctx: MutationCtx, run: Doc<"runs">): Promise<string> {
+async function requestText(
+  ctx: MutationCtx,
+  run: Doc<"runs">,
+): Promise<string> {
   if (run.source === "comment" && run.commentId !== null)
     return (await ctx.db.get("comments", run.commentId))?.body ?? "";
   if (run.messageId === null) return "";
@@ -851,7 +880,8 @@ async function versioned<T extends "entries" | "items">(
   const what = table === "entries" ? "Entry" : "Item";
   const normalized = ctx.db.normalizeId(table, id);
   const doc = normalized === null ? null : await ctx.db.get(table, normalized);
-  if (doc === null) refuse("notFound", `No such ${what}. Use IDs from readCanvas.`);
+  if (doc === null)
+    refuse("notFound", `No such ${what}. Use IDs from readCanvas.`);
   const fields = doc as unknown as {
     eventId: Id<"events">;
     deletedAt: number | null;
@@ -902,21 +932,34 @@ export async function resolveChanges(
   for (const [i, spec] of specs.entries()) {
     switch (spec.op) {
       case "updateEntry": {
-        const entry = await versioned(ctx, "entries", spec.entryId, eventId, spec.expectedVersion);
+        const entry = await versioned(
+          ctx,
+          "entries",
+          spec.entryId,
+          eventId,
+          spec.expectedVersion,
+        );
         if (entry.kind !== spec.patch.kind)
           refuse("wrongKind", `That is a ${entry.kind} Entry.`);
         const fields: Record<string, unknown> = {};
         const patch = spec.patch;
         if (patch.kind === "budget" && entry.kind === "budget") {
-          if (patch.label !== undefined) fields.label = cleanLabel(patch.label, "line");
+          if (patch.label !== undefined)
+            fields.label = cleanLabel(patch.label, "line");
           if (patch.quantity !== undefined) fields.quantity = patch.quantity;
           const amount = patch.amount;
           const before = entryAmount(entry.fields);
           if (amount && "memberStated" in amount) {
-            fields.plannedAmount = stated(amount.memberStated, "this line's amount");
+            fields.plannedAmount = stated(
+              amount.memberStated,
+              "this line's amount",
+            );
           } else if (amount && "estimateLow" in amount) {
             if (entry.fields.estimate === null)
-              refuse("noEstimate", `${entry.fields.label} has no Estimate to cut to.`);
+              refuse(
+                "noEstimate",
+                `${entry.fields.label} has no Estimate to cut to.`,
+              );
             fields.plannedAmount = entry.fields.estimate.low;
           } else if (amount && "receiveFreedFrom" in amount) {
             pendingFreed.push(i);
@@ -924,18 +967,26 @@ export async function resolveChanges(
           if ("plannedAmount" in fields)
             freed[i] = before - (fields.plannedAmount as number);
         } else if (patch.kind === "timeline") {
-          for (const key of ["title", "date", "time", "note", "done"] as const) {
+          for (const key of [
+            "title",
+            "date",
+            "time",
+            "note",
+            "done",
+          ] as const) {
             if (patch[key] !== undefined) fields[key] = patch[key];
           }
           if (typeof fields.title === "string")
             fields.title = cleanLabel(fields.title, "Timeline Entry");
         } else if (patch.kind === "checklist") {
-          if (patch.label !== undefined) fields.freeLabel = cleanLabel(patch.label, "Vendor");
+          if (patch.label !== undefined)
+            fields.freeLabel = cleanLabel(patch.label, "Vendor");
           if (patch.functionKeys !== undefined)
             fields.functionKeys = [...new Set(patch.functionKeys)];
         }
         const values: Record<string, Value> = { fields: fields as Value };
-        if (spec.functionKey !== undefined) values.functionKey = spec.functionKey;
+        if (spec.functionKey !== undefined)
+          values.functionKey = spec.functionKey;
         out[i] = {
           op: "updateEntry",
           table: "entries",
@@ -947,7 +998,13 @@ export async function resolveChanges(
         break;
       }
       case "deleteEntry": {
-        const entry = await versioned(ctx, "entries", spec.entryId, eventId, spec.expectedVersion);
+        const entry = await versioned(
+          ctx,
+          "entries",
+          spec.entryId,
+          eventId,
+          spec.expectedVersion,
+        );
         if (entry.kind === "budget") freed[i] = entryAmount(entry.fields);
         out[i] = {
           op: "deleteEntry",
@@ -967,7 +1024,9 @@ export async function resolveChanges(
         let fields: EntryFields;
         if (entry.kind === "budget") {
           const memberStated =
-            entry.memberStated === null ? null : stated(entry.memberStated, "this line's amount");
+            entry.memberStated === null
+              ? null
+              : stated(entry.memberStated, "this line's amount");
           fields = {
             label: cleanLabel(entry.label, "line"),
             category:
@@ -990,7 +1049,10 @@ export async function resolveChanges(
             leadKey: null,
             priority: null,
             late: false,
-            note: entry.note === null || entry.note.trim() === "" ? null : entry.note.trim(),
+            note:
+              entry.note === null || entry.note.trim() === ""
+                ? null
+                : entry.note.trim(),
             vendorCategory: null,
             done: false,
           };
@@ -1022,11 +1084,17 @@ export async function resolveChanges(
         let sectionId: Id<"sections">;
         if (spec.sectionId === null) {
           const size = spec.item.kind === "note" ? NOTE_SIZE : SUGGESTION_SIZE;
-          ({ sectionId } = await placeNewItem(ctx, { eventId, kind: spec.item.kind, size }));
+          ({ sectionId } = await placeNewItem(ctx, {
+            eventId,
+            kind: spec.item.kind,
+            size,
+          }));
         } else {
           const section = await liveDoc(ctx, "sections", spec.sectionId);
-          if (section === null) refuse("notFound", "No such Section. Use IDs from readCanvas.");
-          if (section.eventId !== eventId) throw new AccessDenied("wrongEvent", "canvas.edit");
+          if (section === null)
+            refuse("notFound", "No such Section. Use IDs from readCanvas.");
+          if (section.eventId !== eventId)
+            throw new AccessDenied("wrongEvent", "canvas.edit");
           sectionId = section._id;
         }
         const section = (await ctx.db.get("sections", sectionId))!;
@@ -1055,13 +1123,21 @@ export async function resolveChanges(
           table: "items",
           docId: null,
           expectedVersion: null,
-          guards: [{ table: "sections", docId: section._id, version: section.version }],
+          guards: [
+            { table: "sections", docId: section._id, version: section.version },
+          ],
           values,
         };
         break;
       }
       case "updateItem": {
-        const item = await versioned(ctx, "items", spec.itemId, eventId, spec.expectedVersion);
+        const item = await versioned(
+          ctx,
+          "items",
+          spec.itemId,
+          eventId,
+          spec.expectedVersion,
+        );
         const patch = spec.patch;
         let data: Record<string, unknown>;
         if (patch.kind === "note") data = { text: patch.text.trim() };
@@ -1069,9 +1145,17 @@ export async function resolveChanges(
           data = {};
           if (patch.title !== undefined) data.title = trimmed(patch.title);
           if (patch.body !== undefined) data.body = patch.body.trim();
-        } else data = { note: patch.note === null || patch.note.trim() === "" ? null : patch.note.trim() };
+        } else
+          data = {
+            note:
+              patch.note === null || patch.note.trim() === ""
+                ? null
+                : patch.note.trim(),
+          };
         const wanted =
-          patch.kind === "planNote" ? PLAN_KINDS.includes(item.kind) : item.kind === patch.kind;
+          patch.kind === "planNote"
+            ? PLAN_KINDS.includes(item.kind)
+            : item.kind === patch.kind;
         if (!wanted) refuse("wrongKind", `That Item is a ${item.kind}.`);
         out[i] = {
           op: "updateItem",
@@ -1084,22 +1168,38 @@ export async function resolveChanges(
         break;
       }
       case "moveItem": {
-        const item = await versioned(ctx, "items", spec.itemId, eventId, spec.expectedVersion);
+        const item = await versioned(
+          ctx,
+          "items",
+          spec.itemId,
+          eventId,
+          spec.expectedVersion,
+        );
         const section = await liveDoc(ctx, "sections", spec.sectionId);
-        if (section === null) refuse("notFound", "No such Section. Use IDs from readCanvas.");
-        if (section.eventId !== eventId) throw new AccessDenied("wrongEvent", "canvas.edit");
+        if (section === null)
+          refuse("notFound", "No such Section. Use IDs from readCanvas.");
+        if (section.eventId !== eventId)
+          throw new AccessDenied("wrongEvent", "canvas.edit");
         out[i] = {
           op: "moveItem",
           table: "items",
           docId: item._id,
           expectedVersion: item.version,
-          guards: [{ table: "sections", docId: section._id, version: section.version }],
+          guards: [
+            { table: "sections", docId: section._id, version: section.version },
+          ],
           values: { sectionId: section._id, position: null },
         };
         break;
       }
       case "deleteItem": {
-        const item = await versioned(ctx, "items", spec.itemId, eventId, spec.expectedVersion);
+        const item = await versioned(
+          ctx,
+          "items",
+          spec.itemId,
+          eventId,
+          spec.expectedVersion,
+        );
         out[i] = {
           op: "deleteItem",
           table: "items",
@@ -1122,8 +1222,10 @@ export async function resolveChanges(
         break;
       case "addComment": {
         const item = await liveDoc(ctx, "items", spec.target.itemId);
-        if (item === null) refuse("notFound", "No such Item. Use IDs from readCanvas.");
-        if (item.eventId !== eventId) throw new AccessDenied("wrongEvent", "comment.add");
+        if (item === null)
+          refuse("notFound", "No such Item. Use IDs from readCanvas.");
+        if (item.eventId !== eventId)
+          throw new AccessDenied("wrongEvent", "comment.add");
         out[i] = {
           op: "addComment",
           table: "comments",
@@ -1136,20 +1238,28 @@ export async function resolveChanges(
       }
       case "setBudgetTotal": {
         if (g.event.version !== spec.expectedVersion)
-          refuse("stale", "The Event changed since you read it. Call readCanvas and propose again.");
+          refuse(
+            "stale",
+            "The Event changed since you read it. Call readCanvas and propose again.",
+          );
         out[i] = {
           op: "setBudgetTotal",
           table: "events",
           docId: eventId,
           expectedVersion: g.event.version,
           guards: [],
-          values: { budgetTotal: stated(spec.memberStated, "the Budget total") },
+          values: {
+            budgetTotal: stated(spec.memberStated, "the Budget total"),
+          },
         };
         break;
       }
       case "updateTheme": {
         if (g.event.version !== spec.expectedVersion)
-          refuse("stale", "The Event changed since you read it. Call readCanvas and propose again.");
+          refuse(
+            "stale",
+            "The Event changed since you read it. Call readCanvas and propose again.",
+          );
         out[i] = {
           op: "updateTheme",
           table: "events",
@@ -1166,8 +1276,8 @@ export async function resolveChanges(
   // Code, not the model, works out the rupees that move (section 3, item 1).
   for (const i of pendingFreed) {
     const spec = specs[i] as Extract<ChangeSpec, { op: "updateEntry" }>;
-    const from = (spec.patch as { amount: { receiveFreedFrom: number[] } }).amount
-      .receiveFreedFrom;
+    const from = (spec.patch as { amount: { receiveFreedFrom: number[] } })
+      .amount.receiveFreedFrom;
     let total = 0;
     for (const j of new Set(from)) {
       const amount = freed[j];
@@ -1182,7 +1292,8 @@ export async function resolveChanges(
     const entry = (await ctx.db.get("entries", change.docId))!;
     const fields = change.values.patch.fields as Record<string, unknown>;
     fields.plannedAmount =
-      entryAmount((entry as Doc<"entries"> & { kind: "budget" }).fields) + total;
+      entryAmount((entry as Doc<"entries"> & { kind: "budget" }).fields) +
+      total;
   }
   return out as ProposedChange[];
 }
@@ -1216,7 +1327,9 @@ const memberStated = z
 const budgetAmount = z.union([
   z.strictObject({ memberStated }),
   z.strictObject({
-    estimateLow: z.literal(true).describe("Cut the line to the low end of its Estimate."),
+    estimateLow: z
+      .literal(true)
+      .describe("Cut the line to the low end of its Estimate."),
   }),
   z.strictObject({
     receiveFreedFrom: z
@@ -1256,7 +1369,11 @@ const changeInput = z.discriminatedUnion("op", [
       }),
     ]),
   }),
-  z.strictObject({ op: z.literal("deleteEntry"), entryId: id, expectedVersion: version }),
+  z.strictObject({
+    op: z.literal("deleteEntry"),
+    entryId: id,
+    expectedVersion: version,
+  }),
   z.strictObject({
     op: z.literal("addEntry"),
     entry: z.discriminatedUnion("kind", [
@@ -1310,7 +1427,10 @@ const changeInput = z.discriminatedUnion("op", [
         title: z.string().optional(),
         body: z.string().optional(),
       }),
-      z.strictObject({ kind: z.literal("planNote"), note: z.string().nullable() }),
+      z.strictObject({
+        kind: z.literal("planNote"),
+        note: z.string().nullable(),
+      }),
     ]),
   }),
   z.strictObject({
@@ -1319,7 +1439,11 @@ const changeInput = z.discriminatedUnion("op", [
     expectedVersion: version,
     sectionId: id,
   }),
-  z.strictObject({ op: z.literal("deleteItem"), itemId: id, expectedVersion: version }),
+  z.strictObject({
+    op: z.literal("deleteItem"),
+    itemId: id,
+    expectedVersion: version,
+  }),
   z.strictObject({ op: z.literal("createSection"), name: z.string() }),
   z.strictObject({
     op: z.literal("addComment"),
@@ -1347,10 +1471,14 @@ const changeInput = z.discriminatedUnion("op", [
 const proposeInput = z.strictObject({
   summary: z
     .string()
-    .describe("One short line in English for the card, such as \"Cut Decor to ₹2,20,000, drop the Drone shoot\"."),
+    .describe(
+      'One short line in English for the card, such as "Cut Decor to ₹2,20,000, drop the Drone shoot".',
+    ),
   replaces: id
     .optional()
-    .describe("The open Proposal this one revises (from readCanvas), when a Member asked to change it."),
+    .describe(
+      "The open Proposal this one revises (from readCanvas), when a Member asked to change it.",
+    ),
   changes: z.array(changeInput).min(1).max(MAX_PROPOSAL_CHANGES),
 });
 type ProposeInput = z.infer<typeof proposeInput>;
@@ -1376,7 +1504,12 @@ type PricingContext = {
 async function priced(
   ctx: AssistantToolCtx,
   context: PricingContext,
-  line: { category?: string | undefined; freeLabel?: string | undefined; quantity: number; unit: string },
+  line: {
+    category?: string | undefined;
+    freeLabel?: string | undefined;
+    quantity: number;
+    unit: string;
+  },
   deps: Partial<EstimateDeps> | undefined,
 ): Promise<PricedEstimate | null> {
   if (context.city === null) return null;
@@ -1401,7 +1534,10 @@ async function priced(
 }
 
 function guardedError(error: unknown): ToolResult {
-  const data = error instanceof ConvexError ? (error.data as Record<string, unknown>) : null;
+  const data =
+    error instanceof ConvexError
+      ? (error.data as Record<string, unknown>)
+      : null;
   if (data && data.kind === "AccessDenied")
     return {
       ok: false,
@@ -1417,7 +1553,10 @@ function guardedError(error: unknown): ToolResult {
       ok: false,
       reason: data.kind,
       error: data.kind,
-      message: typeof data.message === "string" ? data.message : `Refused (${data.kind}).`,
+      message:
+        typeof data.message === "string"
+          ? data.message
+          : `Refused (${data.kind}).`,
     };
   console.error("propose failed", error);
   return {
@@ -1428,7 +1567,9 @@ function guardedError(error: unknown): ToolResult {
 }
 
 /** The `propose` tool, with the estimate cascade's dependencies injectable for tests. */
-export function buildProposeTools(options: ProposeToolOptions = {}): ProposeTools {
+export function buildProposeTools(
+  options: ProposeToolOptions = {},
+): ProposeTools {
   const deps = options.estimateDeps;
   const propose = createTool<ProposeInput, ToolResult, AssistantToolCtx>({
     description:
@@ -1488,7 +1629,9 @@ async function toSpec(
         op: "updateEntry",
         entryId: change.entryId,
         expectedVersion: change.expectedVersion,
-        ...(change.functionKey !== undefined ? { functionKey: change.functionKey } : {}),
+        ...(change.functionKey !== undefined
+          ? { functionKey: change.functionKey }
+          : {}),
         patch,
       };
     }
@@ -1572,7 +1715,12 @@ async function toSpec(
       const patch = Object.fromEntries(
         Object.entries(change.patch).filter(([, value]) => value !== undefined),
       ) as Extract<ChangeSpec, { op: "updateItem" }>["patch"];
-      return { op: "updateItem", itemId: change.itemId, expectedVersion: change.expectedVersion, patch };
+      return {
+        op: "updateItem",
+        itemId: change.itemId,
+        expectedVersion: change.expectedVersion,
+        patch,
+      };
     }
     case "addComment":
       return {

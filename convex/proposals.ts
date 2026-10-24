@@ -14,6 +14,7 @@ import {
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  env,
   internalMutation,
   mutation,
   query,
@@ -36,6 +37,7 @@ import {
   resolveChanges,
 } from "./assistant/tools/propose";
 import { once } from "./lib/idempotency";
+import { memberWrite } from "./lib/write";
 import { checkQueueRoom, enqueueRun } from "./runs";
 
 export { MAX_PROPOSAL_CHANGES, proposalRefused };
@@ -117,7 +119,11 @@ function dependencies(
   const deps: (Guard & { kind: "change" | "guard" })[] = [];
   for (const change of proposal.changes) {
     const table = tableOf(change);
-    if (table !== null && change.docId !== null && change.expectedVersion !== null) {
+    if (
+      table !== null &&
+      change.docId !== null &&
+      change.expectedVersion !== null
+    ) {
       deps.push({
         kind: "change",
         table,
@@ -142,7 +148,8 @@ async function staleDependencies(
     const deleted =
       dep.kind === "change" &&
       (doc as { deletedAt?: number | null } | null)?.deletedAt != null;
-    if (doc === null || version !== dep.version || deleted) stale.push(dep.docId);
+    if (doc === null || version !== dep.version || deleted)
+      stale.push(dep.docId);
   }
   return stale;
 }
@@ -271,9 +278,13 @@ export async function createProposal(
     });
   }
 
-  await ctx.scheduler.runAt(now + PROPOSAL_EXPIRY_MS, internal.proposals.expire, {
-    proposalId,
-  });
+  await ctx.scheduler.runAt(
+    now + PROPOSAL_EXPIRY_MS,
+    internal.proposals.expire,
+    {
+      proposalId,
+    },
+  );
 
   const run = args.runId === null ? null : await ctx.db.get("runs", args.runId);
   // A Comment thread shows its own card (S17); the Chat gets the card otherwise.
@@ -298,47 +309,57 @@ export const proposeForRun = internalMutation({
   },
   handler: async (ctx, args): Promise<ToolResult> => {
     const g = await gate(ctx, args);
-    return await once(ctx, `${args.runId}:${args.toolCallId}`, async (): Promise<ToolResult> => {
-      try {
-        if (args.changes.length > MAX_PROPOSAL_CHANGES)
-          refuse("tooMany", `A Proposal holds at most ${MAX_PROPOSAL_CHANGES} changes.`);
-        if (args.replaces !== null) {
-          const old = await ctx.db.get("proposals", args.replaces);
-          if (old === null || old.eventId !== args.eventId)
-            throw new AccessDenied("wrongEvent", "canvas.edit");
-        }
-        const changes = await resolveChanges(ctx, g, args.changes);
-        const proposalId = await createProposal(ctx, {
-          eventId: args.eventId,
-          runId: args.runId,
-          requestedBy: g.membership._id,
-          origin:
-            g.run.source === "comment" && g.run.commentId !== null
-              ? { kind: "comment", commentId: g.run.commentId }
-              : { kind: "chat" },
-          summary: args.summary,
-          changes,
-          replaces: args.replaces,
-        });
-        const proposal = (await ctx.db.get("proposals", proposalId))!;
-        return {
-          ok: true,
-          proposalId,
-          changes: await describeProposal(ctx, proposal),
-          note: "The Proposal card is in the Chat. Nothing has changed yet: say in one line what it would change and that a Member needs to Accept it.",
-        };
-      } catch (error) {
-        if (error instanceof Refusal)
-          return { ok: false, reason: error.reason, message: error.message };
-        if (error instanceof ConvexError && error.data?.kind === "ProposalRefused")
+    return await once(
+      ctx,
+      `${args.runId}:${args.toolCallId}`,
+      async (): Promise<ToolResult> => {
+        try {
+          if (args.changes.length > MAX_PROPOSAL_CHANGES)
+            refuse(
+              "tooMany",
+              `A Proposal holds at most ${MAX_PROPOSAL_CHANGES} changes.`,
+            );
+          if (args.replaces !== null) {
+            const old = await ctx.db.get("proposals", args.replaces);
+            if (old === null || old.eventId !== args.eventId)
+              throw new AccessDenied("wrongEvent", "canvas.edit");
+          }
+          const changes = await resolveChanges(ctx, g, args.changes);
+          const proposalId = await createProposal(ctx, {
+            eventId: args.eventId,
+            runId: args.runId,
+            requestedBy: g.membership._id,
+            origin:
+              g.run.source === "comment" && g.run.commentId !== null
+                ? { kind: "comment", commentId: g.run.commentId }
+                : { kind: "chat" },
+            summary: args.summary,
+            changes,
+            replaces: args.replaces,
+          });
+          const proposal = (await ctx.db.get("proposals", proposalId))!;
           return {
-            ok: false,
-            reason: "refused",
-            message: String(error.data.message),
+            ok: true,
+            proposalId,
+            changes: await describeProposal(ctx, proposal),
+            note: "The Proposal card is in the Chat. Nothing has changed yet: say in one line what it would change and that a Member needs to Accept it.",
           };
-        throw error;
-      }
-    });
+        } catch (error) {
+          if (error instanceof Refusal)
+            return { ok: false, reason: error.reason, message: error.message };
+          if (
+            error instanceof ConvexError &&
+            error.data?.kind === "ProposalRefused"
+          )
+            return {
+              ok: false,
+              reason: "refused",
+              message: String(error.data.message),
+            };
+          throw error;
+        }
+      },
+    );
   },
 });
 
@@ -366,7 +387,8 @@ export async function applyProposal(
   acceptedBy: Id<"memberships">,
 ): Promise<ApplyResult> {
   const proposal = await ctx.db.get("proposals", proposalId);
-  if (proposal === null) throw new AccessDenied("wrongEvent", "proposal.decide");
+  if (proposal === null)
+    throw new AccessDenied("wrongEvent", "proposal.decide");
   if (proposal.status !== "open")
     return {
       ok: false,
@@ -598,7 +620,10 @@ async function docAt(
   version: number | null,
 ): Promise<Record<string, unknown> | null> {
   const now = await loadDoc(ctx, table, docId);
-  if (version === null || (now as { version?: number } | null)?.version === version)
+  if (
+    version === null ||
+    (now as { version?: number } | null)?.version === version
+  )
     return now;
   const rows = await ctx.db
     .query("changes")
@@ -671,10 +696,18 @@ async function describeChange(
 ): Promise<string> {
   switch (change.op) {
     case "updateEntry": {
-      const before = await docAt(ctx, "entries", change.docId, change.expectedVersion);
+      const before = await docAt(
+        ctx,
+        "entries",
+        change.docId,
+        change.expectedVersion,
+      );
       const name = entryName(before);
       const fields = (before?.fields ?? {}) as Record<string, unknown>;
-      const patch = (change.values.patch.fields ?? {}) as Record<string, unknown>;
+      const patch = (change.values.patch.fields ?? {}) as Record<
+        string,
+        unknown
+      >;
       const parts: string[] = [];
       if (before?.kind === "budget" && "plannedAmount" in patch) {
         const from = entryAmount(fields as EntryFields<"budget">);
@@ -683,7 +716,10 @@ async function describeChange(
       }
       for (const [key, value] of Object.entries(patch)) {
         if (key === "plannedAmount" || key === "estimate") continue;
-        const label = key === "freeLabel" || key === "label" || key === "title" ? "name" : key;
+        const label =
+          key === "freeLabel" || key === "label" || key === "title"
+            ? "name"
+            : key;
         parts.push(`${name}: ${label} ${show(fields[key])} → ${show(value)}`);
       }
       if ("functionKey" in change.values.patch)
@@ -693,7 +729,12 @@ async function describeChange(
       return parts.join("; ") || `Change ${name}`;
     }
     case "deleteEntry": {
-      const before = await docAt(ctx, "entries", change.docId, change.expectedVersion);
+      const before = await docAt(
+        ctx,
+        "entries",
+        change.docId,
+        change.expectedVersion,
+      );
       const amount =
         before?.kind === "budget"
           ? ` (${formatINR(entryAmount(before.fields as EntryFields<"budget">))})`
@@ -705,7 +746,12 @@ async function describeChange(
       if (change.values.kind === "budget") {
         const fields = f as EntryFields<"budget">;
         const amount = entryAmount(fields);
-        const source = fields.plannedAmount !== null ? "" : fields.estimate ? " (Estimate)" : "";
+        const source =
+          fields.plannedAmount !== null
+            ? ""
+            : fields.estimate
+              ? " (Estimate)"
+              : "";
         return `Add ${quoted(fields.label)} ${amount > 0 ? formatINR(amount) : "with no Estimate yet"}${source}`;
       }
       if (change.values.kind === "timeline")
@@ -717,16 +763,27 @@ async function describeChange(
         ? `Add a Note ${quoted(change.values.data.text)}`
         : `Add the Suggestion ${quoted(change.values.data.title)}`;
     case "updateItem": {
-      const before = await docAt(ctx, "items", change.docId, change.expectedVersion);
+      const before = await docAt(
+        ctx,
+        "items",
+        change.docId,
+        change.expectedVersion,
+      );
       const data = (change.values.patch.data ?? {}) as Record<string, unknown>;
       const old = (before?.data ?? {}) as Record<string, unknown>;
       const parts = Object.entries(data).map(
-        ([key, value]) => `${key} ${quoted(show(old[key]), 40)} → ${quoted(show(value), 40)}`,
+        ([key, value]) =>
+          `${key} ${quoted(show(old[key]), 40)} → ${quoted(show(value), 40)}`,
       );
       return `Edit ${itemName(before)}${parts.length ? `: ${parts.join("; ")}` : ""}`;
     }
     case "moveItem": {
-      const before = await docAt(ctx, "items", change.docId, change.expectedVersion);
+      const before = await docAt(
+        ctx,
+        "items",
+        change.docId,
+        change.expectedVersion,
+      );
       const section =
         change.values.sectionId === null
           ? null
@@ -734,7 +791,12 @@ async function describeChange(
       return `Move ${itemName(before)}${section ? ` to ${section.name}` : ""}`;
     }
     case "deleteItem": {
-      const before = await docAt(ctx, "items", change.docId, change.expectedVersion);
+      const before = await docAt(
+        ctx,
+        "items",
+        change.docId,
+        change.expectedVersion,
+      );
       return `Delete ${itemName(before)}`;
     }
     case "createSection":
@@ -742,7 +804,12 @@ async function describeChange(
     case "addComment":
       return `Comment ${quoted(change.values.body)}`;
     case "setBudgetTotal": {
-      const before = await docAt(ctx, "events", change.docId, change.expectedVersion);
+      const before = await docAt(
+        ctx,
+        "events",
+        change.docId,
+        change.expectedVersion,
+      );
       const from = (before?.budgetTotal as number | null) ?? null;
       return `Budget total ${from === null ? "not set" : formatINR(from)} → ${formatINR(change.values.budgetTotal)}`;
     }
@@ -761,7 +828,8 @@ export async function describeProposal(
   proposal: Pick<Doc<"proposals">, "changes">,
 ): Promise<string[]> {
   const lines: string[] = [];
-  for (const change of proposal.changes) lines.push(await describeChange(ctx, change));
+  for (const change of proposal.changes)
+    lines.push(await describeChange(ctx, change));
   return lines;
 }
 
@@ -838,5 +906,192 @@ export const get = query({
       canDecide: member && kind === "open",
       canAskAgain: member && kind === "outOfDate",
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Local browser checks only
+
+function refuseOutsideLocal() {
+  const url = env.CONVEX_CLOUD_URL ?? "";
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    throw new Error("Only for a local Convex deployment");
+  }
+}
+
+/**
+ * The "Risky request" worked example without a model, for
+ * e2e/proposals.spec.ts against `bun run dev`: Decor at ₹3,00,000, a ₹60,000
+ * Drone shoot and ₹1,00,000 Contingency on the Event's Budget, a Chat request
+ * from the person with `email`, and the real `propose` mutation answering it.
+ * Refuses anything but a local deployment.
+ */
+export const riskyRequestForLocalCheck = internalMutation({
+  args: { eventId: v.id("events"), email: v.string() },
+  returns: v.object({
+    proposalId: v.id("proposals"),
+    decorId: v.id("entries"),
+  }),
+  handler: async (
+    ctx,
+    { eventId, email },
+  ): Promise<{ proposalId: Id<"proposals">; decorId: Id<"entries"> }> => {
+    refuseOutsideLocal();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    const membership =
+      user &&
+      (await ctx.db
+        .query("memberships")
+        .withIndex("by_event_user", (q) =>
+          q.eq("eventId", eventId).eq("userId", user._id),
+        )
+        .unique());
+    if (!membership) throw new Error(`${email} is not in that Event`);
+    const budget = (
+      await ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", eventId).eq("kind", "budget"),
+        )
+        .take(5)
+    ).find((item) => item.deletedAt === null);
+    if (!budget) throw new Error("That Event has no Budget");
+    await ctx.db.patch("events", eventId, { budgetTotal: 2_500_000 });
+
+    const createdBy = { kind: "member" as const, membershipId: membership._id };
+    const line = (
+      order: number,
+      label: string,
+      planned: number,
+      role: "line" | "contingency" = "line",
+    ) =>
+      ctx.db.insert("entries", {
+        eventId,
+        itemId: budget._id,
+        kind: "budget",
+        order,
+        functionKey: null,
+        assumed: [],
+        createdBy,
+        version: 1,
+        deletedAt: null,
+        fields: {
+          label,
+          category: null,
+          quantity: 1,
+          unit: "per_event",
+          estimate: null,
+          plannedAmount: planned,
+          role,
+          belowUsualRange: false,
+          editedByMember: true,
+        },
+      });
+    const decorId = await line(100, "Decor", 300_000);
+    const droneId = await line(101, "Drone shoot", 60_000);
+    const contingencyId = await line(
+      102,
+      "Contingency",
+      100_000,
+      "contingency",
+    );
+
+    const event = (await ctx.db.get("events", eventId))!;
+    if (event.agentThreadId === null) throw new Error("Open the Chat first");
+    const { messageId } = await saveMessage(ctx, components.agent, {
+      threadId: event.agentThreadId,
+      userId: membership._id,
+      prompt: "Cut decor to ₹2,20,000 and drop the drone shoot.",
+    });
+    await ctx.db.insert("chatAnnotations", {
+      eventId,
+      messageId,
+      authorMembershipId: membership._id,
+      dontReply: false,
+      mentions: [],
+      pointing: [],
+      card: null,
+    });
+    const runId = await ctx.db.insert("runs", {
+      eventId,
+      requestedBy: membership._id,
+      source: "chat",
+      messageId,
+      commentId: null,
+      status: "running",
+      stoppedBy: null,
+      model: "check",
+      createdAt: Date.now(),
+      startedAt: Date.now(),
+      endedAt: null,
+    });
+    const result: ToolResult = await ctx.runMutation(
+      internal.proposals.proposeForRun,
+      {
+        runId,
+        eventId,
+        forMembershipId: membership._id,
+        toolCallId: "check_propose",
+        summary: "Cut Decor to ₹2,20,000, drop the Drone shoot",
+        replaces: null,
+        changes: [
+          {
+            op: "updateEntry",
+            entryId: decorId,
+            expectedVersion: 1,
+            patch: { kind: "budget", amount: { memberStated: 220_000 } },
+          },
+          { op: "deleteEntry", entryId: droneId, expectedVersion: 1 },
+          {
+            op: "updateEntry",
+            entryId: contingencyId,
+            expectedVersion: 1,
+            patch: { kind: "budget", amount: { receiveFreedFrom: [0] } },
+          },
+        ],
+      },
+    );
+    if (!result.ok) throw new Error(result.message);
+    await ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() });
+    return { proposalId: result.proposalId as Id<"proposals">, decorId };
+  },
+});
+
+/**
+ * The "Collision" worked example's Member edit, for e2e/proposals.spec.ts:
+ * the person with `email` sets the line to `amount` as their own edit
+ * (`memberWrite`), as if they typed it on the Canvas. Local deployments only.
+ */
+export const memberEditForLocalCheck = internalMutation({
+  args: { entryId: v.id("entries"), email: v.string(), amount: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { entryId, email, amount }) => {
+    refuseOutsideLocal();
+    const entry = await ctx.db.get("entries", entryId);
+    if (entry === null || entry.kind !== "budget")
+      throw new Error("No such line");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    const membership =
+      user &&
+      (await ctx.db
+        .query("memberships")
+        .withIndex("by_event_user", (q) =>
+          q.eq("eventId", entry.eventId).eq("userId", user._id),
+        )
+        .unique());
+    if (!membership) throw new Error(`${email} is not in that Event`);
+    await memberWrite(ctx, {
+      table: "entries",
+      id: entryId,
+      patch: { fields: { ...entry.fields, plannedAmount: amount } },
+      actor: { kind: "member", membershipId: membership._id },
+    });
+    return null;
   },
 });

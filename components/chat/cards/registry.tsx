@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
+import { ProposalChatCard } from "@/components/chat/cards/proposal/ProposalChatCard";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 /** The card kinds a Chat message can carry (`chatAnnotations.card.kind`). */
@@ -29,7 +30,7 @@ function placeholder(label: string, slice: string): ChatCardComponent {
 
 /** Card kind to component (shared registry). */
 export const CHAT_CARDS: Record<ChatCardKind, ChatCardComponent> = {
-  proposal: placeholder("Proposal card", "S10"),
+  proposal: ProposalChatCard,
   stockStrip: placeholder("Stock photo strip", "S13"),
   vendorCards: placeholder("Vendor cards", "S9"),
   nudge: placeholder("Nudge", "S17"),

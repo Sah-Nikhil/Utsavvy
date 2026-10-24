@@ -234,7 +234,9 @@ describe("Accept", () => {
       paginationOpts: { numItems: 20, cursor: null },
     });
     const titles = new Set(history.page.map((row) => row.groupTitle));
-    expect(titles).toContain("Utsavvy for Rohan, accepted by Aditi (3 changes)");
+    expect(titles).toContain(
+      "Utsavvy for Rohan, accepted by Aditi (3 changes)",
+    );
 
     expect((await card(s, "Meera", proposalId)).status).toEqual({
       kind: "accepted",
@@ -295,13 +297,23 @@ describe("Out of date", () => {
 
   it("is out of date when a guarded parent changed, too", async () => {
     const s = await setUp();
-    const runId = await ask(s, "Rohan", "Add a note about the band, just a suggestion.");
+    const runId = await ask(
+      s,
+      "Rohan",
+      "Add a note about the band, just a suggestion.",
+    );
     const result = await propose(s, runId, s.people.Rohan, {
       summary: "Note the band",
-      changes: [{ op: "addItem", item: { kind: "note", text: "Ask the band for a sample set" } }],
+      changes: [
+        {
+          op: "addItem",
+          item: { kind: "note", text: "Ask the band for a sample set" },
+        },
+      ],
     });
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    const proposalId = (result as unknown as { proposalId: Id<"proposals"> }).proposalId;
+    const proposalId = (result as unknown as { proposalId: Id<"proposals"> })
+      .proposalId;
 
     // Aditi renames the Notes Section the Note would go in.
     await s.as("Aditi").mutation(api.canvas.renameSection, {
@@ -433,7 +445,10 @@ describe("Replaced", () => {
     });
     const refused = await s
       .as("Meera")
-      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId: first });
+      .mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: first,
+      });
     expect(refused).toMatchObject({ ok: false, reason: "closed" });
     expect(await plannedOf(s, s.decor)).toBe(300_000);
   });
