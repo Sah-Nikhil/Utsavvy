@@ -2,6 +2,8 @@
 
 import type { ComponentType } from "react";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { BriefChipsCard } from "./brief/BriefChipsCard";
+import { BriefSummaryCard } from "./brief/BriefSummaryCard";
 import { StockStrip } from "./stock-strip/StockStrip";
 
 /** The card kinds a Chat message can carry (`chatAnnotations.card.kind`). */
@@ -34,8 +36,8 @@ export const CHAT_CARDS: Record<ChatCardKind, ChatCardComponent> = {
   stockStrip: StockStrip,
   vendorCards: placeholder("Vendor cards", "S9"),
   nudge: placeholder("Nudge", "S17"),
-  briefChips: placeholder("Brief questions", "S11"),
-  briefSummary: placeholder("Brief summary", "S11"),
+  briefChips: BriefChipsCard,
+  briefSummary: BriefSummaryCard,
   planProgress: placeholder("Plan progress", "S14"),
   citations: placeholder("Citations", "S7"),
   system: placeholder("System line", "S5"),

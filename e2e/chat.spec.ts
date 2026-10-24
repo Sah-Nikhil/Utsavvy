@@ -100,7 +100,12 @@ test.describe("chat", () => {
     await clerk.signIn({ page: aditi, emailAddress: member });
     await aditi.goto(new URL(joinUrl).pathname);
     await expect(aditi).toHaveURL(workspaceUrl, { timeout: 20_000 });
-    await expect(chat(aditi).getByText("Plan out loud here")).toBeVisible({
+    // A new Event opens with the first Brief's line (S11).
+    await expect(
+      chat(aditi)
+        .getByRole("list", { name: "Chat messages" })
+        .getByText("Tell me about what you're planning"),
+    ).toBeVisible({
       timeout: 20_000,
     });
 

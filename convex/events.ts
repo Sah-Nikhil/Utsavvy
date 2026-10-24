@@ -6,6 +6,7 @@ import { roleValidator } from "../lib/types/roles";
 import { components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
+import { openBrief } from "./brief";
 import { requireAccess, requireIdentity } from "./lib/access";
 import { memberInsert, memberWrite, recordPeopleChange } from "./lib/write";
 import { newInviteToken, peopleSnapshot } from "./people";
@@ -193,6 +194,8 @@ export const create = mutation({
       });
     }
     await createStartingCanvas(ctx, eventId, membershipId);
+    // The first Brief starts in the Chat (S11).
+    await openBrief(ctx, eventId);
     return eventId;
   },
 });
