@@ -8,6 +8,12 @@ import { expect, test, type Page } from "./fixtures";
 // spent; STUB_REPLY in convex/lib/models.ts is the text it streams.
 const STUB_REPLY_FULL = "point at what I changed.";
 
+/** first-brief.md's worked examples, whose canned extractions the stub returns. */
+const JAIPUR =
+  "My sister's wedding in Jaipur in February 2027, around 300 people, budget 25 lakh.";
+const GANESH =
+  "Ganeshotsav in our society in Pune, 240 flats, we collected ₹1,000 per flat.";
+
 /** A second test user on the e2e user's domain, made through Clerk's Backend API. */
 function memberEmail(): string {
   if (process.env.E2E_CLERK_MEMBER_EMAIL) {
@@ -109,16 +115,28 @@ test.describe("chat", () => {
       timeout: 20_000,
     });
 
-    // Rohan asks; both see the reply stream in.
+    // The Event has no Brief yet, so Rohan's first message in the Chat box is
+    // the Brief: its first chip question follows, and no reply starts.
     const composer = chat(page).getByRole("textbox", { name: "Message" });
+    await composer.fill(JAIPUR);
+    await chat(page).getByRole("button", { name: "Send" }).click();
+    await expect(composer).toHaveValue("");
+    await expect(chat(page).locator("[data-brief-question]")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(chat(page).locator("[data-replying]")).toHaveCount(0);
+
+    // With the Brief given, Rohan asks; both see the reply stream in.
     await composer.fill("Plan the sangeet");
     await chat(page).getByRole("button", { name: "Send" }).click();
     await expect(composer).toHaveValue("");
 
     for (const viewer of [page, aditi]) {
       await expect(
-        chat(viewer).locator('[data-chat-row="member"]').first(),
-      ).toContainText("Plan the sangeet");
+        chat(viewer)
+          .locator('[data-chat-row="member"]')
+          .filter({ hasText: "Plan the sangeet" }),
+      ).toBeVisible();
     }
     await expect(chat(aditi).locator("[data-replying]")).toContainText(
       /Utsavvy is replying to \S+/,
@@ -181,6 +199,53 @@ test.describe("chat", () => {
 
     await expectNoSeriousA11yViolations(page);
     await aditiContext.close();
+    expect(cspViolations).toEqual([]);
+  });
+
+  test("a first Brief typed into the Chat box reaches the Brief summary", async ({
+    page,
+    signIn,
+    cspViolations,
+  }) => {
+    test.setTimeout(120_000);
+    await ensureClerkUser(process.env.E2E_CLERK_USER_EMAIL!, "Rohan");
+    await signIn();
+    await page.goto("/events");
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByRole("button", { name: "New Event" }).click();
+    const dialog = page.getByRole("dialog", { name: "New Event" });
+    await dialog.getByLabel("Event name").fill(`E2E Chat Brief ${Date.now()}`);
+    await dialog.getByRole("radio", { name: /Community/ }).click();
+    await dialog.getByRole("button", { name: "Create Event" }).click();
+    await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
+
+    // The Brief goes into the main Chat box, not the opening card's box.
+    const composer = chat(page).getByRole("textbox", { name: "Message" });
+    await composer.fill(GANESH);
+    await chat(page).getByRole("button", { name: "Send" }).click();
+    await expect(composer).toHaveValue("");
+
+    const festival = chat(page).getByRole("button", {
+      name: "Yes, 4 to 14 Sep 2027",
+    });
+    await expect(festival).toBeVisible({ timeout: 30_000 });
+    await festival.click();
+    const group = chat(page).locator('[data-brief-question="guests"]');
+    await expect(group).toBeVisible({ timeout: 30_000 });
+    await group.getByRole("button", { name: "Type my own" }).click();
+    await group.getByLabel("Type a number").fill("400");
+    await page.keyboard.press("Enter");
+
+    const summary = chat(page).locator("[data-brief-summary]");
+    await expect(summary).toBeVisible({ timeout: 30_000 });
+    await expect(summary.locator("[data-budget-flag]")).toContainText(
+      "₹36,000 short",
+      { timeout: 60_000 },
+    );
+    // The Brief started no Assistant reply.
+    await expect(chat(page).locator('[data-chat-row="reply"]')).toHaveCount(0);
     expect(cspViolations).toEqual([]);
   });
 });

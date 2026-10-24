@@ -34,6 +34,8 @@ function errorText(error: unknown): string {
       return `You already have ${data.max ?? 3} messages waiting for Utsavvy. Send this once one is answered, or turn on Don't reply.`;
     if (data.kind === "TooManyPointed")
       return `Point at ${data.max ?? 5} things or fewer in one message.`;
+    if (data.kind === "BriefTooLong")
+      return `Keep your first Brief under ${data.max ?? 2000} characters.`;
     if (data.kind === "QuoteTooLong")
       return `Select a shorter passage, up to ${data.max ?? 500} characters.`;
     if (data.kind === "AccessDenied")
@@ -69,7 +71,19 @@ export function Composer({ eventId }: { eventId: Id<"events"> }) {
     setSending(true);
     setError(null);
     try {
-      await send({ eventId, text, dontReply: mode.dontReply, pointing });
+      const sent = await send({
+        eventId,
+        text,
+        dontReply: mode.dontReply,
+        pointing,
+      });
+      if (sent.brief === "alreadyGiven") {
+        // Another first Brief is being read; keep the text for later.
+        setError(
+          "Utsavvy is still reading the first Brief. Send this once its questions start.",
+        );
+        return;
+      }
       setText("");
       setDontReply(false);
     } catch (caught) {

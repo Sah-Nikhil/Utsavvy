@@ -266,7 +266,7 @@ async function postMemberLine(
   event: Doc<"events">,
   membershipId: Id<"memberships">,
   text: string,
-): Promise<void> {
+): Promise<string> {
   let threadId = event.agentThreadId;
   if (threadId === null) {
     threadId = await createThread(ctx, components.agent, { title: event.name });
@@ -286,6 +286,7 @@ async function postMemberLine(
     pointing: [],
     card: null,
   });
+  return messageId;
 }
 
 /**
@@ -568,35 +569,65 @@ export const submitText = mutation({
   handler: async (ctx, { eventId, text }) => {
     const { membership } = await requireAccess(ctx, eventId, "canvas.edit");
     const event = await loadEvent(ctx, eventId);
-    if (event.briefState !== "intake" || event.brief !== null) {
-      return { status: "alreadyGiven" as const };
-    }
-    const body = text.trim();
-    if (body.length === 0) throw new ConvexError({ kind: "EmptyBrief" });
-    if (body.length > MAX_BRIEF_LENGTH) {
-      throw new ConvexError({ kind: "BriefTooLong", max: MAX_BRIEF_LENGTH });
-    }
-    await memberWrite(ctx, {
-      table: "events",
-      id: eventId,
-      actor: member(membership._id),
-      groupLabel: "The Brief",
-      patch: {
-        brief: {
-          extraction: emptyExtraction(event.eventType),
-          assumptions: [{ field: READING, value: "", reason: "" }],
-        },
-      },
-    });
-    await postMemberLine(ctx, event, membership._id, body);
-    await ctx.scheduler.runAfter(0, internal.brief.extract, {
-      eventId,
-      membershipId: membership._id,
-      text: body,
-    });
-    return { status: "started" as const };
+    const { status } = await submitBrief(ctx, event, membership._id, text);
+    return { status };
   },
 });
+
+/**
+ * Whether the Event still waits for its first Brief: none given yet, or the
+ * one given still being read. While this holds, the Chat box
+ * (`api.chat.send`) hands a message to {@link submitBrief}.
+ */
+export function waitsForFirstBrief(event: Doc<"events">): boolean {
+  return (
+    event.briefState === "intake" &&
+    (event.brief === null ||
+      event.brief.assumptions.some((a) => a.field === READING))
+  );
+}
+
+/**
+ * `submitText`'s work, for a caller that has already checked the Member's
+ * access: the opening card's box and the Chat box (`api.chat.send`) both give
+ * the first Brief through it. Returns the Member's line when it started.
+ */
+export async function submitBrief(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  membershipId: Id<"memberships">,
+  text: string,
+): Promise<
+  { status: "started"; messageId: string } | { status: "alreadyGiven" }
+> {
+  if (event.briefState !== "intake" || event.brief !== null) {
+    return { status: "alreadyGiven" };
+  }
+  const body = text.trim();
+  if (body.length === 0) throw new ConvexError({ kind: "EmptyBrief" });
+  if (body.length > MAX_BRIEF_LENGTH) {
+    throw new ConvexError({ kind: "BriefTooLong", max: MAX_BRIEF_LENGTH });
+  }
+  await memberWrite(ctx, {
+    table: "events",
+    id: event._id,
+    actor: member(membershipId),
+    groupLabel: "The Brief",
+    patch: {
+      brief: {
+        extraction: emptyExtraction(event.eventType),
+        assumptions: [{ field: READING, value: "", reason: "" }],
+      },
+    },
+  });
+  const messageId = await postMemberLine(ctx, event, membershipId, body);
+  await ctx.scheduler.runAfter(0, internal.brief.extract, {
+    eventId: event._id,
+    membershipId,
+    text: body,
+  });
+  return { status: "started", messageId };
+}
 
 /**
  * One extraction call on the helper model chain, with structured output for
