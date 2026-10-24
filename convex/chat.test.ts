@@ -60,6 +60,8 @@ async function setUp() {
   agentTest.register(t);
   const seeded = await t.run(async (ctx) => {
     const eventId = await insertEvent(ctx, "Meera weds Rohan");
+    // Past its first Brief, so a Chat message asks Utsavvy.
+    await ctx.db.patch("events", eventId, { briefState: "summary" });
     const rohan = await seedMembership(ctx, { clerkId: "Rohan", eventId });
     const aditi = await seedMembership(ctx, { clerkId: "Aditi", eventId });
     const papa = await seedMembership(ctx, {
@@ -135,7 +137,7 @@ describe("chat.send", () => {
     const annotation = await s.t.run((ctx) =>
       ctx.db
         .query("chatAnnotations")
-        .withIndex("by_message", (q) => q.eq("messageId", messageId))
+        .withIndex("by_message", (q) => q.eq("messageId", messageId!))
         .unique(),
     );
     expect(annotation).toMatchObject({
@@ -160,7 +162,7 @@ describe("chat.send", () => {
     const annotation = await s.t.run((ctx) =>
       ctx.db
         .query("chatAnnotations")
-        .withIndex("by_message", (q) => q.eq("messageId", messageId))
+        .withIndex("by_message", (q) => q.eq("messageId", messageId!))
         .unique(),
     );
     expect(annotation?.dontReply).toBe(true);
