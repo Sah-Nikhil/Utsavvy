@@ -18,6 +18,13 @@ export type ReferenceEmbedProps = {
   platform: "pinterest" | "instagram";
   url: string;
   className?: string;
+  /** Shows "Open on <platform>" under the preview. On by default. */
+  showLink?: boolean;
+  /**
+   * The scroll height of a Pinterest board, in pixels (240 to 900; the embed
+   * page clamps it). Cards keep the page's 240 px default.
+   */
+  boardHeight?: number;
 };
 
 /** Height before the embed page reports its own, roughly a Pin or post. */
@@ -55,11 +62,16 @@ export const PIN_SHORT_HELP =
 export function embedSrc(
   platform: ReferenceEmbedProps["platform"],
   url: string,
+  options: { boardHeight?: number } = {},
 ): string | null {
   const parsed = parseReferenceUrl(url);
   if ("error" in parsed || parsed.platform !== platform) return null;
   if (parsed.embedUrl === null) return null;
-  return `/embed/${platform}?url=${encodeURIComponent(parsed.embedUrl)}`;
+  const height =
+    platform === "pinterest" && options.boardHeight !== undefined
+      ? `&height=${Math.round(options.boardHeight)}`
+      : "";
+  return `/embed/${platform}?url=${encodeURIComponent(parsed.embedUrl)}${height}`;
 }
 
 /**
@@ -70,9 +82,11 @@ export function ReferenceEmbed({
   platform,
   url,
   className,
+  showLink = true,
+  boardHeight,
 }: ReferenceEmbedProps) {
   const name = platformName(platform);
-  const src = embedSrc(platform, url);
+  const src = embedSrc(platform, url, { boardHeight });
   const holder = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [visible, setVisible] = useState(false);
@@ -152,15 +166,17 @@ export function ReferenceEmbed({
           ) : null}
         </div>
       )}
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex w-fit items-center gap-1.5 text-label font-semibold text-action underline-offset-3 hover:underline"
-      >
-        Open on {name}
-        <ExternalLink aria-hidden className="size-3.5" />
-      </a>
+      {showLink ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex w-fit items-center gap-1.5 text-label font-semibold text-action underline-offset-3 hover:underline"
+        >
+          Open on {name}
+          <ExternalLink aria-hidden className="size-3.5" />
+        </a>
+      ) : null}
     </div>
   );
 }
