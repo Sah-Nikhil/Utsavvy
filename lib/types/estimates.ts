@@ -49,6 +49,13 @@ export const budgetCheckValidator = v.object({
   contingency: v.number(),
   unallocated: v.number(),
   perHousehold: v.union(v.number(), v.null()),
+  /**
+   * What the figures rest on: how many of the priced lines were researched
+   * today, out of all of them (the rest are from the reference table). Set by
+   * the Brief's Budget check (S11); optional, so older checks and `pricePlan`
+   * results without it stay valid.
+   */
+  basis: v.optional(v.object({ researched: v.number(), lines: v.number() })),
 });
 export type BudgetCheck = Infer<typeof budgetCheckValidator>;
 
