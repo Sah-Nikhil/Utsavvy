@@ -63,6 +63,8 @@ async function seedWedding(ctx: MutationCtx) {
   await ctx.db.patch("events", eventId, {
     city: { name: "Jaipur", tier: "Y", centre: null },
     budgetTotal: 2_500_000,
+    // Past the first Brief, so a Chat message goes to the Assistant (#104).
+    briefState: "planned",
   });
   const people = {} as Record<
     "Rohan" | "Aditi" | "Meera" | "Papa",
