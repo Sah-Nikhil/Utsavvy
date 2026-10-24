@@ -42,7 +42,7 @@ import {
   layoutSections,
   sectionUnder,
 } from "@/lib/canvas/layout";
-import { FALLBACK_ITEM_SIZE } from "@/lib/canvas/placement";
+import { FALLBACK_ITEM_SIZE, type Frame } from "@/lib/canvas/placement";
 import { isStartingSection } from "@/lib/canvas/starting";
 import type { SelectionTarget } from "@/lib/types/canvas";
 import { cn } from "@/lib/utils";
@@ -58,6 +58,7 @@ import {
   itemAriaLabel,
   type ItemNodeType,
 } from "./ItemNode";
+import { readableViewport } from "./initialViewport";
 import { SectionDialogsProvider, useSectionDialogs } from "./SectionDialogs";
 import {
   SECTION_DRAG_HANDLE,
@@ -623,6 +624,30 @@ function CanvasFlow({
     [eventId],
   );
 
+  // With no saved view, open readable on the first Section (Money and dates)
+  // rather than fitting every Section at a zoom too small to read. React Flow
+  // calls onInit once, so later changes to the Sections never move the view.
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const firstBox = useMemo<Frame | null>(
+    () =>
+      (
+        sections.find((s) => s.section.kind === "money") ??
+        [...sections].sort((a, b) => a.section.order - b.section.order)[0]
+      )?.box ?? null,
+    [sections],
+  );
+  const onInit = useCallback(() => {
+    if (savedViewport !== null) return;
+    const box = firstBox;
+    const element = canvasRef.current;
+    if (!box || !element) {
+      void flow.fitView({ padding: 0.08, maxZoom: 1 });
+      return;
+    }
+    const { width, height } = element.getBoundingClientRect();
+    void flow.setViewport(readableViewport(box, { width, height }));
+  }, [savedViewport, flow, firstBox]);
+
   const onlinePeople = useMemo(() => {
     const seen = new Set<string>();
     const list: CanvasViewer[] = [];
@@ -641,7 +666,11 @@ function CanvasFlow({
   }, [presence, peopleById]);
 
   return (
-    <div className="relative size-full min-h-[480px]" data-canvas>
+    <div
+      ref={canvasRef}
+      className="relative size-full min-h-[480px]"
+      data-canvas
+    >
       <HeaderPresence people={onlinePeople} me={data.me.membershipId} />
       <ReactFlow<CanvasNode>
         nodes={nodes}
@@ -652,8 +681,7 @@ function CanvasFlow({
         onMoveEnd={onMoveEnd}
         onKeyDown={onKeyDown}
         defaultViewport={savedViewport ?? undefined}
-        fitView={savedViewport === null}
-        fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
+        onInit={onInit}
         minZoom={0.15}
         maxZoom={2}
         nodesConnectable={false}
