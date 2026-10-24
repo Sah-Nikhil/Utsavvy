@@ -698,7 +698,10 @@ export const imageUrl = query({
 /**
  * What the Assistant gets for the Inspirations a Member points at (rule 20): a
  * library photo's alt text and tags, never its pixels; an upload's picture and
- * description; a Reference's platform and the Member's note.
+ * description; a Reference's platform and the Member's note. An upload's
+ * `fileId` is given only when its claim names this Event and this Item, so the
+ * Chat never reads a file another Event owns; the reply reads the picture's
+ * bytes from it (`chatContext` in convex/assistant/agent.ts).
  */
 export const forPointing = internalQuery({
   args: {
@@ -717,7 +720,7 @@ export const forPointing = internalQuery({
           itemId: Id<"items">;
           kind: "upload";
           description: string | null;
-          imageUrl: string | null;
+          fileId: Id<"_storage"> | null;
         }
       | {
           itemId: Id<"items">;
@@ -744,11 +747,20 @@ export const forPointing = internalQuery({
           tags: source.tags,
         });
       } else if (source.kind === "upload") {
+        const fileId = source.fileId;
+        const claim = await ctx.db
+          .query("uploadClaims")
+          .withIndex("by_file", (q) => q.eq("fileId", fileId))
+          .first();
+        const owned =
+          claim !== null &&
+          claim.eventId === args.eventId &&
+          claim.itemId === item._id;
         out.push({
           itemId: item._id,
           kind: "upload",
           description: item.data.seen?.description ?? null,
-          imageUrl: await ctx.storage.getUrl(source.fileId),
+          fileId: owned ? fileId : null,
         });
       } else {
         out.push({
