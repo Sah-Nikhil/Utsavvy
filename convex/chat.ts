@@ -19,6 +19,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { submitBrief, waitsForFirstBrief } from "./brief";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { defaultModel } from "./lib/models";
@@ -110,6 +111,12 @@ async function checkPointing(
  * a message pointing at something always goes to the Assistant (rule 3).
  * Don't-reply messages are still read by the Assistant as background (rule 4).
  * Viewers can't post.
+ *
+ * Until the Event has its first Brief, a message for Utsavvy that points at
+ * nothing is the Brief: it goes to S11's submit path (`submitBrief`), exactly
+ * as if typed into the opening card's box, and starts no run. `brief` says so:
+ * "started", or "alreadyGiven" when another first Brief is being read (nothing
+ * is posted then).
  */
 export const send = mutation({
   args: {
@@ -119,8 +126,9 @@ export const send = mutation({
     pointing: pointingValidator,
   },
   returns: v.object({
-    messageId: v.string(),
+    messageId: v.union(v.string(), v.null()),
     runId: v.union(v.id("runs"), v.null()),
+    brief: v.union(v.literal("started"), v.literal("alreadyGiven"), v.null()),
   }),
   handler: async (ctx, { eventId, text, dontReply, pointing }) => {
     const { membership } = await requireAccess(ctx, eventId, "chat.post");
@@ -133,10 +141,17 @@ export const send = mutation({
       });
     }
     await checkPointing(ctx, eventId, pointing);
+    const event = await loadEvent(ctx, eventId);
+    if (!dontReply && pointing.length === 0 && waitsForFirstBrief(event)) {
+      const given = await submitBrief(ctx, event, membership._id, body);
+      return given.status === "started"
+        ? { messageId: given.messageId, runId: null, brief: "started" as const }
+        : { messageId: null, runId: null, brief: "alreadyGiven" as const };
+    }
     const replies = pointing.length > 0 || !dontReply;
     if (replies) await checkQueueRoom(ctx, eventId, membership._id);
 
-    const threadId = await ensureThread(ctx, await loadEvent(ctx, eventId));
+    const threadId = await ensureThread(ctx, event);
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId,
       userId: membership._id,
@@ -162,7 +177,7 @@ export const send = mutation({
           commentId: null,
         })
       : null;
-    return { messageId, runId };
+    return { messageId, runId, brief: null };
   },
 });
 

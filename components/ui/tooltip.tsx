@@ -38,7 +38,7 @@ export function Tooltip({
         >
           <TooltipPrimitive.Popup
             className={cn(
-              "max-w-64 rounded-xs bg-ink px-2 py-1 text-caption font-medium text-surface",
+              "max-w-64 rounded-sm bg-ink px-2.5 py-1.5 text-caption font-medium text-surface",
               "origin-(--transform-origin) transition-[opacity,scale] duration-(--dur-feedback) ease-standard",
               "data-starting-style:scale-[0.96] data-starting-style:opacity-0",
               "data-ending-style:opacity-0 data-instant:duration-0",

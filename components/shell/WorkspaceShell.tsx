@@ -50,10 +50,11 @@ export function WorkspaceShell({ eventId }: { eventId: string }) {
               >
                 <CanvasView eventId={eventId} />
               </main>
+              {/* The Chat is a tonal pane resting on the sand ground (MD3). */}
               <aside
                 data-mount="chat"
                 aria-label="Chat"
-                className="min-h-0 border-t border-rule bg-surface md:w-[380px] md:border-t-0 md:border-l"
+                className="min-h-0 rounded-t-xl bg-surface-low md:m-2 md:mt-0 md:w-[380px] md:rounded-xl"
               >
                 <ChatPanel eventId={eventId} />
               </aside>
@@ -71,7 +72,9 @@ export function WorkspaceShell({ eventId }: { eventId: string }) {
 
 function WorkspaceHeader({ eventId }: { eventId: string }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-rule bg-surface-header px-3 md:px-4">
+    // The header sits on the same sand ground as the Canvas (no rule under it):
+    // the Chat pane beside it is what rises (MD3 tonal surfaces).
+    <header className="flex h-16 shrink-0 items-center gap-3 bg-surface-header px-3 md:px-4">
       <Tooltip content="Your Events">
         <Button
           variant="text"
@@ -84,7 +87,7 @@ function WorkspaceHeader({ eventId }: { eventId: string }) {
           <ArrowLeft />
         </Button>
       </Tooltip>
-      <div className="min-w-0 flex-1 border-l border-rule pl-3">
+      <div className="min-w-0 flex-1 border-l border-rule-strong/40 pl-3">
         <h1 className="truncate font-display text-title font-semibold tracking-[-0.01em]">
           Your Event
         </h1>
