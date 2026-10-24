@@ -160,6 +160,27 @@ test.describe("phone layout and Compact mode", () => {
     await expect(note).toContainText("Book the dhol players for the baraat");
   });
 
+  test("a History row shows its Item on the Canvas tab, on a phone", async () => {
+    // Review of #113, M2: History opens from More, over the Chat.
+    const { page } = phone;
+    await tab(page, "Chat").click();
+    await page.getByRole("button", { name: /^More/ }).click();
+    await page.getByRole("menuitem", { name: "History" }).click();
+    const history = page.getByRole("dialog", { name: "Edit history" });
+    await history
+      .getByRole("button", { name: /show on the Canvas/ })
+      .first()
+      .click();
+    await expect(history).toBeHidden();
+    await expect(canvasPane(page)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Back to Chat" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Back to Chat" }).click();
+    await expect(chatPane(page)).toBeVisible();
+    await tab(page, "Canvas").click();
+  });
+
   test("grouping by Function and a collapsed group are personal and stay after a reload", async () => {
     const { page } = phone;
     await page.getByRole("radio", { name: "By Function" }).click();
