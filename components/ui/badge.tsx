@@ -8,7 +8,7 @@ export const badgeVariants = cva(
   {
     variants: {
       tone: {
-        neutral: "border border-rule bg-surface-sunk text-ink-2",
+        neutral: "bg-surface-high text-ink-2",
         action: "bg-selected text-on-selected",
         booked: "bg-booked-soft text-booked",
         quote: "bg-quote-soft text-quote",
