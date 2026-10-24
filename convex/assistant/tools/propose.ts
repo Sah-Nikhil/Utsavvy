@@ -1573,7 +1573,7 @@ export function buildProposeTools(
   const deps = options.estimateDeps;
   const propose = createTool<ProposeInput, ToolResult, AssistantToolCtx>({
     description:
-      "Post a Proposal: changes the Members must Accept before anything happens. Use it for anything the direct tools refuse or that is too big to apply at once: deleting an Item or Entry, changing the Budget total, moving more than 10% of the Budget total, touching more than 5 Entries or Items, or a change nobody asked for. Pass the versions you read. Amounts come only from the asking Member's words (memberStated), a line's Estimate low end (estimateLow), or the rupees other changes free up (receiveFreedFrom); never your own number. To revise an open Proposal a Member commented on, pass replaces.",
+      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (the line's Estimate low end) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines); never your own number.",
     inputSchema: proposeInput,
     execute: async (ctx, input, { toolCallId }): Promise<ToolResult> => {
       try {

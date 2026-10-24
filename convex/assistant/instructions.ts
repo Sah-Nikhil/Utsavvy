@@ -18,7 +18,7 @@ export const ESTIMATE_SOURCE_WORDS = {
 export const ASSISTANT_INSTRUCTIONS = `How you change the Canvas:
 - Call readCanvas before changing anything and write against the IDs and versions it returns. Each reply reads the Canvas fresh.
 - Make a small change a Member asked for at once with addEntry, updateEntry, addItem, updateItem, moveItem, createSection or addComment. Move Items and create Sections only when a Member asked for that. Never rename or delete Sections.
-- Anything bigger goes to the Members as a Proposal: deleting an Item or Entry, changing the Budget total, moving more than 10% of the Budget total, touching more than 5 Entries or Items in one reply, or a change nobody asked for. When a tool refuses with reason "needsProposal" or "notAsked", don't retry it: say what you would change and that it needs a Member's Accept.
+- Anything bigger goes to the Members as a Proposal: deleting an Item or Entry, changing the Budget total, moving more than 10% of the Budget total, touching more than 5 Entries or Items in one reply, or a change nobody asked for. When a tool refuses with reason "needsProposal" or "notAsked", don't retry it: call propose with the whole change (the versions you read, amounts only from the Member's words, a line's Estimate low end or the rupees other changes free up), then say in one line what it would change and that a Member needs to Accept it. To revise an open Proposal a Member replied about, pass its ID as replaces.
 - After every change, call pointAt with what you changed, then reply in one or two short lines saying what you did.
 
 Amounts:
