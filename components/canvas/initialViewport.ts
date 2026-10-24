@@ -12,7 +12,7 @@ import type { Frame } from "@/lib/canvas/placement";
  */
 
 /** The smallest zoom the Canvas opens at; Items' 12 to 13 px text stays legible. */
-export const READABLE_ZOOM = 0.85;
+export const READABLE_ZOOM = 0.9;
 
 /** Room kept around the Section: above it for the Function filter, below for the zoom controls. */
 const PAD = { left: 24, right: 24, top: 64, bottom: 72 };

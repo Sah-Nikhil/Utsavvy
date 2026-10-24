@@ -18,14 +18,14 @@ describe("readableViewport", () => {
   it("zooms out only as far as the readable floor on a short desktop window", () => {
     // 1280 x 720: 656 px tall, so the 644 px Section would need 0.82.
     const view = readableViewport(MONEY, { width: 890, height: 600 });
-    expect(view.zoom).toBe(0.85);
-    expect(view.x).toBeCloseTo(24 + 24 * 0.85);
-    expect(view.y).toBeCloseTo(64 + 56 * 0.85);
+    expect(view.zoom).toBe(0.9);
+    expect(view.x).toBeCloseTo(24 + 24 * 0.9);
+    expect(view.y).toBeCloseTo(64 + 56 * 0.9);
   });
 
   it("keeps a phone at the readable floor and shows the Section's first Item, not the whole Section", () => {
     const view = readableViewport(MONEY, { width: 390, height: 300 });
-    expect(view.zoom).toBe(0.85);
+    expect(view.zoom).toBe(0.9);
     // The left edge of the Section is in view, so the Budget is.
     expect(view.x + MONEY.x * view.zoom).toBeCloseTo(24);
   });
