@@ -14,6 +14,7 @@ import {
   defaultFunctions,
   functionKey,
   traditionKey,
+  usableFunctionKeys,
 } from "./functions";
 
 const TODAY = "2026-10-21";
@@ -311,5 +312,51 @@ describe("briefLines", () => {
       guests: 400,
     });
     expect(planLines(lines)).toEqual(planLines(punePriced.plan));
+  });
+});
+
+describe("Hindi and Hinglish Function names (M6)", () => {
+  it("map to FUNCTION_KEYS", () => {
+    expect(functionKey("हल्दी")).toBe("haldi");
+    expect(functionKey("मेहंदी")).toBe("mehendi");
+    expect(functionKey("मेंहदी")).toBe("mehendi");
+    expect(functionKey("संगीत")).toBe("sangeet");
+    expect(functionKey("शादी")).toBe("wedding");
+    expect(functionKey("फेरे")).toBe("wedding");
+    expect(functionKey("रिसेप्शन")).toBe("reception");
+    expect(functionKey("सगाई")).toBe("engagement");
+    expect(functionKey("तिलक")).toBe("tilak");
+    expect(functionKey("निकाह")).toBe("nikah");
+    expect(functionKey("स्थापना")).toBe("sthapana");
+    expect(functionKey("आरती")).toBe("daily_aarti");
+    expect(functionKey("विसर्जन")).toBe("visarjan");
+    expect(functionKey("mehndi ki raat")).toBe("mehendi");
+    expect(functionKey("haldee")).toBe("haldi");
+    expect(functionKey("sangeeth")).toBe("sangeet");
+    expect(functionKey("shaadi")).toBe("wedding");
+    expect(functionKey("phere")).toBe("wedding");
+    expect(functionKey("sagai")).toBe("engagement");
+  });
+});
+
+describe("usableFunctionKeys (M5)", () => {
+  it("keeps only the Functions an Event type uses", () => {
+    expect(
+      usableFunctionKeys("community", "Navratri garba", ["garba", "dandiya"]),
+    ).toEqual([]);
+    expect(
+      usableFunctionKeys("community", "Ganesh utsav", [
+        "sthapana",
+        "garba",
+        "visarjan",
+      ]),
+    ).toEqual(["sthapana", "visarjan"]);
+    expect(
+      usableFunctionKeys("birthday", null, ["mehendi", "puja", "dinner"]),
+    ).toEqual(["puja", "dinner"]);
+    // A wedding keeps a Function the Member added by name.
+    expect(
+      usableFunctionKeys("wedding", null, ["mehendi", "cocktail_party"]),
+    ).toEqual(["mehendi", "cocktail_party"]);
   });
 });

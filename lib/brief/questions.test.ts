@@ -273,3 +273,91 @@ describe("answerChip reads typed answers", () => {
     ).toThrow(/number/);
   });
 });
+
+describe("a wedding Brief that names some Functions (H1)", () => {
+  // "Punjabi wedding in Delhi in February 2027, 300 people, 25 lakh, with
+  // mehendi and sangeet": the Member named two Functions, not the whole list.
+  const punjabi: BriefExtraction = {
+    eventType: "wedding",
+    city: "Delhi",
+    date: { kind: "month", value: "2027-02" },
+    guests: 300,
+    budget: 2500000,
+    tradition: "Punjabi",
+    honoree: null,
+    communityKind: null,
+    households: null,
+    notes: [],
+  };
+
+  it("still asks Q7, with the Tradition's Functions and the named ones", () => {
+    const q7 = nextQuestion(
+      punjabi,
+      { ...NO_PROGRESS, namedFunctions: ["mehendi", "sangeet"] },
+      TODAY,
+    );
+    expect(q7?.id).toBe("functions");
+    expect(q7?.chips.map((c) => c.value)).toEqual([
+      "roka",
+      "chunni",
+      "mehendi",
+      "jaggo",
+      "anand_karaj",
+      "reception",
+      "sangeet",
+    ]);
+  });
+
+  it("keeps the wedding itself when the Member taps Done", () => {
+    const state = {
+      extraction: punjabi,
+      progress: { ...NO_PROGRESS, namedFunctions: ["mehendi", "sangeet"] },
+    };
+    const q7 = nextQuestion(state.extraction, state.progress, TODAY)!;
+    const next = answerChip(
+      state,
+      q7,
+      q7.chips.map((c) => c.value),
+      TODAY,
+    );
+    expect(next.progress.functionKeys).toContain("anand_karaj");
+    expect(next.progress.functionKeys).toContain("reception");
+    expect(next.progress.functionKeys).toContain("sangeet");
+    expect(nextQuestion(next.extraction, next.progress, TODAY)).toBeNull();
+  });
+});
+
+describe("chip answers are bounded (M2)", () => {
+  it("refuses more than 12 Functions", () => {
+    const state = {
+      extraction: { ...jaipurWedding.extraction, tradition: "Bengali" },
+      progress: NO_PROGRESS,
+    };
+    const q7 = nextQuestion(state.extraction, state.progress, TODAY)!;
+    const many = Array.from({ length: 13 }, (_, i) => `party ${i}`);
+    expect(() => answerChip(state, q7, many, TODAY)).toThrow(/12/);
+  });
+
+  it("refuses Guests and households past 1,00,000", () => {
+    const state = {
+      extraction: { ...jaipurWedding.extraction, guests: null },
+      progress: NO_PROGRESS,
+    };
+    const q4 = nextQuestion(state.extraction, state.progress, TODAY)!;
+    expect(() => answerChip(state, q4, "200000", TODAY)).toThrow(/number/);
+    expect(answerChip(state, q4, "100000", TODAY).extraction.guests).toBe(
+      100000,
+    );
+  });
+
+  it("refuses a budget past ₹10,000Cr", () => {
+    const state = {
+      extraction: { ...jaipurWedding.extraction, budget: null },
+      progress: NO_PROGRESS,
+    };
+    const q5 = nextQuestion(state.extraction, state.progress, TODAY)!;
+    expect(() => answerChip(state, q5, "200000 crore", TODAY)).toThrow(
+      /amount/,
+    );
+  });
+});
