@@ -157,7 +157,7 @@ export function vibeTheme(
   }
 
   const added = palette.slice(theme.palette.length);
-  const words = styleWordsFor(photos, added).slice(
+  const words = styleWordsFor(photos, { palette, decorKeywords }).slice(
     0,
     Math.max(0, THEME_LIMITS.styleWords - theme.styleWords.length),
   );
@@ -173,23 +173,132 @@ export function vibeTheme(
 }
 
 /**
- * The style words a pick suggests: the names of its new colours ("marigold",
- * "rani pink"), then the photos' other colours, so even a pick of mostly
- * plain colours gets words. Stock photos need no model call (inspirations.md
- * rule 19), so the words come from the curated palettes.
+ * The curators' look tags, each with the style words it stands for, most
+ * telling first: a party theme or a setting says more about a look than
+ * "flowers" or "balloons". Stock photos need no model call (inspirations.md
+ * rule 19), so a pick's style words come from these tags.
+ */
+const LOOK_WORDS: readonly (readonly [tag: string, words: string])[] = [
+  // Party themes
+  ["jungle", "jungle safari"],
+  ["safari", "jungle safari"],
+  ["pirate", "pirate adventure"],
+  ["space", "outer space"],
+  ["rocket", "outer space"],
+  ["astronaut", "outer space"],
+  ["galaxy", "outer space"],
+  ["clouds", "clouds and stars"],
+  ["stars", "clouds and stars"],
+  ["unicorn", "unicorn magic"],
+  ["mermaid", "under the sea"],
+  ["dinosaur", "dinosaur dig"],
+  ["farm", "farmyard"],
+  ["rainbow", "rainbow bright"],
+  ["candy", "candy land"],
+  ["teepee", "boho teepee"],
+  ["boho", "boho"],
+  ["sadya", "Kerala sadya"],
+  // Settings and styles
+  ["palace", "royal heritage"],
+  ["heritage", "royal heritage"],
+  ["chhatri", "royal heritage"],
+  ["jaali", "Mughal jaali"],
+  ["forest", "enchanted forest"],
+  ["lakeside", "lakeside"],
+  ["beach", "beachside"],
+  ["seaside", "beachside"],
+  ["mumbai", "Mumbai pandal"],
+  ["procession", "street festival"],
+  ["street", "street festival"],
+  ["ornate", "ornate gold"],
+  ["throne", "regal throne"],
+  ["chandeliers", "grand chandeliers"],
+  ["chandelier", "grand chandeliers"],
+  ["rustic", "rustic"],
+  ["pastel", "pastel"],
+  ["lotus", "lotus"],
+  ["rangoli", "rangoli"],
+  ["jasmine", "jasmine"],
+  ["marigold", "marigold garlands"],
+  ["turmeric", "turmeric glow"],
+  ["roses", "romantic roses"],
+  ["henna", "henna"],
+  ["swing", "jhoola swing"],
+  ["sparklers", "sparkler night"],
+  ["lanterns", "lantern-lit"],
+  ["candles", "candlelit"],
+  ["aarti", "diya glow"],
+  ["lamp", "diya glow"],
+  ["lamps", "diya glow"],
+  ["diya", "diya glow"],
+  ["diyas", "diya glow"],
+  ["brass", "brass and diyas"],
+  ["havan", "traditional rituals"],
+  ["pheras", "traditional rituals"],
+  ["ritual", "traditional rituals"],
+  ["buntings", "festive buntings"],
+  ["tent", "shamiana tent"],
+  ["home", "home shrine"],
+  ["mandap", "floral mandap"],
+  ["canopy", "floral canopy"],
+  ["chaise", "regal lounge"],
+  ["lights", "fairy lights"],
+  ["night", "evening glow"],
+  ["petals", "petal shower"],
+  ["garden", "garden party"],
+  ["playroom", "playful"],
+  ["blocks", "playful"],
+  ["toys", "playful"],
+  ["drapes", "flowing drapes"],
+  ["garlands", "garlands"],
+  ["garland", "garlands"],
+  ["colourful", "colourful"],
+  // The most common tags last
+  ["flowers", "floral"],
+  ["balloons", "balloon garlands"],
+];
+
+const LOOK_RANK = new Map(LOOK_WORDS.map(([tag], i) => [tag, i]));
+const LOOK_OF = new Map(LOOK_WORDS.map(([tag, words]) => [tag, words]));
+
+/** A photo's look words, most telling first. */
+function lookWords(photo: LibraryPhoto): string[] {
+  return photo.tags
+    .filter((tag) => LOOK_RANK.has(tag))
+    .sort((a, b) => LOOK_RANK.get(a)! - LOOK_RANK.get(b)!)
+    .map((tag) => LOOK_OF.get(tag)!);
+}
+
+/**
+ * The style words a pick suggests: each photo's most telling look word in
+ * turn, then their next ones. When the tags give fewer than 2 words, one
+ * colour name fills in. A word the Theme already shows as a colour or a decor
+ * keyword is skipped, so the Chat line never says it twice.
  */
 function styleWordsFor(
   photos: readonly LibraryPhoto[],
-  added: readonly string[],
+  shown: { palette: readonly string[]; decorKeywords: readonly string[] },
 ): string[] {
-  const names: string[] = [];
-  for (const colour of [
-    ...added,
-    ...photos.flatMap((photo) => photo.palette),
-  ]) {
-    if (names.length >= STYLE_WORDS_FROM_PICK) break;
-    const name = colourName(colour);
-    if (!PLAIN_COLOURS.has(name) && !names.includes(name)) names.push(name);
+  const taken = new Set([
+    ...shown.palette.map((c) => colourName(c)),
+    ...shown.decorKeywords.map((w) => w.trim().toLowerCase()),
+  ]);
+  const words: string[] = [];
+  const add = (word: string | undefined) => {
+    if (word === undefined || words.length >= STYLE_WORDS_FROM_PICK) return;
+    if (taken.has(word.toLowerCase()) || words.some((w) => same(w, word)))
+      return;
+    words.push(word);
+  };
+  const each = photos.map(lookWords);
+  const longest = Math.max(...each.map((list) => list.length));
+  for (let i = 0; i < longest; i++) for (const list of each) add(list[i]);
+  if (words.length < 2) {
+    const colour = photos
+      .flatMap((photo) => photo.palette)
+      .map((c) => colourName(c))
+      .find((name) => !PLAIN_COLOURS.has(name) && !taken.has(name));
+    add(colour);
   }
-  return names;
+  return words;
 }
