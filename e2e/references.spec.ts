@@ -167,6 +167,12 @@ test.describe("references", () => {
     await expect(
       page.locator('[data-section-kind="inspirations"] h2 + span'),
     ).toHaveText(/^1 Items?$/);
+    // The Canvas opens on Money and dates, and a Reference's embed loads only
+    // once its card is on screen, so bring the Inspirations Section into view.
+    await page.getByRole("button", { name: "Show the whole Canvas" }).click();
+    await expect(
+      page.locator('[data-section-kind="inspirations"]'),
+    ).toBeInViewport();
     await expect(
       page
         .locator('[data-canvas-item="inspiration"]')
