@@ -6,7 +6,8 @@ import { useState } from "react";
 import { KIND_NAMES } from "@/components/compact/CompactItem";
 import { useMembership } from "@/components/people/useMembership";
 import { api } from "@/convex/_generated/api";
-import type { PhoneTarget } from "./phoneView";
+import { HIGHLIGHT_TTL_MS } from "@/convex/lib/settings";
+import type { SelectionTarget } from "@/lib/types/canvas";
 
 /*
  * On a phone the Canvas is a tab away, so when Utsavvy points at something for
@@ -21,7 +22,7 @@ export function PointingChip({
   onShow,
 }: {
   eventId: string;
-  onShow: (target: PhoneTarget) => void;
+  onShow: (target: SelectionTarget) => void;
 }) {
   const { isAuthenticated } = useConvexAuth();
   const me = useMembership(eventId);
@@ -39,7 +40,9 @@ export function PointingChip({
   const latest = data.highlights.find(
     (h) =>
       h.forMembershipId === data.me.membershipId &&
-      h.expiresAt > openedAt &&
+      // A highlight lives HIGHLIGHT_TTL_MS, so this is when it was made; a
+      // second's grace covers the clocks of browser and server disagreeing.
+      h.expiresAt - HIGHLIGHT_TTL_MS > openedAt - 1000 &&
       !dismissed.has(h._id),
   );
   const target = latest?.targets[0];
