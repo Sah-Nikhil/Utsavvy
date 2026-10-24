@@ -291,9 +291,13 @@ test.describe("phone pointing, seeded on a local deployment", () => {
     // Leave the person following each Event's default again.
     if (phone) {
       await phone.page.goto("/settings");
-      await phone.page
-        .getByRole("radio", { name: /Each Event's default/ })
-        .check();
+      const followDefault = phone.page.getByRole("radio", {
+        name: /Each Event's default/,
+      });
+      await followDefault.check();
+      // Saved, not just shown: the setting is the shared e2e user's.
+      await phone.page.reload();
+      await expect(followDefault).toBeChecked();
       await phone.context.close();
     }
   });
