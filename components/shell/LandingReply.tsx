@@ -6,8 +6,8 @@ import { AssistantOrb } from "./AssistantOrb";
 /*
  * The landing's demo reply: it arrives word by word, as a reply streams in the
  * Chat, with the orb working while it does and settling when it ends. It plays
- * once. The whole text is in the DOM from the start (only its opacity moves),
- * so screen readers and reduced motion get the finished reply at once.
+ * once. The whole text is in the DOM from the start (only a clip moves), so
+ * screen readers and reduced motion get the finished reply at once.
  */
 
 const WORD_MS = 55;
@@ -37,7 +37,7 @@ export function LandingReply({ text }: { text: string }) {
           {words.map((word, i) => (
             <span
               key={i}
-              className="animate-[word-in_320ms_var(--ease-standard)_both] motion-reduce:animate-none"
+              className="animate-[word-in_260ms_var(--ease-standard)_both] motion-reduce:animate-none"
               style={{ animationDelay: `${900 + i * WORD_MS}ms` }}
             >
               {word}
