@@ -80,12 +80,17 @@ test.describe("the vibe pick", () => {
     );
     await expectNoSeriousA11yViolations(page);
 
-    // "Show me more" adds 12 more from the same set.
+    // Tap 2, then "Show me more": 12 more from the same set appear, the 2
+    // taps stay, and focus moves to the first new photo.
+    for (const i of [0, 2]) await figures.nth(i).getByRole("button").click();
+    await expect(figures.getByRole("button", { pressed: true })).toHaveCount(2);
     await pick.getByRole("button", { name: "Show me more" }).click();
     await expect(figures).toHaveCount(24);
+    await expect(figures.getByRole("button", { pressed: true })).toHaveCount(2);
+    await expect(figures.nth(12).getByRole("button")).toBeFocused();
 
-    // Tap 3; a double tap on "Use these 3" still adds each once.
-    for (const i of [0, 2, 4]) await figures.nth(i).getByRole("button").click();
+    // Tap a third; a double tap on "Use these 3" still adds each once.
+    await figures.nth(12).getByRole("button").click();
     await expect(figures.getByRole("button", { pressed: true })).toHaveCount(3);
     await pick.getByRole("button", { name: "Use these 3" }).dblclick();
 
