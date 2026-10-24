@@ -74,7 +74,7 @@ export function PlanProgressCard({ eventId, cardId }: ChatCardProps) {
             id={headingId}
             className="font-display text-title leading-tight text-ink"
           >
-            {finished ? "Your first plan" : "Making your plan"}
+            {finished ? "Plan ready" : "Making your plan"}
           </h3>
           <p
             role="status"

@@ -1424,6 +1424,8 @@ function suggestionEstimate(
 }
 
 const CATERING = /^(catering_|party_catering$|prasad|cultural_snacks$)/;
+/** Lines that are a meal, for the Budget note's "because of five meals". */
+const MEALS = /^(catering_|party_catering$)/;
 
 /**
  * The pricing step over a validated draft: `pricePlan` over the budget lines'
@@ -1482,12 +1484,12 @@ export function pricePlanDraft(
   const notes = priced.note ? [priced.note] : [];
   const catering = budgetLines.reduce(
     (sum, l, i) =>
-      CATERING.test(l.category) ? sum + (priced.entries[i]?.amount ?? 0) : sum,
+      MEALS.test(l.category) ? sum + (priced.entries[i]?.amount ?? 0) : sum,
     0,
   );
   const share = Math.round((catering / input.event.budget) * 100);
   const meals = draft.functions.filter((fn) =>
-    fn.budgetEntries.some((l) => CATERING.test(l.category)),
+    fn.budgetEntries.some((l) => MEALS.test(l.category)),
   ).length;
   if (share >= 30) {
     notes.push(
@@ -2325,7 +2327,7 @@ export const make = mutation({
       endedAt: null,
     });
     // The Member's tap shows in the Chat, and the progress card answers it.
-    const messageId = await postTap(
+    const messageId = await postMemberLine(
       ctx,
       event,
       membership._id,
@@ -2335,7 +2337,7 @@ export const make = mutation({
     await ctx.runMutation(internal.chat.postSystem, {
       eventId,
       card: { kind: "planProgress", id: runId },
-      text: "Making your plan.",
+      text: "",
       promptMessageId: messageId,
     });
     await ctx.scheduler.runAfter(0, internal.plan.generate, { eventId, runId });
@@ -2347,8 +2349,8 @@ export const make = mutation({
   },
 });
 
-/** The Member's tap as their own Chat line; no run starts from it. */
-async function postTap(
+/** A Member's tap or edit as their own Chat line; no run starts from it. */
+export async function postMemberLine(
   ctx: MutationCtx,
   event: Doc<"events">,
   membershipId: Id<"memberships">,
@@ -2368,7 +2370,7 @@ async function postTap(
     eventId: event._id,
     messageId,
     authorMembershipId: membershipId,
-    dontReply: true,
+    dontReply: false,
     mentions: [],
     pointing: [],
     card: null,
@@ -3069,6 +3071,25 @@ export function describeEssentialChange(
   return text.length > 300 ? `${text.slice(0, 297)}...` : text;
 }
 
+/** The Member's edit as it reads in the Chat: "Change the Guests to 400". */
+export function essentialChangeLine(
+  state: Pick<EssentialInput, "functions">,
+  change: EssentialChange,
+): string {
+  switch (change.field) {
+    case "guests": {
+      const fn = state.functions.find((f) => f.key === change.functionKey);
+      return `Change the Guests${fn ? ` at the ${fn.name}` : ""} to ${change.guests.toLocaleString("en-IN")}`;
+    }
+    case "budget":
+      return `Change the budget to ${formatLakh(change.budget)}`;
+    case "date":
+      return `Change the date to ${change.date.kind === "day" ? formatDay(change.date.value) : change.date.value}`;
+    case "city":
+      return `Change the city to ${change.city}`;
+  }
+}
+
 /**
  * Called by `api.brief.editField` (S11) when an essential changes after the
  * first plan (IMPLEMENTATION_PLAN.md section 4.6, step 5). Research can't run
@@ -3146,47 +3167,14 @@ export async function runEssentialProposal(
   }
   const changes = diffEssentialChange(state, args.change, estimates);
   const summary = describeEssentialChange(state, args.change, changes, extra);
-  await ctx.runMutation(internal.plan.postEssentialProposal, {
+  await ctx.runMutation(internal.planEssentials.post, {
     eventId: args.eventId,
     requestedBy: args.requestedBy,
+    memberLine: essentialChangeLine(state, args.change),
     summary,
     changes,
   });
 }
-
-export const postEssentialProposal = internalMutation({
-  args: {
-    eventId: v.id("events"),
-    requestedBy: v.id("memberships"),
-    summary: v.string(),
-    changes: v.array(v.any()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    // Imported here, not at the top: proposals.ts reaches this file through
-    // the Proposal op registry, which must see `changeEssentialOp` defined.
-    const { createProposal } = await import("./proposals");
-    try {
-      await createProposal(ctx, {
-        eventId: args.eventId,
-        runId: null,
-        requestedBy: args.requestedBy,
-        origin: { kind: "briefEdit" },
-        summary: args.summary,
-        changes: args.changes as ProposedChange[],
-      });
-    } catch (error) {
-      if (!(error instanceof ConvexError)) throw error;
-      // The Brief moved on while the change was priced: say so instead.
-      await ctx.runMutation(internal.chat.postSystem, {
-        eventId: args.eventId,
-        card: { kind: "system", id: null },
-        text: "The Brief changed while I priced that, so I didn't propose it. Make the change again.",
-      });
-    }
-    return null;
-  },
-});
 
 /** The Assistant's write options for one change of an accepted Proposal. */
 function acceptArgs(actor: Actor, docId: string) {
