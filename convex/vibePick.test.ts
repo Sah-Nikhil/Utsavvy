@@ -327,3 +327,105 @@ describe("vibePick.pick", () => {
     ).rejects.toThrow(/no vibe pick/);
   });
 });
+
+describe("what counts as picked", () => {
+  /** A set photo that isn't in PICKS, added from the Inspirations panel's Search. */
+  const SEARCHED = 31750735;
+
+  it("doesn't count a set photo added through Search as picked", async () => {
+    const s = await setUp();
+    await s.asMeera.mutation(api.inspirations.addFromLibrary, {
+      eventId: s.eventId,
+      pexelsId: SEARCHED,
+    });
+    const view = await s.asMeera.query(api.vibePick.view, {
+      eventId: s.eventId,
+      more: 0,
+    });
+    if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
+    expect(view.picked).toEqual([]);
+    expect(view.added).toEqual([SEARCHED]);
+  });
+
+  it("counts only the photos the vibe pick added", async () => {
+    const s = await setUp();
+    await s.asMeera.mutation(api.inspirations.addFromLibrary, {
+      eventId: s.eventId,
+      pexelsId: SEARCHED,
+    });
+    await s.asMeera.mutation(api.vibePick.pick, {
+      eventId: s.eventId,
+      pexelsIds: PICKS,
+    });
+    const view = await s.asMeera.query(api.vibePick.view, {
+      eventId: s.eventId,
+      more: 0,
+    });
+    if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
+    expect([...view.picked].sort()).toEqual([...PICKS].sort());
+    expect([...view.added].sort()).toEqual([...PICKS, SEARCHED].sort());
+  });
+
+  it("needs 3 photos for a first pick, then takes 1 at a time", async () => {
+    const s = await setUp();
+    await expect(
+      s.asMeera.mutation(api.vibePick.pick, {
+        eventId: s.eventId,
+        pexelsIds: [PICKS[0]!],
+      }),
+    ).rejects.toThrow(/at least 3/);
+    expect(await inspirations(s)).toHaveLength(0);
+
+    await s.asMeera.mutation(api.vibePick.pick, {
+      eventId: s.eventId,
+      pexelsIds: PICKS,
+    });
+    expect(
+      await s.asMeera.mutation(api.vibePick.pick, {
+        eventId: s.eventId,
+        pexelsIds: [SEARCHED],
+      }),
+    ).toMatchObject({ added: 1 });
+  });
+});
+
+describe("who can't pick", () => {
+  async function outsider(
+    s: Setup,
+    clerkId: string,
+    opts: { status?: "removed"; blocked?: boolean; member: boolean },
+  ) {
+    await s.t.run(async (ctx) => {
+      if (opts.member)
+        await seedMembership(ctx, {
+          clerkId,
+          eventId: s.eventId,
+          status: opts.status,
+          blocked: opts.blocked,
+        });
+      else await seedMembership(ctx, { clerkId });
+    });
+    return s.t.withIdentity(identityFor(clerkId));
+  }
+
+  for (const [label, clerkId, opts] of [
+    ["a removed Member", "Kabir", { status: "removed" as const, member: true }],
+    ["a blocked Member", "Zoya", { blocked: true, member: true }],
+    ["someone outside the Event", "Stranger", { member: false }],
+  ] as const) {
+    it(`hides the vibe pick from ${label} and refuses their pick`, async () => {
+      const s = await setUp();
+      const as = await outsider(s, clerkId, opts);
+      expect(
+        await as.query(api.vibePick.view, { eventId: s.eventId, more: 0 }),
+      ).toEqual({ kind: "hidden" });
+      await expect(
+        as.mutation(api.vibePick.pick, {
+          eventId: s.eventId,
+          pexelsIds: PICKS,
+        }),
+      ).rejects.toThrow(/AccessDenied/);
+      expect(await inspirations(s)).toHaveLength(0);
+    });
+  }
+});
