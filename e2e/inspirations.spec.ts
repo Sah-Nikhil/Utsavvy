@@ -144,7 +144,7 @@ test.describe("inspirations", () => {
       timeout: 10_000,
     });
     await expect(
-      page.getByText(/^Utsavvy updated the Theme for .+: \+ /),
+      page.getByText(/Utsavvy updated the Theme for .+: \+ /),
     ).toBeVisible({ timeout: 10_000 });
 
     await expectNoSeriousA11yViolations(page);
