@@ -252,6 +252,40 @@ describe("updateTheme", () => {
     expect(event.version).toBe(2);
   });
 
+  // Review of #107, M1: a message that only mentions the Theme, asks about it
+  // or says not to change it isn't a request to change it.
+  for (const text of [
+    "what colours suit a haldi?",
+    "don't change the theme",
+    "which theme would suit a small mehendi?",
+    "थीम मत बदलो",
+  ]) {
+    it(`is refused for "${text}"`, async () => {
+      const s = await setUp();
+      const runId = await ask(s, text);
+      const result = await call(s, runId, "updateTheme", teal);
+      expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+      expect(String((result as { message: string }).message)).toContain(
+        "propose",
+      );
+      const event = await eventOf(s);
+      expect(event.theme).toEqual(JAIPUR);
+      expect(event.version).toBe(1);
+    });
+  }
+
+  it("is refused when its source Inspiration was deleted (review of #107, L5)", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) => ctx.db.patch("items", s.itemId, { deletedAt: T0 }));
+    const runId = await ask(s, "Add teal to our Theme");
+    const result = await call(s, runId, "updateTheme", {
+      ...teal,
+      fromInspiration: s.itemId,
+    });
+    expect(result).toMatchObject({ ok: false, reason: "invalid" });
+    expect((await eventOf(s)).theme).toEqual(JAIPUR);
+  });
+
   it("refuses a colour that isn't a hex colour", async () => {
     const s = await setUp();
     const runId = await ask(s, "Add teal to the Theme");
@@ -374,6 +408,17 @@ describe("tagInspiration", () => {
     const runId = await ask(s, "find mehendi decor");
     const result = await call(s, runId, "tagInspiration", tag(s, "haldi"));
     expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+  });
+
+  it("never clears a tag, even when the message names a Function (review of #107, L6)", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("items", s.itemId, { functionKey: "mehendi" }),
+    );
+    const runId = await ask(s, "find mehendi decor");
+    const result = await call(s, runId, "tagInspiration", tag(s, null));
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect(await functionOf(s)).toBe("mehendi");
   });
 
   it("propose with a tagInspiration change fails validation", async () => {

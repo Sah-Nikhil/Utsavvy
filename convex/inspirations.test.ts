@@ -423,6 +423,265 @@ describe("addUpload", () => {
   });
 });
 
+describe("whose upload a file is (review of #107, H1)", () => {
+  const MINUTE = 60 * 1000;
+  const fileOf = (s: Setup, id: Id<"_storage">) =>
+    s.t.run((ctx) => ctx.db.system.get("_storage", id));
+  const inspirationsIn = (s: Setup, eventId: Id<"events">) =>
+    s.t.run((ctx) =>
+      ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", eventId).eq("kind", "inspiration"),
+        )
+        .collect(),
+    );
+
+  /** Papa views the wedding and owns an Event of his own, rights setting as given. */
+  async function papasOwnEvent(s: Setup, uploadRightsOn: boolean) {
+    return await s.t.run(async (ctx) => {
+      const papa = (await ctx.db.get("memberships", s.papa))!;
+      const eventId = await insertEvent(ctx, "Papa's 60th");
+      await ctx.db.patch("events", eventId, { uploadRightsOn });
+      const membershipId = await ctx.db.insert("memberships", {
+        eventId,
+        userId: papa.userId,
+        role: "owner",
+        status: "active",
+        blocked: false,
+        displayName: "Papa",
+        joinedAt: 0,
+        endedAt: null,
+      });
+      const sections = await createStartingSections(ctx, eventId, {
+        kind: "member",
+        membershipId,
+      });
+      return { eventId, membershipId, sections };
+    });
+  }
+
+  /** Meera's upload on the wedding's Canvas, as `addUpload` saves it. */
+  async function meerasUpload(s: Setup) {
+    await s.t.run((ctx) =>
+      ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
+    );
+    const fileId = await store(s, JPEG);
+    const { itemId } = await s.asMeera.action(api.inspirations.addUpload, {
+      eventId: s.eventId,
+      fileId,
+      rightsTicked: false,
+      palette: [],
+    });
+    return { fileId, itemId };
+  }
+
+  it("a Member of another Event can't attach this Event's upload, and the file survives", async () => {
+    const s = await setUp();
+    const { fileId } = await meerasUpload(s);
+    const papas = (await papasOwnEvent(s, true)).eventId;
+    await expect(
+      s.asPapa.action(api.inspirations.addUpload, {
+        eventId: papas,
+        fileId,
+        rightsTicked: true,
+        palette: [],
+      }),
+    ).rejects.toThrow(/already on a Canvas/);
+    expect(await fileOf(s, fileId)).not.toBeNull();
+    expect(await inspirationsIn(s, papas)).toEqual([]);
+  });
+
+  it("a refused addUpload never deletes a file another Inspiration uses", async () => {
+    const s = await setUp();
+    const { fileId } = await meerasUpload(s);
+    // Papa's Event has the rights setting off and he doesn't tick: the
+    // refusal used to delete whatever file it was given.
+    const papas = (await papasOwnEvent(s, false)).eventId;
+    await expect(
+      s.asPapa.action(api.inspirations.addUpload, {
+        eventId: papas,
+        fileId,
+        rightsTicked: false,
+        palette: [],
+      }),
+    ).rejects.toThrow();
+    expect(await fileOf(s, fileId)).not.toBeNull();
+  });
+
+  it("the same file can't become two Inspirations", async () => {
+    const s = await setUp();
+    const { fileId } = await meerasUpload(s);
+    await expect(
+      s.asAditi.action(api.inspirations.addUpload, {
+        eventId: s.eventId,
+        fileId,
+        rightsTicked: true,
+        palette: [],
+      }),
+    ).rejects.toThrow(/already on a Canvas/);
+    expect(await inspirationsIn(s, s.eventId)).toHaveLength(1);
+    expect(await fileOf(s, fileId)).not.toBeNull();
+  });
+
+  it("refuses a file older than the freshness window, without deleting it", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
+    );
+    const fileId = await store(s, PDF, "image/jpeg");
+    vi.setSystemTime(T0 + 16 * MINUTE);
+    await expect(
+      s.asMeera.action(api.inspirations.addUpload, {
+        eventId: s.eventId,
+        fileId,
+        rightsTicked: true,
+        palette: [],
+      }),
+    ).rejects.toThrow(/expired/);
+    // Even a file that isn't a photo stays: only a fresh, unclaimed file is
+    // the caller's own to delete.
+    expect(await fileOf(s, fileId)).not.toBeNull();
+    expect(await inspirationsIn(s, s.eventId)).toEqual([]);
+  });
+
+  it("a removed Member can't attach a file", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.aditi, { status: "removed", endedAt: 1 }),
+    );
+    const fileId = await store(s, JPEG);
+    await expect(
+      s.asAditi.action(api.inspirations.addUpload, {
+        eventId: s.eventId,
+        fileId,
+        rightsTicked: true,
+        palette: [],
+      }),
+    ).rejects.toThrow(/AccessDenied/);
+    expect(await inspirationsIn(s, s.eventId)).toEqual([]);
+  });
+
+  it("purgeDeletedFiles keeps a file another Inspiration still uses", async () => {
+    const s = await setUp();
+    const { fileId } = await meerasUpload(s);
+    // An Inspiration in another Event that points at the same file, deleted
+    // long ago, as the attach above could once leave it.
+    const papas = await papasOwnEvent(s, true);
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("items", {
+        eventId: papas.eventId,
+        sectionId: papas.sections.inspirations,
+        kind: "inspiration",
+        position: { x: 0, y: 0 },
+        size: { w: 300, h: 360 },
+        functionKey: null,
+        data: {
+          source: {
+            kind: "upload",
+            fileId,
+            fromReference: null,
+            remixRightsTicked: false,
+          },
+          addedBy: papas.membershipId,
+          memberNote: null,
+          seen: null,
+        },
+        createdBy: { kind: "member", membershipId: papas.membershipId },
+        version: 1,
+        deletedAt: T0 - DELETED_FILE_PURGE_AFTER_MS - DAY,
+      });
+    });
+    await s.t.mutation(internal.inspirations.purgeDeletedFiles, {});
+    expect(await fileOf(s, fileId)).not.toBeNull();
+  });
+});
+
+describe("the palette addUpload takes (review of #107, Decision 3 and L1)", () => {
+  it("drops entries that aren't hex colours and keeps at most 5, uppercased", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
+    );
+    const fileId = await store(s, JPEG);
+    const { itemId } = await s.asMeera.action(api.inspirations.addUpload, {
+      eventId: s.eventId,
+      fileId,
+      rightsTicked: false,
+      palette: [
+        "#1f6f78",
+        "red",
+        "#12345",
+        "#ABCDEF;x",
+        "#c9a23a",
+        "#f4a300",
+        "#c2185b",
+        "#f8c8dc",
+        "#2e7d32",
+      ],
+    });
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const item = await itemOf(s, itemId);
+    if (item.kind !== "inspiration") throw new Error("not an Inspiration");
+    expect(item.data.seen?.palette).toEqual([
+      "#1F6F78",
+      "#C9A23A",
+      "#F4A300",
+      "#C2185B",
+      "#F8C8DC",
+    ]);
+  });
+
+  it("rejects more than 10 colours or a colour longer than 7 characters, and keeps the file", async () => {
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
+    );
+    const fileId = await store(s, JPEG);
+    for (const palette of [
+      Array.from({ length: 11 }, () => "#1F6F78"),
+      ["#1F6F78" + "0".repeat(1000)],
+    ]) {
+      await expect(
+        s.asMeera.action(api.inspirations.addUpload, {
+          eventId: s.eventId,
+          fileId,
+          rightsTicked: false,
+          palette,
+        }),
+      ).rejects.toThrow(/palette/);
+    }
+    // The same file still uploads with a sensible palette.
+    await expect(
+      s.asMeera.action(api.inspirations.addUpload, {
+        eventId: s.eventId,
+        fileId,
+        rightsTicked: false,
+        palette: ["#1F6F78"],
+      }),
+    ).resolves.toMatchObject({ itemId: expect.any(String) });
+  });
+});
+
+describe("describe, when it can't read the file (review of #107, L3)", () => {
+  it("still saves the palette, so Use for Theme never waits forever", async () => {
+    const s = await setUp();
+    const { itemId, fileId } = await insertUpload(s, null);
+    await s.t.run((ctx) => ctx.storage.delete(fileId));
+    await s.t.action(internal.inspirations.describe, {
+      itemId,
+      palette: ["#1f6f78"],
+    });
+    const item = await itemOf(s, itemId);
+    if (item.kind !== "inspiration") throw new Error("not an Inspiration");
+    expect(item.data.seen).toEqual({
+      description: "",
+      palette: ["#1F6F78"],
+      decorKeywords: [],
+    });
+  });
+});
+
 describe("useForTheme", () => {
   async function chatLines(s: Setup): Promise<string[]> {
     return await s.t.run(async (ctx) => {

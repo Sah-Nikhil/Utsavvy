@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Theme, ThemeUpdate } from "../types/brief";
 import {
+  asksForTheme,
   colourName,
   isThemeUnchanged,
   mergeTheme,
@@ -173,5 +174,34 @@ describe("themeUpdateFromImage", () => {
       null,
     );
     expect(result.addPalette).toEqual(["#1F6F78"]);
+  });
+});
+
+describe("asksForTheme (review of #107, M1)", () => {
+  it.each([
+    "Add teal to our Theme",
+    "change the theme to pastel pink and gold",
+    "please update the palette with this teal",
+    "use these colours for the theme",
+    "make the colour scheme more pastel",
+    "Replace the gold in our palette with teal.",
+    "थीम बदल दो",
+  ])("is a request to change the Theme: %s", (text) => {
+    expect(asksForTheme(text)).toBe(true);
+  });
+
+  it.each([
+    "what colours suit a haldi?",
+    "which theme would suit a small mehendi?",
+    "should we change the theme?",
+    "How do we use colour at the sangeet",
+    "don't change the theme",
+    "Please do not update the palette",
+    "never touch our colours",
+    "थीम मत बदलो",
+    "find some haldi decor ideas",
+    "love these colours",
+  ])("is not: %s", (text) => {
+    expect(asksForTheme(text)).toBe(false);
   });
 });
