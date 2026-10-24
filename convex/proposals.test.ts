@@ -1,13 +1,15 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { entryAmount } from "../components/items/budget/rollup";
+import { referenceTableBasis } from "../lib/pricing";
 import type { EntryFields } from "../lib/types/canvas";
 import { api, components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { buildProposeTools } from "./assistant/tools/propose";
 import type { ToolResult } from "./assistant/tools/core";
-import { createStartingSections } from "./canvas";
+import { createStartingSections, MAX_CUSTOM_SECTIONS } from "./canvas";
 import { MAX_COMMENTS_PER_ITEM } from "./comments";
 import { stubEstimateDeps } from "./estimates";
 import {
@@ -669,5 +671,423 @@ describe("The propose tool", () => {
       ctx.db.query("proposals").collect(),
     );
     expect(proposals).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review of #105 (H1, M1 to M4) and the orchestrator's decisions of 2026-10-24
+
+const sumOf = async (s: Setup, ids: Id<"entries">[]) =>
+  await s.t.run(async (ctx) => {
+    let sum = 0;
+    for (const id of ids) {
+      const entry = await ctx.db.get("entries", id);
+      if (entry?.kind === "budget" && entry.deletedAt === null)
+        sum += entryAmount(entry.fields);
+    }
+    return sum;
+  });
+
+const proposalIdOf = (result: ToolResult) =>
+  (result as unknown as { proposalId: Id<"proposals"> }).proposalId;
+
+describe("Freed rupees (H1)", () => {
+  it("refuses a second claim on the same freed rupees", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Cut decor to ₹2,20,000.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Cut Decor",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { memberStated: 220_000 } },
+        },
+        {
+          op: "updateEntry",
+          entryId: s.contingency,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { receiveFreedFrom: [0] } },
+        },
+        {
+          op: "updateEntry",
+          entryId: s.drone,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { receiveFreedFrom: [0, 0] } },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "badFreed" });
+    expect(await s.t.run((ctx) => ctx.db.query("proposals").collect())).toEqual(
+      [],
+    );
+  });
+
+  it("an accepted Proposal that only moves money never raises the lines it touches", async () => {
+    const s = await setUp();
+    const touched = [s.decor, s.drone, s.contingency];
+    const before = await sumOf(s, touched);
+    const proposalId = await riskyProposal(s);
+    await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    // ₹4,60,000 before; Decor ₹2,20,000 + Contingency ₹1,80,000 after.
+    expect(before).toBe(460_000);
+    expect(await sumOf(s, touched)).toBe(400_000);
+  });
+});
+
+describe("Identical changes (M1)", () => {
+  it("refuses two identical changes, so the card never lists one Accept would drop", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Add two reminder notes.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Two notes",
+      changes: [
+        { op: "addItem", item: { kind: "note", text: "Call the florist" } },
+        { op: "addItem", item: { kind: "note", text: "Call the florist" } },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "refused" });
+  });
+});
+
+describe("Timeline fields (M2)", () => {
+  async function withTimeline(s: Setup) {
+    return await s.t.run((ctx) =>
+      ctx.db.insert("items", {
+        eventId: s.eventId,
+        sectionId: s.sections.money,
+        kind: "timeline",
+        position: { x: 0, y: 400 },
+        size: null,
+        functionKey: null,
+        data: { note: null },
+        createdBy: { kind: "member", membershipId: s.people.Meera },
+        version: 1,
+        deletedAt: null,
+      }),
+    );
+  }
+
+  it("refuses a date, time or note the direct tools would refuse", async () => {
+    const s = await setUp();
+    await withTimeline(s);
+    const runId = await ask(s, "Rohan", "Add a mehendi rehearsal.");
+    const bad = [
+      { date: "next tuesday" },
+      { date: "2027-02-31" },
+      { time: "25:99" },
+      { note: "x".repeat(20_000) },
+    ];
+    for (const [n, fields] of bad.entries()) {
+      const result = await propose(
+        s,
+        runId,
+        s.people.Rohan,
+        {
+          summary: "Add the rehearsal",
+          changes: [
+            {
+              op: "addEntry",
+              entry: {
+                kind: "timeline",
+                title: "Rehearsal",
+                functionKey: null,
+                ...fields,
+              },
+            },
+          ],
+        },
+        `toolu_m2_${n}`,
+      );
+      expect(result, JSON.stringify(fields).slice(0, 40)).toMatchObject({
+        ok: false,
+      });
+    }
+    expect(await s.t.run((ctx) => ctx.db.query("proposals").collect())).toEqual(
+      [],
+    );
+  });
+
+  it("refuses a date that isn't on the calendar in an updateEntry", async () => {
+    const s = await setUp();
+    const itemId = await withTimeline(s);
+    const entryId = await s.t.run((ctx) =>
+      ctx.db.insert("entries", {
+        eventId: s.eventId,
+        itemId,
+        kind: "timeline",
+        order: 0,
+        functionKey: null,
+        fields: {
+          title: "Book the photographer",
+          date: null,
+          time: null,
+          leadKey: null,
+          priority: null,
+          late: false,
+          note: null,
+          vendorCategory: null,
+          done: false,
+        },
+        assumed: [],
+        createdBy: { kind: "member", membershipId: s.people.Meera },
+        version: 1,
+        deletedAt: null,
+      }),
+    );
+    const runId = await ask(s, "Rohan", "Move the photographer booking.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Move it",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId,
+          expectedVersion: 1,
+          patch: { kind: "timeline", date: "2027-02-31" },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false });
+  });
+});
+
+describe("Ask again (M3)", () => {
+  it("queues one run however many Members tap it", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    await s.as("Meera").mutation(api.entries.update, {
+      entryId: s.decor,
+      patch: { kind: "budget", plannedAmount: 250_000 },
+    });
+    const args = { eventId: s.eventId, proposalId };
+    const a = await s.as("Rohan").mutation(api.proposals.askAgain, args);
+    const b = await s.as("Aditi").mutation(api.proposals.askAgain, args);
+    expect(b.runId).toBe(a.runId);
+    expect((await card(s, "Aditi", proposalId)).canAskAgain).toBe(false);
+  });
+});
+
+describe("Estimate low end (M4)", () => {
+  async function decorWithEstimate(s: Setup, low: number, high: number) {
+    await s.t.run(async (ctx) => {
+      const entry = (await ctx.db.get("entries", s.decor))!;
+      if (entry.kind !== "budget") return;
+      await ctx.db.patch("entries", s.decor, {
+        fields: {
+          ...entry.fields,
+          estimate: {
+            low,
+            high,
+            amount: Math.round((low + high) / 2),
+            label: "Estimate",
+            basis: referenceTableBasis({
+              unit: "per_event",
+              unitLow: low,
+              unitHigh: high,
+              tier: "Y",
+            }),
+          },
+        },
+      });
+    });
+  }
+
+  it("refuses to raise a line to its Estimate's low end", async () => {
+    const s = await setUp();
+    await decorWithEstimate(s, 350_000, 500_000);
+    const runId = await ask(s, "Rohan", "Trim decor.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Trim Decor",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { estimateLow: true } },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "notACut" });
+  });
+
+  it("cuts a line to its Estimate's low end as an Estimate, not as the Member's amount", async () => {
+    const s = await setUp();
+    await decorWithEstimate(s, 200_000, 350_000);
+    const runId = await ask(s, "Rohan", "Trim decor.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Trim Decor",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { estimateLow: true } },
+        },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const proposalId = proposalIdOf(result);
+    expect((await card(s, "Aditi", proposalId)).lines).toEqual([
+      "Decor ₹3,00,000 → ₹2,00,000",
+    ]);
+    await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    const decor = await s.t.run((ctx) => ctx.db.get("entries", s.decor));
+    if (decor?.kind !== "budget") throw new Error("Decor is a budget line");
+    expect(decor.fields.plannedAmount).toBeNull();
+    expect(decor.fields.estimate?.amount).toBe(200_000);
+    expect(decor.fields.estimate?.label).toBe("Estimate");
+    expect(entryAmount(decor.fields)).toBe(200_000);
+  });
+});
+
+describe("Accept's own checks (decided 2026-10-24)", () => {
+  it("refuses an expired Proposal even before the expiry job runs", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    vi.setSystemTime(T0 + 25 * HOUR);
+    const result = await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(result).toEqual({
+      ok: false,
+      reason: "closed",
+      message: "This Proposal expired.",
+    });
+    expect((await card(s, "Aditi", proposalId)).status.kind).toBe("expired");
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+
+  it("refuses and closes a Proposal whose asker is no longer an active Member", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.people.Rohan, {
+        status: "removed",
+        endedAt: T0,
+      }),
+    );
+    const result = await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(result).toEqual({
+      ok: false,
+      reason: "outOfDate",
+      message: "The Member who asked for this has left; ask Utsavvy again.",
+    });
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+    const shown = await card(s, "Aditi", proposalId);
+    expect(shown.status).toEqual({
+      kind: "outOfDate",
+      text: "The Member who asked for this has left; ask Utsavvy again.",
+    });
+    expect(shown.canDecide).toBe(false);
+  });
+
+  it("refuses a new Section at propose time when the Event can't hold another", async () => {
+    const s = await setUp();
+    await s.t.run(async (ctx) => {
+      for (let i = 0; i < MAX_CUSTOM_SECTIONS; i++)
+        await ctx.db.insert("sections", {
+          eventId: s.eventId,
+          kind: "custom",
+          name: `Extra ${i}`,
+          frame: { x: 0, y: 2000 + i * 10, w: 100, h: 100 },
+          order: 10 + i,
+          version: 1,
+          deletedAt: null,
+        });
+    });
+    const runId = await ask(s, "Rohan", "Make a Section for the baraat.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "A Section for the baraat",
+      changes: [{ op: "createSection", name: "Baraat" }],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "refused" });
+  });
+});
+
+describe("More ops through Accept", () => {
+  it("setBudgetTotal changes the Budget total to the asker's amount", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Make the budget ₹24,00,000.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Budget total to ₹24,00,000",
+      changes: [
+        { op: "setBudgetTotal", expectedVersion: 1, memberStated: 2_400_000 },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const proposalId = proposalIdOf(result);
+    expect((await card(s, "Meera", proposalId)).lines).toEqual([
+      "Budget total ₹25,00,000 → ₹24,00,000",
+    ]);
+    await s
+      .as("Meera")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(event?.budgetTotal).toBe(2_400_000);
+  });
+
+  it("moveItem moves a Note to another Section", async () => {
+    const s = await setUp();
+    const noteId = await s.t.run((ctx) =>
+      ctx.db.insert("items", {
+        eventId: s.eventId,
+        sectionId: s.sections.notes,
+        kind: "note",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: { text: "Florist numbers", citations: [] },
+        createdBy: { kind: "member", membershipId: s.people.Meera },
+        version: 1,
+        deletedAt: null,
+      }),
+    );
+    const runId = await ask(s, "Rohan", "Move the florist note to Vendors.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Move the florist Note",
+      changes: [
+        {
+          op: "moveItem",
+          itemId: noteId,
+          expectedVersion: 1,
+          sectionId: s.sections.vendors,
+        },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    await s.as("Aditi").mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposalIdOf(result),
+    });
+    const note = await s.t.run((ctx) => ctx.db.get("items", noteId));
+    expect(note?.sectionId).toBe(s.sections.vendors);
+  });
+
+  it("createSection adds the custom Section", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Make a Section for the baraat.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "A Section for the baraat",
+      changes: [{ op: "createSection", name: "Baraat" }],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    await s.as("Aditi").mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposalIdOf(result),
+    });
+    const sections = await s.t.run((ctx) =>
+      ctx.db
+        .query("sections")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .collect(),
+    );
+    expect(sections.filter((x) => x.name === "Baraat")).toHaveLength(1);
   });
 });
