@@ -128,6 +128,13 @@ test.describe("proposals, seeded on a local deployment", () => {
     const workspace = new URL(page.url()).pathname;
     const eventId = workspace.split("/").at(-1)!;
     await page.getByRole("button", { name: "People" }).click();
+    // The Owner is the shared e2e user; its name is whatever Clerk has for it.
+    const ownerName = await page
+      .locator("li[data-person]")
+      .filter({ has: page.getByText("You", { exact: true }) })
+      .getAttribute("data-person");
+    if (!ownerName) throw new Error("The People panel shows no Owner row.");
+    const owner = ownerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const links: Record<string, string> = {};
     for (const role of ["Member", "Viewer"]) {
       const box = page.getByRole("textbox", { name: `${role} link address` });
@@ -184,12 +191,13 @@ test.describe("proposals, seeded on a local deployment", () => {
     });
 
     // The history groups the three changes under who asked and who accepted.
-    // The Owner is the shared e2e user, whose Clerk name isn't always Meera.
     await page.getByRole("button", { name: "History" }).click();
     const panel = page.getByRole("dialog", { name: "Edit history" });
     await expect(
       panel.getByText(
-        /^Utsavvy for [^,]+, accepted by Aditi( E2E)? \(3 changes\)$/,
+        new RegExp(
+          `^Utsavvy for ${owner}, accepted by Aditi( E2E)? \\(3 changes\\)$`,
+        ),
       ),
     ).toBeVisible({ timeout: 10_000 });
     await testInfo.attach("history", {
@@ -216,7 +224,7 @@ test.describe("proposals, seeded on a local deployment", () => {
       amount: 250_000,
     });
     await expect(secondCard.locator("[data-proposal-reason]")).toHaveText(
-      /^Out of date: (?!Aditi|Papa).+ changed this since$/,
+      new RegExp(`^Out of date: ${owner} changed this since$`),
       { timeout: 10_000 },
     );
     await expect(

@@ -1093,3 +1093,206 @@ describe("More ops through Accept", () => {
     expect(sections.filter((x) => x.name === "Baraat")).toHaveLength(1);
   });
 });
+
+// Review of PR #105, round 2 (head 154003d): the card shows the rupees Accept
+// writes, whatever a change touches, and money only moves.
+describe("A line's amount on the card is the amount Accept writes", () => {
+  /** Decor priced per guest: 100 guests, Estimate ₹3,50,000 to ₹5,00,000 at ₹4,00,000, no amount typed. */
+  async function decorPerGuest(s: Setup) {
+    await s.t.run(async (ctx) => {
+      const entry = (await ctx.db.get("entries", s.decor))!;
+      if (entry.kind !== "budget") return;
+      await ctx.db.patch("entries", s.decor, {
+        fields: {
+          ...entry.fields,
+          unit: "per_guest",
+          quantity: 100,
+          plannedAmount: null,
+          editedByMember: false,
+          estimate: {
+            low: 350_000,
+            high: 500_000,
+            amount: 400_000,
+            label: "Estimate",
+            basis: referenceTableBasis({
+              unit: "per_guest",
+              unitLow: 3_500,
+              unitHigh: 5_000,
+              tier: "Y",
+            }),
+          },
+        },
+      });
+    });
+  }
+
+  it("refuses an Estimate cut and a quantity change in one change", async () => {
+    const s = await setUp();
+    await decorPerGuest(s);
+    const runId = await ask(s, "Rohan", "Trim decor and plan for 200 guests.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Trim Decor for 200 guests",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: {
+            kind: "budget",
+            quantity: 200,
+            amount: { estimateLow: true },
+          },
+        },
+        {
+          op: "updateEntry",
+          entryId: s.contingency,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { receiveFreedFrom: [0] } },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "cutWithQuantity" });
+    expect(await s.t.run((ctx) => ctx.db.query("proposals").collect())).toEqual(
+      [],
+    );
+  });
+
+  it("shows the rupees a quantity change moves an Estimate line by", async () => {
+    const s = await setUp();
+    await decorPerGuest(s);
+    const runId = await ask(s, "Rohan", "Plan decor for 200 guests.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Decor for 200 guests",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", quantity: 200 },
+        },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const proposalId = proposalIdOf(result);
+    expect((await card(s, "Aditi", proposalId)).lines).toEqual([
+      "Decor ₹4,00,000 → ₹8,00,000; Decor: quantity 100 → 200",
+    ]);
+    await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(await sumOf(s, [s.decor])).toBe(800_000);
+  });
+
+  it("moves the rupees a lower guest count frees, and the lines it touches add up to the same", async () => {
+    const s = await setUp();
+    await decorPerGuest(s);
+    const touched = [s.decor, s.contingency];
+    const before = await sumOf(s, touched);
+    const runId = await ask(
+      s,
+      "Rohan",
+      "Plan decor for 50 guests and put the rest in contingency.",
+    );
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Decor for 50 guests, the rest to Contingency",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", quantity: 50 },
+        },
+        {
+          op: "updateEntry",
+          entryId: s.contingency,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { receiveFreedFrom: [0] } },
+        },
+      ],
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const proposalId = proposalIdOf(result);
+    expect((await card(s, "Aditi", proposalId)).lines).toEqual([
+      "Decor ₹4,00,000 → ₹2,00,000; Decor: quantity 100 → 50",
+      "Contingency ₹1,00,000 → ₹3,00,000",
+    ]);
+    await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(await sumOf(s, [s.decor])).toBe(200_000);
+    expect(await sumOf(s, [s.contingency])).toBe(300_000);
+    expect(await sumOf(s, touched)).toBe(before);
+  });
+});
+
+describe("Accept's own checks, round 2", () => {
+  it("tells a demoted asker's Proposal apart from a departed one", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.people.Rohan, { role: "viewer" }),
+    );
+    const text =
+      "The Member who asked for this can no longer edit this Event; ask Utsavvy again.";
+    expect((await card(s, "Aditi", proposalId)).status).toEqual({
+      kind: "outOfDate",
+      text,
+    });
+    const result = await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(result).toEqual({ ok: false, reason: "outOfDate", message: text });
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+
+  it("counts only live Sections against the limit, however many were deleted, at propose time and at Accept", async () => {
+    const s = await setUp();
+    const customSection = (name: string, i: number, deleted: boolean) =>
+      s.t.run((ctx) =>
+        ctx.db.insert("sections", {
+          eventId: s.eventId,
+          kind: "custom",
+          name,
+          frame: { x: 0, y: 2000 + i * 10, w: 100, h: 100 },
+          order: 10 + i,
+          version: 1,
+          deletedAt: deleted ? T0 : null,
+        }),
+      );
+    for (let i = 0; i < 60; i++) await customSection(`Old ${i}`, i, true);
+    for (let i = 0; i < MAX_CUSTOM_SECTIONS - 1; i++)
+      await customSection(`Live ${i}`, 60 + i, false);
+
+    // One place left: a Proposal for it is made...
+    const runId = await ask(s, "Rohan", "Make a Section for the baraat.");
+    const made = await propose(s, runId, s.people.Rohan, {
+      summary: "A Section for the baraat",
+      changes: [{ op: "createSection", name: "Baraat" }],
+    });
+    expect(made.ok, JSON.stringify(made)).toBe(true);
+    // ...a Member then fills it, so Accept closes the Proposal instead of failing.
+    await customSection("Mehendi", 100, false);
+    const accepted = await s.as("Aditi").mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposalIdOf(made),
+    });
+    expect(accepted).toEqual({
+      ok: false,
+      reason: "outOfDate",
+      message: "This Event has as many Sections as it can hold.",
+    });
+
+    // And a new Proposal for another one is refused at propose time.
+    const again = await propose(
+      s,
+      runId,
+      s.people.Rohan,
+      {
+        summary: "A Section for the sangeet",
+        changes: [{ op: "createSection", name: "Sangeet" }],
+      },
+      "toolu_p2",
+    );
+    expect(again).toMatchObject({ ok: false, reason: "refused" });
+  });
+});
