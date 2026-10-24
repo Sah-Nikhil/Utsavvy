@@ -151,3 +151,17 @@ export function moveWithin(
   next.splice(to, 0, id);
   return next;
 }
+
+/**
+ * The group's full order after the person reordered only the Items they can
+ * see (the Function filter hides the rest): the visible Items take the
+ * visible slots in their new order, and every hidden Item keeps its place.
+ */
+export function mergeVisibleOrder(
+  full: readonly string[],
+  visibleAfter: readonly string[],
+): string[] {
+  const visible = new Set(visibleAfter);
+  const next = [...visibleAfter];
+  return full.map((id) => (visible.has(id) ? next.shift()! : id));
+}

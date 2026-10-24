@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { CompactItem, type CompactItemProps } from "./CompactItem";
 import {
   groupItems,
+  mergeVisibleOrder,
   moveWithin,
   type CompactGroup,
   type Grouping,
@@ -160,27 +161,77 @@ function CompactList({
       filter.functionKey,
     ],
   );
+  // Each group's full order, with nothing hidden by the Function filter, so a
+  // reorder under the filter keeps the hidden Items where they were.
+  const fullOrder = useMemo(
+    () =>
+      new Map(
+        groupItems({
+          grouping,
+          sections: data.sections,
+          functions: data.functions,
+          items: data.items,
+          order: prefs.order,
+        }).map((g) => [g.key, g.items.map((i) => i._id as string)]),
+      ),
+    [grouping, data.sections, data.functions, data.items, prefs.order],
+  );
   const collapsed = useMemo(() => new Set(prefs.collapsed), [prefs.collapsed]);
+  // Groups opened only to show what someone pointed at: open for now, never saved.
+  const [revealedOpen, setRevealedOpen] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  // A preference that didn't save rolls back; say so instead of undoing silently.
+  const [saveProblem, setSaveProblem] = useState<string | null>(null);
+  useEffect(() => {
+    if (saveProblem === null) return;
+    const timer = window.setTimeout(() => setSaveProblem(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [saveProblem]);
+  const savePrefs = useCallback(
+    (args: Omit<Parameters<typeof setPrefs>[0], "eventId">) => {
+      setPrefs({ eventId, ...args }).catch((err: unknown) =>
+        setSaveProblem(
+          errorMessage(err, "That change to your view didn't save. Try again."),
+        ),
+      );
+    },
+    [setPrefs, eventId],
+  );
 
   const toggleGroup = useCallback(
     (key: string) => {
+      if (revealedOpen.has(key)) {
+        // Shut again: it was only open for a moment, so nothing to save.
+        setRevealedOpen((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        return;
+      }
       const next = collapsed.has(key)
         ? prefs.collapsed.filter((k) => k !== key)
         : [...prefs.collapsed, key];
-      setPrefs({ eventId, collapsed: next }).catch(() => {});
+      savePrefs({ collapsed: next });
     },
-    [collapsed, prefs.collapsed, setPrefs, eventId],
+    [revealedOpen, collapsed, prefs.collapsed, savePrefs],
   );
 
   const reorder = useCallback(
     (group: CompactGroup<Doc<"items">>, itemIds: string[]) => {
+      const merged = mergeVisibleOrder(
+        fullOrder.get(group.key) ?? itemIds,
+        itemIds,
+      );
       const order = [
         ...prefs.order.filter((o) => o.group !== group.key),
-        { group: group.key, itemIds: itemIds as Id<"items">[] },
+        { group: group.key, itemIds: merged as Id<"items">[] },
       ];
-      setPrefs({ eventId, order }).catch(() => {});
+      savePrefs({ order });
     },
-    [prefs.order, setPrefs, eventId],
+    [fullOrder, prefs.order, savePrefs],
   );
 
   // Jumping to an Item: open its group, select it and bring it into view.
@@ -191,7 +242,8 @@ function CompactList({
       const group = groups.find((g) => g.items.some((i) => i._id === itemId));
       // After this render: open the group, mark the Item, then scroll to it.
       window.requestAnimationFrame(() => {
-        if (group && collapsed.has(group.key)) toggleGroup(group.key);
+        if (group && collapsed.has(group.key))
+          setRevealedOpen((prev) => new Set([...prev, group.key]));
         setFocused(itemId);
       });
       window.setTimeout(() => {
@@ -207,7 +259,7 @@ function CompactList({
         });
       }, 60);
     },
-    [groups, collapsed, toggleGroup],
+    [groups, collapsed],
   );
   const shownFocus = useRef<string | null>(null);
   useEffect(() => {
@@ -297,9 +349,7 @@ function CompactList({
           <div className="flex-1" />
           <GroupingSwitch
             value={grouping}
-            onChange={(next) =>
-              setPrefs({ eventId, grouping: next }).catch(() => {})
-            }
+            onChange={(next) => savePrefs({ grouping: next })}
           />
         </div>
         {data.functions.length > 0 ? (
@@ -317,6 +367,14 @@ function CompactList({
           ? `Showing ${itemCount} Items for ${functionNames.get(filter.functionKey) ?? "one Function"} and the whole Event.`
           : ""}
       </p>
+      {saveProblem ? (
+        <p
+          role="status"
+          className="sticky top-2 z-20 justify-self-center rounded-md bg-surface-raised px-4 py-2.5 text-label text-ink shadow-overlay"
+        >
+          {saveProblem}
+        </p>
+      ) : null}
 
       {groups.length === 0 ? (
         <p className="rounded-lg bg-surface px-4 py-6 text-center text-label text-ink-2">
@@ -330,7 +388,7 @@ function CompactList({
         <GroupSection
           key={group.key}
           group={group}
-          open={!collapsed.has(group.key)}
+          open={!collapsed.has(group.key) || revealedOpen.has(group.key)}
           onToggle={() => toggleGroup(group.key)}
           functionIndex={
             group.functionKey ? filter.indexOf(group.functionKey) : undefined
