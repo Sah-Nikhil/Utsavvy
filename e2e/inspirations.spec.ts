@@ -190,6 +190,52 @@ test.describe("inspirations", () => {
     await expectNoSeriousA11yViolations(page);
     expect(cspViolations).toEqual([]);
   });
+
+  test("a photo dropped on the panel and one pasted with Ctrl+V both upload", async ({
+    page,
+    signIn,
+    cspViolations,
+  }) => {
+    test.setTimeout(150_000);
+    await newEvent(page, signIn, "E2E Drop and paste");
+    await page.getByRole("button", { name: "Add Inspiration" }).click();
+    const panel = page.getByRole("dialog", { name: "Add Inspiration" });
+    await panel.getByRole("tab", { name: "Upload" }).click();
+    const photo = "/inspirations/wedding-north-indian-hindu/31002035.webp";
+    const rights = panel.getByRole("checkbox", {
+      name: /Members have the right to use the images/,
+    });
+    const upload = panel.getByRole("button", { name: "Upload", exact: true });
+
+    // Drop: the browser hands the drop zone a DataTransfer holding the file.
+    const dropped = await page.evaluateHandle(async (path) => {
+      const blob = await (await fetch(path)).blob();
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "dropped.webp", { type: "image/webp" }));
+      return data;
+    }, photo);
+    await panel
+      .getByText("Drop photos here")
+      .locator("xpath=ancestor::div[contains(@class, 'border-dashed')]")
+      .dispatchEvent("drop", { dataTransfer: dropped });
+    await rights.check();
+    await upload.click();
+    await expect(inspirations(page)).toHaveCount(1, { timeout: 30_000 });
+
+    // Paste: Ctrl+V while the tab is open fires a paste event with the file.
+    await page.evaluate(async (path) => {
+      const blob = await (await fetch(path)).blob();
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "pasted.webp", { type: "image/webp" }));
+      window.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true }),
+      );
+    }, photo);
+    await rights.check();
+    await upload.click();
+    await expect(inspirations(page)).toHaveCount(2, { timeout: 30_000 });
+    expect(cspViolations).toEqual([]);
+  });
 });
 
 test.describe("the stock photo strip, seeded on a local deployment", () => {
