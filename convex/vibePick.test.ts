@@ -82,15 +82,18 @@ const eventOf = (s: Setup) =>
   s.t.run(async (ctx) => (await ctx.db.get("events", s.eventId))!);
 
 describe("vibePick.view", () => {
-  it("shows the set's 12 vibe pick photos with their Pexels credits", async () => {
+  it("starts with the set's 12 vibe pick photos, with their Pexels credits", async () => {
     const s = await setUp();
     const view = await s.asMeera.query(api.vibePick.view, {
       eventId: s.eventId,
-      more: 0,
     });
     if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
     expect(view.setKey).toBe("wedding-north-indian-hindu");
-    expect(view.photos).toHaveLength(12);
+    expect(view.photos.slice(0, 12).map((p) => p.pexelsId)).toEqual(
+      setPhotos(["wedding-north-indian-hindu"])
+        .filter((p) => p.vibePick)
+        .map((p) => p.pexelsId),
+    );
     const first = findLibraryPhoto(31002035)!;
     expect(view.photos[0]).toMatchObject({
       pexelsId: 31002035,
@@ -99,11 +102,10 @@ describe("vibePick.view", () => {
       photographerUrl: first.photographerUrl,
       pageUrl: first.pageUrl,
     });
-    expect(view.hasMore).toBe(true);
     expect(view.picked).toEqual([]);
   });
 
-  it('"Show me more" adds 12 more, and a child birthday never shows a branded photo', async () => {
+  it('has every photo "Show me more" can show, and a child birthday never shows a branded photo', async () => {
     const s = await setUp();
     await s.t.run((ctx) =>
       ctx.db.patch("events", s.eventId, {
@@ -114,12 +116,10 @@ describe("vibePick.view", () => {
     );
     const view = await s.asMeera.query(api.vibePick.view, {
       eventId: s.eventId,
-      more: 5,
     });
     if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
     expect(view.setKey).toBe("birthday-child");
     expect(view.photos).toHaveLength(63);
-    expect(view.hasMore).toBe(false);
     const branded = new Set(
       setPhotos(["birthday-child"])
         .filter((p) => p.tags.includes("branded"))
@@ -138,20 +138,20 @@ describe("vibePick.view", () => {
       }),
     );
     expect(
-      await s.asMeera.query(api.vibePick.view, { eventId: s.eventId, more: 0 }),
+      await s.asMeera.query(api.vibePick.view, { eventId: s.eventId }),
     ).toEqual({ kind: "noSet" });
   });
 
   it("is hidden from Viewers and once the plan is made", async () => {
     const s = await setUp();
     expect(
-      await s.asPapa.query(api.vibePick.view, { eventId: s.eventId, more: 0 }),
+      await s.asPapa.query(api.vibePick.view, { eventId: s.eventId }),
     ).toEqual({ kind: "hidden" });
     await s.t.run((ctx) =>
       ctx.db.patch("events", s.eventId, { briefState: "planned" }),
     );
     expect(
-      await s.asMeera.query(api.vibePick.view, { eventId: s.eventId, more: 0 }),
+      await s.asMeera.query(api.vibePick.view, { eventId: s.eventId }),
     ).toEqual({ kind: "hidden" });
   });
 });
@@ -195,7 +195,6 @@ describe("vibePick.pick", () => {
 
     const view = await s.asMeera.query(api.vibePick.view, {
       eventId: s.eventId,
-      more: 0,
     });
     if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
     expect([...view.picked].sort()).toEqual([...PICKS].sort());
@@ -341,7 +340,6 @@ describe("what counts as picked", () => {
     });
     const view = await s.asMeera.query(api.vibePick.view, {
       eventId: s.eventId,
-      more: 0,
     });
     if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
     expect(view.picked).toEqual([]);
@@ -360,7 +358,6 @@ describe("what counts as picked", () => {
     });
     const view = await s.asMeera.query(api.vibePick.view, {
       eventId: s.eventId,
-      more: 0,
     });
     if (view.kind !== "pick") throw new Error(`got ${view.kind}`);
     expect([...view.picked].sort()).toEqual([...PICKS].sort());
@@ -417,9 +414,9 @@ describe("who can't pick", () => {
     it(`hides the vibe pick from ${label} and refuses their pick`, async () => {
       const s = await setUp();
       const as = await outsider(s, clerkId, opts);
-      expect(
-        await as.query(api.vibePick.view, { eventId: s.eventId, more: 0 }),
-      ).toEqual({ kind: "hidden" });
+      expect(await as.query(api.vibePick.view, { eventId: s.eventId })).toEqual(
+        { kind: "hidden" },
+      );
       await expect(
         as.mutation(api.vibePick.pick, {
           eventId: s.eventId,

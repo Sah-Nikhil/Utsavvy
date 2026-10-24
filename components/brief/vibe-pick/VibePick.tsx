@@ -3,7 +3,8 @@
 import { useMutation, useQuery } from "convex/react";
 import { Check, LoaderCircle } from "lucide-react";
 import Image from "next/image";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { PexelsCredit, Swatches } from "@/components/inspirations/parts";
 import { errorMessage } from "@/components/people/errors";
 import { Button } from "@/components/ui/button";
@@ -23,8 +24,8 @@ type PickView = Extract<
   { kind: "pick" }
 >;
 
-function useVibePickView(eventId: Id<"events">, more: number) {
-  return useQuery(api.vibePick.view, { eventId, more });
+function useVibePickView(eventId: Id<"events">) {
+  return useQuery(api.vibePick.view, { eventId });
 }
 
 const skipKey = (eventId: string) => `utsavvy:vibe-pick-skipped:${eventId}`;
@@ -52,18 +53,17 @@ function useSkipped(eventId: Id<"events">) {
 }
 
 export function VibePick({ eventId }: { eventId: Id<"events"> }) {
-  const [more, setMore] = useState(0);
-  const view = useVibePickView(eventId, more);
+  const view = useVibePickView(eventId);
   const [skipped, setSkipped] = useSkipped(eventId);
   const [reopened, setReopened] = useState(false);
 
   if (view === undefined || view.kind === "hidden") return null;
   if (view.kind === "noSet") {
     return (
-      <p className="text-caption text-ink-3" data-vibe-pick="skipped">
+      <Line data="skipped">
         There are no look photos for this kind of Event yet, so we&apos;ll skip
         picking a look.
-      </p>
+      </Line>
     );
   }
   if (skipped) {
@@ -83,7 +83,6 @@ export function VibePick({ eventId }: { eventId: Id<"events"> }) {
     <PickGrid
       eventId={eventId}
       view={view}
-      onShowMore={() => setMore((n) => n + 1)}
       onSkip={() => setSkipped(true)}
       onDone={() => setReopened(false)}
     />
@@ -137,13 +136,11 @@ function Picked({ view, onMore }: { view: PickView; onMore: () => void }) {
 function PickGrid({
   eventId,
   view,
-  onShowMore,
   onSkip,
   onDone,
 }: {
   eventId: Id<"events">;
   view: PickView;
-  onShowMore: () => void;
   onSkip: () => void;
   onDone: () => void;
 }) {
@@ -152,6 +149,10 @@ function PickGrid({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [full, setFull] = useState(false);
+  // "Show me more" pages through the photos the view already has, so nothing
+  // reloads and the Member's taps stay.
+  const [shown, setShown] = useState<number>(view.limits.page);
+  const tiles = useRef(new Map<number, HTMLButtonElement>());
 
   const { min, max, page } = view.limits;
   // Photos already in the Event, from an earlier pick or from Search.
@@ -159,6 +160,15 @@ function PickGrid({
   const picks = view.picked.length;
   // A first pick needs 3; adding to an earlier pick needs only 1.
   const needed = Math.max(1, min - picks);
+  const photos = view.photos.slice(0, shown);
+  const hasMore = shown < view.photos.length;
+
+  function showMore() {
+    // Focus moves to the first new photo, since the button may go away.
+    const first = view.photos[shown];
+    flushSync(() => setShown(shown + page));
+    if (first) tiles.current.get(first.pexelsId)?.focus();
+  }
   const ready = chosen.length >= needed && chosen.length <= max;
 
   function toggle(pexelsId: number) {
@@ -211,11 +221,15 @@ function PickGrid({
       </p>
 
       <ul className="grid grid-cols-2 gap-x-2.5 gap-y-3.5 @md:grid-cols-3">
-        {view.photos.map((photo, i) => {
+        {photos.map((photo, i) => {
           const order = chosen.indexOf(photo.pexelsId);
           return (
             <li key={photo.pexelsId}>
               <PhotoTile
+                ref={(el) => {
+                  if (el) tiles.current.set(photo.pexelsId, el);
+                  else tiles.current.delete(photo.pexelsId);
+                }}
                 photo={photo}
                 order={order === -1 ? null : order + 1}
                 added={already.has(photo.pexelsId)}
@@ -228,12 +242,12 @@ function PickGrid({
         })}
       </ul>
 
-      {view.hasMore ? (
+      {hasMore ? (
         <Button
           variant="outline"
           size="sm"
           className="self-center"
-          onClick={onShowMore}
+          onClick={showMore}
         >
           Show me more
         </Button>
@@ -281,6 +295,7 @@ function PickGrid({
 }
 
 function PhotoTile({
+  ref,
   photo,
   order,
   added,
@@ -288,6 +303,7 @@ function PhotoTile({
   onToggle,
   eager,
 }: {
+  ref: (el: HTMLButtonElement | null) => void;
   photo: PickView["photos"][number];
   order: number | null;
   added: boolean;
@@ -299,6 +315,7 @@ function PhotoTile({
   return (
     <figure className="grid min-w-0 gap-1">
       <button
+        ref={ref}
         type="button"
         aria-pressed={added ? undefined : on}
         aria-disabled={added || undefined}

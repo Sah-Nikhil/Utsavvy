@@ -59,7 +59,7 @@ const isBranded = (photo: LibraryPhoto) => photo.tags.includes("branded");
  * photos, then its other photos that aren't tagged `branded` (licensed
  * characters never appear here, though Search shows them).
  */
-function candidates(setKey: string): LibraryPhoto[] {
+export function vibePickCandidates(setKey: string): LibraryPhoto[] {
   const all = setPhotos([setKey]).filter((photo) => !isBranded(photo));
   return [
     ...all.filter((photo) => photo.vibePick),
@@ -70,12 +70,7 @@ function candidates(setKey: string): LibraryPhoto[] {
 /** The photos shown after `more` taps on "Show me more": 12, then 12 more each time. */
 export function vibePickPhotos(setKey: string, more: number): LibraryPhoto[] {
   const pages = Math.max(0, Math.floor(more)) + 1;
-  return candidates(setKey).slice(0, pages * VIBE_PICK.page);
-}
-
-/** How many photos the set can show in all. */
-export function vibePickSize(setKey: string): number {
-  return candidates(setKey).length;
+  return vibePickCandidates(setKey).slice(0, pages * VIBE_PICK.page);
 }
 
 /** Whether a photo may be picked for this set: one of its own, and not branded. */

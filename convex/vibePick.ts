@@ -3,8 +3,7 @@ import {
   isVibeCandidate,
   setForBrief,
   VIBE_PICK,
-  vibePickPhotos,
-  vibePickSize,
+  vibePickCandidates,
   vibeTheme,
 } from "../lib/brief/vibeSets";
 import { can } from "../lib/access/permissions";
@@ -124,13 +123,14 @@ function viewOf(photo: LibraryPhoto) {
 }
 
 /**
- * What the vibe pick shows on the Brief summary. Members see their set's 12
- * vibe pick photos, plus 12 more for each "Show me more" (`more`); an Event
- * with no set gets the one-line skip. Viewers, and everyone once the plan is
- * being made, see nothing.
+ * What the vibe pick shows on the Brief summary. Members get every photo their
+ * set can show, its 12 vibe pick photos first; the grid shows 12 and "Show me
+ * more" shows 12 more at a time, without a new query, so taps survive it. An
+ * Event with no set gets the one-line skip. Viewers, and everyone once the
+ * plan is being made, see nothing.
  */
 export const view = query({
-  args: { eventId: v.id("events"), more: v.number() },
+  args: { eventId: v.id("events") },
   returns: v.union(
     v.object({ kind: v.literal("hidden") }),
     v.object({ kind: v.literal("noSet") }),
@@ -138,7 +138,6 @@ export const view = query({
       kind: v.literal("pick"),
       setKey: v.string(),
       photos: v.array(photoView),
-      hasMore: v.boolean(),
       /** Photos of this set already in the Event as Inspirations, however added. */
       added: v.array(v.number()),
       /** The ones the vibe pick added. */
@@ -162,14 +161,11 @@ export const view = query({
       return { kind: "hidden" as const };
     const setKey = setForBrief(event);
     if (setKey === null) return { kind: "noSet" as const };
-    const more = Math.min(Math.max(Math.floor(args.more), 0), 20);
-    const photos = vibePickPhotos(setKey, more);
     const { added, picked } = await setPhotosIn(ctx, args.eventId, setKey);
     return {
       kind: "pick" as const,
       setKey,
-      photos: photos.map(viewOf),
-      hasMore: photos.length < vibePickSize(setKey),
+      photos: vibePickCandidates(setKey).map(viewOf),
       added,
       picked,
       palette: event.theme.palette,
