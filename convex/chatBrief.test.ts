@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { jaipurWedding } from "../lib/brief/examples";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { STUB_MODEL, stubCallCount } from "./lib/models";
+import {
+  setStubChunkDelayMs,
+  STUB_MODEL,
+  stubCallCount,
+  stubCalls,
+} from "./lib/models";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 
 // A Member who types the first Brief into the main Chat box, instead of the
@@ -18,9 +23,12 @@ beforeEach(() => {
   vi.stubEnv("DEFAULT_MODEL", STUB_MODEL);
   vi.stubEnv("ANTHROPIC_API_KEY", "");
   vi.stubEnv("GEOAPIFY_API_KEY", "");
+  // A reply a test starts finishes within the test (see untilRunsEnd).
+  setStubChunkDelayMs(5);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  setStubChunkDelayMs(undefined);
 });
 
 async function setUp() {
@@ -79,6 +87,39 @@ async function untilQuestion(s: S, question: string) {
   throw new Error(`The Brief never asked "${question}"`);
 }
 
+/**
+ * The stub's Brief extractions since `from` whose prompt holds one of `texts`.
+ * The stub's counter is shared by every test in the process, so a reply
+ * scheduled by another test can land in the same window; this counts only
+ * this Event's extraction calls.
+ */
+function extractionsOf(from: number, texts: string[]) {
+  const made = stubCallCount() - from;
+  expect(made).toBeLessThanOrEqual(stubCalls.length);
+  return stubCalls
+    .slice(stubCalls.length - made)
+    .filter(
+      (call) =>
+        call.responseFormat?.type === "json" &&
+        texts.some((text) => JSON.stringify(call.prompt).includes(text)),
+    );
+}
+
+const ENDED = ["done", "failed", "stopped", "cancelled"];
+
+/** Waits for every run of the Event to end, so no reply outlives its test. */
+async function untilRunsEnd(s: S) {
+  for (let i = 0; i < 200; i++) {
+    const runs = await runsOf(s);
+    if (runs.every((run) => ENDED.includes(run.status))) {
+      await s.t.finishInProgressScheduledFunctions();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("A run never ended");
+}
+
 const runsOf = (s: S) =>
   s.t.run((ctx) =>
     ctx.db
@@ -103,7 +144,7 @@ describe("a first Brief typed into the Chat box", () => {
 
     const brief = await untilQuestion(s, "tradition");
     expect(brief?.extraction).toEqual(jaipurWedding.extraction);
-    expect(stubCallCount() - calls).toBe(1);
+    expect(extractionsOf(calls, [jaipurWedding.text])).toHaveLength(1);
     expect(await runsOf(s)).toEqual([]);
     expect(await memberLines(s)).toHaveLength(1);
   });
@@ -118,6 +159,7 @@ describe("a first Brief typed into the Chat box", () => {
     const result = await send(s.asMeera, s, "Plan the sangeet");
     expect(result.runId).not.toBeNull();
     expect(result.brief).toBeNull();
+    await untilRunsEnd(s);
   });
 
   it("never takes a Don't-reply message as the Brief", async () => {
@@ -129,7 +171,7 @@ describe("a first Brief typed into the Chat box", () => {
     expect(result).toMatchObject({ runId: null, brief: null });
     await s.t.finishInProgressScheduledFunctions();
     expect((await summary(s))?.pendingQuestion).toBe("text");
-    expect(stubCallCount()).toBe(calls);
+    expect(extractionsOf(calls, [jaipurWedding.text])).toEqual([]);
     expect(await runsOf(s)).toEqual([]);
   });
 
@@ -145,7 +187,9 @@ describe("a first Brief typed into the Chat box", () => {
       "started",
     ]);
     await untilQuestion(s, "tradition");
-    expect(stubCallCount() - calls).toBe(1);
+    expect(
+      extractionsOf(calls, [jaipurWedding.text, "Something else entirely"]),
+    ).toHaveLength(1);
     expect(await memberLines(s)).toHaveLength(1);
     expect(await runsOf(s)).toEqual([]);
   });
@@ -165,6 +209,7 @@ describe("a first Brief typed into the Chat box", () => {
     expect(result.runId).not.toBeNull();
     expect(result.brief).toBeNull();
     expect((await summary(s))?.pendingQuestion).toBe("text");
+    await untilRunsEnd(s);
   });
 
   it("can't be given by a Viewer", async () => {
