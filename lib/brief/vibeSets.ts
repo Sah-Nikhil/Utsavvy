@@ -9,7 +9,7 @@ import {
   mergeTheme,
   themeUpdateFromImage,
 } from "../inspirations/theme";
-import type { BriefExtraction, Theme } from "../types/brief";
+import type { BriefExtraction, Theme, ThemeUpdate } from "../types/brief";
 
 /*
  * S18: the vibe pick (first-brief.md "Vibe pick", inspirations.md rules 21 to
@@ -95,6 +95,14 @@ const PLAIN_COLOURS = new Set([
   "black",
 ]);
 
+/** What one stock photo adds to the Theme, by S13's "Use for Theme" rule. */
+function fromPhoto(
+  seen: { palette: readonly string[]; decorKeywords: readonly string[] },
+  theme: Theme,
+): ThemeUpdate {
+  return { ...themeUpdateFromImage(seen, theme, null), fromInspiration: null };
+}
+
 /** How many style words one vibe pick adds. */
 const STYLE_WORDS_FROM_PICK = 3;
 
@@ -116,11 +124,7 @@ export function vibeTheme(
   for (const photo of photos) {
     next = mergeTheme(
       next,
-      themeUpdateFromImage(
-        { palette: photo.palette, decorKeywords: photo.tags },
-        next,
-        null,
-      ),
+      fromPhoto({ palette: photo.palette, decorKeywords: photo.tags }, next),
     );
   }
   // Top up to 3 colours from the photos' later colours, one at a time.
@@ -129,11 +133,7 @@ export function vibeTheme(
       if (next.palette.length >= VIBE_PICK.min) break;
       next = mergeTheme(
         next,
-        themeUpdateFromImage(
-          { palette: [colour], decorKeywords: [] },
-          next,
-          null,
-        ),
+        fromPhoto({ palette: [colour], decorKeywords: [] }, next),
       );
     }
   }
