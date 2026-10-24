@@ -201,13 +201,15 @@ test.describe("canvas", () => {
     const id = (await budget.locator("xpath=..").getAttribute("data-id"))!;
     const before = await transformOf(itemNode(rohan.page, id));
     const box = (await budget.boundingBox())!;
-    // Down and right, still inside Money and dates.
+    // Down and right by a little, still inside Money and dates: the drag
+    // handle is the Item's top row, so this moves the Budget about 40 px.
     await dragItem(meera.page, budget, {
       x: box.x + box.width / 2 + 10,
-      y: box.y + box.height + 40,
+      y: box.y + 60,
     });
     const after = await transformOf(itemNode(meera.page, id));
     expect(after).not.toBe(before);
+    expect(await sectionCount(meera.page, "money")).toBe(2);
     await expect
       .poll(() => transformOf(itemNode(rohan.page, id)), { timeout: 2_000 })
       .toBe(after);
@@ -216,9 +218,25 @@ test.describe("canvas", () => {
   test("dropping an Item in another Section moves it there, for everyone", async () => {
     const before = await sectionCount(rohan.page, "notes");
     const timeline = meera.page.locator('[data-canvas-item="timeline"]');
-    const notes = (await meera.page
-      .locator('[data-section-kind="notes"]')
-      .boundingBox())!;
+    // The Canvas opens on Money and dates, so bring Notes into view first.
+    await meera.page
+      .getByRole("button", { name: "Show the whole Canvas" })
+      .click();
+    const section = meera.page.locator('[data-section-kind="notes"]');
+    await expect(section).toBeInViewport({ ratio: 0.99 });
+    let last = "";
+    await expect
+      .poll(
+        async () => {
+          const now = JSON.stringify(await section.boundingBox());
+          const settled = now === last;
+          last = now;
+          return settled;
+        },
+        { intervals: [150] },
+      )
+      .toBe(true);
+    const notes = (await section.boundingBox())!;
     await dragItem(meera.page, timeline, {
       x: notes.x + notes.width / 2,
       y: notes.y + notes.height / 2,
