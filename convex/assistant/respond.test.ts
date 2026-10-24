@@ -34,6 +34,8 @@ async function setUp(defaultModel: string) {
   agentTest.register(t);
   const { eventId, rohan, aditi } = await t.run(async (ctx) => {
     const eventId = await insertEvent(ctx, "Meera weds Rohan");
+    // Past its first Brief, so a Chat message asks Utsavvy.
+    await ctx.db.patch("events", eventId, { briefState: "summary" });
     const rohan = await seedMembership(ctx, { clerkId: "Rohan", eventId });
     const aditi = await seedMembership(ctx, { clerkId: "Aditi", eventId });
     return {
