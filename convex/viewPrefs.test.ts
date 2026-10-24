@@ -22,7 +22,7 @@ async function meeraAndRohan() {
       clerkId: "meera",
       role: "coOwner",
     });
-    const rohan = await seedMembership(ctx, {
+    await seedMembership(ctx, {
       clerkId: "rohan",
       role: "member",
       eventId: meera.eventId,
@@ -111,12 +111,7 @@ describe("viewPrefs.get and viewPrefs.set", () => {
     await asMeera.mutation(api.viewPrefs.set, { eventId, grouping: "kind" });
     await asMeera.mutation(api.viewPrefs.set, { eventId, grouping: null });
 
-    const rows = await t.run((ctx) =>
-      ctx.db
-        .query("viewPrefs")
-        .filter((q) => q.eq(q.field("eventId"), eventId))
-        .collect(),
-    );
+    const rows = await t.run((ctx) => ctx.db.query("viewPrefs").collect());
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ grouping: null, collapsed: ["section:a"] });
     // No history: personal view state is written directly (section 4.4).
@@ -223,9 +218,7 @@ describe("mobile pointing: the person's setting or the Event default", () => {
 
   it("reads the caller's own setting for /settings, and refuses a signed-out caller", async () => {
     const { t, asRohan } = await meeraAndRohan();
-    expect(await asRohan.query(api.viewPrefs.myMobilePointing, {})).toBe(
-      null,
-    );
+    expect(await asRohan.query(api.viewPrefs.myMobilePointing, {})).toBe(null);
     await asRohan.mutation(api.viewPrefs.setMobilePointing, { value: "jump" });
     expect(await asRohan.query(api.viewPrefs.myMobilePointing, {})).toBe(
       "jump",
