@@ -201,6 +201,27 @@ describe("vibePick.pick", () => {
     expect(view.palette).toEqual(theme.palette);
   });
 
+  it("keeps the colours and words the Member typed in the Theme", async () => {
+    const s = await setUp();
+    const typed = {
+      palette: ["#1F6F78", "#123456", "#ABCDEF"],
+      styleWords: ["lantern-lit", "royal", "minimal", "boho"],
+      decorKeywords: [],
+    };
+    await s.t.run((ctx) => ctx.db.patch("events", s.eventId, { theme: typed }));
+    const five = setPhotos(["wedding-north-indian-hindu"])
+      .filter((p) => p.vibePick)
+      .slice(0, 5)
+      .map((p) => p.pexelsId);
+    await s.asMeera.mutation(api.vibePick.pick, {
+      eventId: s.eventId,
+      pexelsIds: five,
+    });
+    const { theme } = await eventOf(s);
+    expect(theme.palette.slice(0, 3)).toEqual(typed.palette);
+    expect(theme.styleWords).toEqual(typed.styleWords);
+  });
+
   it("adds each photo once when the same pick arrives twice (a double tap)", async () => {
     const s = await setUp();
     await Promise.all([

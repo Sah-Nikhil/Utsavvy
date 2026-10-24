@@ -160,7 +160,7 @@ describe("vibeTheme", () => {
     expect(vibeTheme(EMPTY, same).palette.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("keeps the Member's own style words and adds after them; a full palette drops its oldest colours (S13's rule)", () => {
+  it("keeps the Member's own style words and adds after them", () => {
     const theme = vibeTheme(
       {
         palette: ["#1F6F78"],
@@ -170,7 +170,45 @@ describe("vibeTheme", () => {
       PICKS,
     );
     expect(theme.palette).toHaveLength(5);
+    expect(theme.palette[0]).toBe("#1F6F78");
     expect(theme.styleWords[0]).toBe("royal Rajputana");
+  });
+
+  it("only fills the Theme's free places, so nothing the Member typed is pushed out", () => {
+    const typed: Theme = {
+      palette: ["#1F6F78", "#123456", "#ABCDEF"],
+      styleWords: ["lantern-lit", "royal", "minimal", "boho"],
+      decorKeywords: ["urli", "diyas", "jhoomer", "toran", "brass"],
+    };
+    const five = setPhotos(["wedding-north-indian-hindu"])
+      .filter((p) => p.vibePick)
+      .slice(0, 5);
+    const theme = vibeTheme(typed, five);
+    expect(theme.palette.slice(0, 3)).toEqual(typed.palette);
+    expect(theme.palette).toHaveLength(5);
+    expect(theme.styleWords).toEqual(typed.styleWords);
+    expect(theme.decorKeywords.slice(0, 5)).toEqual(typed.decorKeywords);
+    expect(theme.decorKeywords).toHaveLength(6);
+  });
+
+  it("leaves a full Theme as the Member wrote it", () => {
+    const full: Theme = {
+      palette: ["#1F6F78", "#123456", "#ABCDEF", "#FEDCBA", "#654321"],
+      styleWords: ["lantern-lit", "royal", "minimal", "boho"],
+      decorKeywords: ["urli", "diyas", "jhoomer", "toran", "brass", "kalash"],
+    };
+    expect(vibeTheme(full, PICKS)).toEqual(full);
+  });
+
+  it("matches the Member's colours in any case, so a lowercase colour isn't added again", () => {
+    const first = PICKS[0]!.palette[0]!.toLowerCase();
+    const theme = vibeTheme(
+      { palette: [first], styleWords: [], decorKeywords: [] },
+      PICKS,
+    );
+    expect(
+      theme.palette.filter((c) => c.toUpperCase() === first.toUpperCase()),
+    ).toHaveLength(1);
   });
 
   it("changes nothing when no photo is tapped", () => {
