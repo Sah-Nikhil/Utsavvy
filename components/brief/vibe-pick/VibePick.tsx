@@ -154,9 +154,11 @@ function PickGrid({
   const [full, setFull] = useState(false);
 
   const { min, max, page } = view.limits;
-  const already = new Set(view.picked);
+  // Photos already in the Event, from an earlier pick or from Search.
+  const already = new Set(view.added);
+  const picks = view.picked.length;
   // A first pick needs 3; adding to an earlier pick needs only 1.
-  const needed = Math.max(1, min - already.size);
+  const needed = Math.max(1, min - picks);
   const ready = chosen.length >= needed && chosen.length <= max;
 
   function toggle(pexelsId: number) {
@@ -189,7 +191,7 @@ function PickGrid({
   const status = full
     ? `You've picked ${max}. Tap one to swap it out.`
     : chosen.length === 0
-      ? already.size > 0
+      ? picks > 0
         ? "Tap more photos to add them."
         : `Tap ${min} to ${max} photos you like.`
       : chosen.length < needed
@@ -246,7 +248,7 @@ function PickGrid({
           {status}
         </p>
         <div className="ml-auto flex items-center gap-1">
-          {already.size === 0 ? (
+          {picks === 0 ? (
             <Button variant="text" size="sm" onClick={onSkip} disabled={busy}>
               Skip
             </Button>

@@ -47,27 +47,60 @@ async function loadEvent(
   return event;
 }
 
-/** The Pexels ids this Event already has as live Inspirations. */
-async function pickedIds(
+/** The history label of a vibe pick's writes. */
+const VIBE_PICK_LABEL = "The vibe pick";
+
+/** This Event's live stock library Inspirations, by Pexels id. */
+async function libraryItems(
   ctx: QueryCtx,
   eventId: Id<"events">,
-): Promise<Set<number>> {
+): Promise<Map<number, Id<"items">>> {
   const items = await ctx.db
     .query("items")
     .withIndex("by_event_kind", (q) =>
       q.eq("eventId", eventId).eq("kind", "inspiration"),
     )
     .take(2000);
-  const ids = new Set<number>();
+  const ids = new Map<number, Id<"items">>();
   for (const item of items) {
     if (
       item.deletedAt === null &&
       item.kind === "inspiration" &&
       item.data.source.kind === "pexels"
     )
-      ids.add(item.data.source.pexelsId);
+      ids.set(item.data.source.pexelsId, item._id);
   }
   return ids;
+}
+
+/** The change that created an Inspiration, if history still has it. */
+async function creation(ctx: QueryCtx, itemId: Id<"items">) {
+  return await ctx.db
+    .query("changes")
+    .withIndex("by_doc", (q) => q.eq("docId", itemId))
+    .first();
+}
+
+/**
+ * The set's photos in this Event, and which of them the vibe pick added. A
+ * photo the vibe pick added has its creation labelled "The vibe pick"; one
+ * added through Search isn't a pick, though the grid shows it as added.
+ */
+async function setPhotosIn(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  setKey: string,
+): Promise<{ added: number[]; picked: number[] }> {
+  const added: number[] = [];
+  const picked: number[] = [];
+  for (const [pexelsId, itemId] of await libraryItems(ctx, eventId)) {
+    if (!isVibeCandidate(setKey, pexelsId)) continue;
+    added.push(pexelsId);
+    const change = await creation(ctx, itemId);
+    if (change?.op === "create" && change.groupLabel === VIBE_PICK_LABEL)
+      picked.push(pexelsId);
+  }
+  return { added, picked };
 }
 
 const photoView = v.object({
@@ -106,7 +139,9 @@ export const view = query({
       setKey: v.string(),
       photos: v.array(photoView),
       hasMore: v.boolean(),
-      /** Photos of this set already added as Inspirations. */
+      /** Photos of this set already in the Event as Inspirations, however added. */
+      added: v.array(v.number()),
+      /** The ones the vibe pick added. */
       picked: v.array(v.number()),
       /** The Theme's colours, to show what the pick made. */
       palette: v.array(v.string()),
@@ -129,13 +164,14 @@ export const view = query({
     if (setKey === null) return { kind: "noSet" as const };
     const more = Math.min(Math.max(Math.floor(args.more), 0), 20);
     const photos = vibePickPhotos(setKey, more);
-    const picked = await pickedIds(ctx, args.eventId);
+    const { added, picked } = await setPhotosIn(ctx, args.eventId, setKey);
     return {
       kind: "pick" as const,
       setKey,
       photos: photos.map(viewOf),
       hasMore: photos.length < vibePickSize(setKey),
-      picked: [...picked].filter((id) => isVibeCandidate(setKey, id)),
+      added,
+      picked,
       palette: event.theme.palette,
       limits: { ...VIBE_PICK },
     };
@@ -184,14 +220,27 @@ export const pick = mutation({
         );
     }
 
-    const already = await pickedIds(ctx, args.eventId);
+    const already = await libraryItems(ctx, args.eventId);
     const fresh = ids.filter((id) => !already.has(id));
     if (fresh.length === 0) return { added: 0, themeChanged: false };
+    const { picked } = await setPhotosIn(ctx, args.eventId, setKey);
+    if (picked.length === 0 && fresh.length < VIBE_PICK.min)
+      throw new VibePickRefused(
+        "count",
+        `Pick at least ${VIBE_PICK.min} photos for the look.`,
+      );
     for (const pexelsId of fresh) {
-      await ctx.runMutation(api.inspirations.addFromLibrary, {
-        eventId: args.eventId,
-        pexelsId,
-      });
+      const { itemId } = await ctx.runMutation(
+        api.inspirations.addFromLibrary,
+        { eventId: args.eventId, pexelsId },
+      );
+      // S13's insert records the Inspiration's creation; labelling it marks
+      // the photo as one the vibe pick added (see `setPhotosIn`).
+      const change = await creation(ctx, itemId);
+      if (change !== null)
+        await ctx.db.patch("changes", change._id, {
+          groupLabel: VIBE_PICK_LABEL,
+        });
     }
 
     const photos = fresh
@@ -205,7 +254,7 @@ export const pick = mutation({
       id: args.eventId,
       patch: { theme },
       actor: { kind: "member", membershipId: membership._id },
-      groupLabel: "The vibe pick",
+      groupLabel: VIBE_PICK_LABEL,
     });
     await ctx.runMutation(internal.chat.postSystem, {
       eventId: args.eventId,

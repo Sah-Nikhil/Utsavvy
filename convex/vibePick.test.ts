@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- Theme colours here are data (the hex values a Member typed), not UI styling. */
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
