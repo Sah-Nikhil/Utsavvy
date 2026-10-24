@@ -995,10 +995,27 @@ export async function resolveChanges(
         const fields: Record<string, unknown> = {};
         const patch = spec.patch;
         if (patch.kind === "budget" && entry.kind === "budget") {
-          if (patch.label !== undefined)
-            fields.label = cleanLabel(patch.label, "line");
-          if (patch.quantity !== undefined) fields.quantity = patch.quantity;
+          // Only what actually changes, so the card never shows "100 → 100".
+          if (patch.label !== undefined) {
+            const label = cleanLabel(patch.label, "line");
+            if (label !== entry.fields.label) fields.label = label;
+          }
+          if (
+            patch.quantity !== undefined &&
+            patch.quantity !== entry.fields.quantity
+          )
+            fields.quantity = patch.quantity;
           const amount = patch.amount;
+          if (
+            amount === undefined &&
+            Object.keys(fields).length === 0 &&
+            (spec.functionKey === undefined ||
+              spec.functionKey === entry.functionKey)
+          )
+            refuse(
+              "noChange",
+              `That change leaves ${entry.fields.label} as it is.`,
+            );
           const before = entryAmount(entry.fields);
           if (amount && "memberStated" in amount) {
             fields.plannedAmount = stated(
@@ -1012,10 +1029,7 @@ export async function resolveChanges(
                 "noEstimate",
                 `${entry.fields.label} has no Estimate to cut to.`,
               );
-            if (
-              patch.quantity !== undefined &&
-              patch.quantity !== entry.fields.quantity
-            )
+            if ("quantity" in fields)
               refuse(
                 "cutWithQuantity",
                 `Change ${entry.fields.label}'s quantity on its own first; its Estimate moves with it, and a later Proposal can cut it to the new low end.`,
@@ -1030,6 +1044,13 @@ export async function resolveChanges(
             fields.plannedAmount = null;
             fields.estimate = { ...estimate, amount: estimate.low };
           } else if (amount && "receiveFreedFrom" in amount) {
+            // Freed rupees land as a fixed amount; with a new quantity the
+            // Estimate would rescale under it, out of step with the line.
+            if ("quantity" in fields && entry.fields.estimate !== null)
+              refuse(
+                "freedWithQuantity",
+                `Change ${entry.fields.label}'s quantity on its own first; its Estimate moves with it, and a later Proposal can move freed rupees into it.`,
+              );
             pendingFreed.push(i);
           }
           // What the line frees is what Accept will write, through the same
@@ -1657,7 +1678,7 @@ export function buildProposeTools(
   const deps = options.estimateDeps;
   const propose = createTool<ProposeInput, ToolResult, AssistantToolCtx>({
     description:
-      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (lowers the line to its Estimate's low end, never raises it; not in the same change as a new quantity) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines; each change's freed rupees go to one line only); never your own number.",
+      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (lowers the line to its Estimate's low end, never raises it; not in the same change as a new quantity) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines; each change's freed rupees go to one line only; not in the same change as a new quantity on an Estimate line); never your own number.",
     inputSchema: proposeInput,
     execute: async (ctx, input, { toolCallId }): Promise<ToolResult> => {
       try {

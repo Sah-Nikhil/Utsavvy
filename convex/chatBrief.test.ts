@@ -199,7 +199,7 @@ describe("a first Brief typed into the Chat box", () => {
     const itemId = await s.t.run(async (ctx) => {
       const item = await ctx.db
         .query("items")
-        .filter((q) => q.eq(q.field("eventId"), s.eventId))
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
         .first();
       return item!._id;
     });
