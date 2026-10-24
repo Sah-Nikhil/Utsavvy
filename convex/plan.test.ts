@@ -432,12 +432,14 @@ describe("applying the Jaipur wedding's fixed draft", () => {
 
     // Plates follow each Function's Guests, which are assumed except the wedding's.
     const haldiCatering = lines.find(
-      (e) => e.functionKey === "haldi" && e.fields.category === "catering_light",
+      (e) =>
+        e.functionKey === "haldi" && e.fields.category === "catering_light",
     )!;
     expect(haldiCatering.fields.quantity).toBe(60);
     expect(haldiCatering.assumed).toContain("quantity");
     const weddingCatering = lines.find(
-      (e) => e.functionKey === "wedding" && e.fields.category === "catering_main",
+      (e) =>
+        e.functionKey === "wedding" && e.fields.category === "catering_main",
     )!;
     expect(weddingCatering.assumed).not.toContain("quantity");
   });
@@ -468,7 +470,8 @@ describe("applying the Jaipur wedding's fixed draft", () => {
       (e) => e.kind === "checklist" && e.fields.vendorCategory === "venue",
     );
     expect(venues).toHaveLength(4);
-    for (const venue of venues) expect(view.bookBy[venue._id]).toBe("2026-10-28");
+    for (const venue of venues)
+      expect(view.bookBy[venue._id]).toBe("2026-10-28");
 
     const deadlines = (await timelineEntries(s)).filter(
       (e) => e.fields.time === null,
@@ -481,7 +484,10 @@ describe("applying the Jaipur wedding's fixed draft", () => {
       priority: "P1",
     });
     expect(due("book_venues").note).toMatch(/this week/);
-    expect(due("book_caterer")).toMatchObject({ date: "2026-10-28", late: true });
+    expect(due("book_caterer")).toMatchObject({
+      date: "2026-10-28",
+      late: true,
+    });
     expect(due("book_photographer")).toMatchObject({ date: "2026-10-28" });
     for (const key of [
       "book_decorator",
@@ -518,7 +524,9 @@ describe("applying the Jaipur wedding's fixed draft", () => {
       for (const entry of sheet) expect(entry.assumed).toContain("time");
     }
     expect(
-      runSheet.filter((e) => e.functionKey === "wedding").map((e) => e.fields.time),
+      runSheet
+        .filter((e) => e.functionKey === "wedding")
+        .map((e) => e.fields.time),
     ).toEqual([
       "17:30",
       "18:30",
@@ -567,6 +575,29 @@ describe("applying the Jaipur wedding's fixed draft", () => {
     await s.t.run((ctx) => applyPlan(ctx, s.eventId, priced));
     expect(await liveEntries(s)).toHaveLength(once.length);
     expect(await suggestions(s)).toHaveLength(ideas);
+  });
+});
+
+describe("a plan run that can't finish", () => {
+  it("hands the Brief back to its summary when the draft fails, so Make my plan works again", async () => {
+    const s = await aaravAtSummary();
+    const runId = await startRun(s);
+    await runPlan(
+      actionCtx(s.t),
+      { eventId: s.eventId, runId },
+      {
+        draft: async () => {
+          throw new Error("no model could answer");
+        },
+        estimate: stubEstimateDeps,
+        today: TODAY,
+      },
+    );
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(event!.briefState).toBe("summary");
+    const run = await s.t.run((ctx) => ctx.db.get("runs", runId));
+    expect(run!.status).toBe("failed");
+    expect(await liveEntries(s)).toEqual([]);
   });
 });
 
@@ -678,7 +709,8 @@ describe("changing an essential after the plan", () => {
     await planWith(s, jaipurWeddingDraft);
     // Meera sets the wedding's catering herself, so the change must keep it.
     const weddingCatering = (await budgetEntries(s)).find(
-      (e) => e.functionKey === "wedding" && e.fields.category === "catering_main",
+      (e) =>
+        e.functionKey === "wedding" && e.fields.category === "catering_main",
     )!;
     await s.asMeera.mutation(api.entries.update, {
       entryId: weddingCatering._id,
@@ -713,7 +745,8 @@ describe("changing an essential after the plan", () => {
 
     const quantityOf = (key: string) => {
       const entry = before.find(
-        (e) => e.functionKey === key && e.fields.category?.startsWith("catering_"),
+        (e) =>
+          e.functionKey === key && e.fields.category?.startsWith("catering_"),
       )!;
       const change = changes.find(
         (c) => c.op === "updateEntry" && c.docId === entry._id,
@@ -836,7 +869,9 @@ describe("changing an essential after the plan", () => {
     const lines = await budgetEntries(s);
     expect(
       lines.find(
-        (e) => e.functionKey === "reception" && e.fields.category === "catering_main",
+        (e) =>
+          e.functionKey === "reception" &&
+          e.fields.category === "catering_main",
       )!.fields.quantity,
     ).toBe(400);
     const kept = lines.find((e) => e._id === weddingCateringId)!;

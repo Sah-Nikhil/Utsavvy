@@ -2083,10 +2083,23 @@ export const end = internalMutation({
   returns: v.null(),
   handler: async (ctx, { eventId, runId, outcome, reason }) => {
     const run = await ctx.db.get("runs", runId);
-    if (run === null || (run.status !== "running" && run.status !== "stopping"))
-      return null;
+    if (run === null) return null;
+    // A Stop the pipeline didn't answer in time is ended by S5's reaper, so
+    // the run may already be over: the Brief is still handed back, unless a
+    // newer plan run has started since.
+    const latest = (
+      await ctx.db
+        .query("runs")
+        .withIndex("by_event_created", (q) => q.eq("eventId", eventId))
+        .order("desc")
+        .take(20)
+    ).find((r) => r.source === "brief");
     const event = await ctx.db.get("events", eventId);
-    if (event !== null && event.briefState === "planning") {
+    if (
+      event !== null &&
+      event.briefState === "planning" &&
+      latest?._id === runId
+    ) {
       const wrote = await ctx.db
         .query("toolCalls")
         .withIndex("by_key", (q) => q.eq("key", stepKey(runId, "functions")))
@@ -2095,6 +2108,7 @@ export const end = internalMutation({
         briefState: wrote === null ? "summary" : "planned",
       });
     }
+    if (run.status !== "running" && run.status !== "stopping") return null;
     if (outcome === "failed") {
       await ctx.runMutation(internal.chat.postSystem, {
         eventId,
