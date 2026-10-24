@@ -198,7 +198,12 @@ function ChatBody({
             element.scrollHeight - element.scrollTop - element.clientHeight <
             48;
         }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4"
+        // Focusable, so a keyboard can scroll the Chat even when nothing in
+        // it is (a Viewer's Chat of closed cards and messages).
+        tabIndex={0}
+        aria-label="Chat messages"
+        role="region"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 outline-offset-[-2px] focus-visible:outline-2 focus-visible:outline-focus"
       >
         {status === "CanLoadMore" ? (
           <div className="mb-3 flex justify-center">

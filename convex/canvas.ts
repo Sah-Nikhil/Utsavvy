@@ -71,7 +71,7 @@ export const MAX_CUSTOM_SECTIONS = 30;
 /** Positions stay within this distance of the Canvas origin. */
 const MAX_COORDINATE = 50_000;
 
-async function liveSections(
+export async function liveSections(
   ctx: Ctx,
   eventId: Id<"events">,
 ): Promise<Doc<"sections">[]> {
