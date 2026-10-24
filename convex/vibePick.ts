@@ -110,6 +110,8 @@ export const view = query({
       picked: v.array(v.number()),
       /** The Theme's colours, to show what the pick made. */
       palette: v.array(v.string()),
+      /** How many photos a pick takes, and how many show per page. */
+      limits: v.object({ min: v.number(), max: v.number(), page: v.number() }),
     }),
   ),
   handler: async (ctx, args) => {
@@ -135,6 +137,7 @@ export const view = query({
       hasMore: photos.length < vibePickSize(setKey),
       picked: [...picked].filter((id) => isVibeCandidate(setKey, id)),
       palette: event.theme.palette,
+      limits: { ...VIBE_PICK },
     };
   },
 });
