@@ -443,12 +443,10 @@ describe("Replaced", () => {
       kind: "replaced",
       text: "Replaced",
     });
-    const refused = await s
-      .as("Meera")
-      .mutation(api.proposals.accept, {
-        eventId: s.eventId,
-        proposalId: first,
-      });
+    const refused = await s.as("Meera").mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: first,
+    });
     expect(refused).toMatchObject({ ok: false, reason: "closed" });
     expect(await plannedOf(s, s.decor)).toBe(300_000);
   });
