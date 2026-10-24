@@ -31,6 +31,17 @@ describe("the system prompt", () => {
     expect(SYSTEM_PROMPT).toContain("my own estimate");
   });
 
+  it("sends an over-threshold change to propose, not just a mention of Accept", () => {
+    const line = SYSTEM_PROMPT.split("\n").find((l) =>
+      l.includes("needsProposal"),
+    );
+    expect(line).toBeDefined();
+    expect(line).toMatch(/call propose/);
+    expect(SYSTEM_PROMPT).not.toMatch(
+      /say what you would change and that it needs a Member's Accept/,
+    );
+  });
+
   it("no longer says the Assistant can't change the Canvas", () => {
     expect(SYSTEM_PROMPT).not.toMatch(/can't change the Canvas/i);
   });
