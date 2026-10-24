@@ -378,3 +378,283 @@ describe("All or nothing", () => {
     expect(rows).toHaveLength(0);
   });
 });
+
+describe("Replaced", () => {
+  it("a revised Proposal from a reply replaces the old one", async () => {
+    const s = await setUp();
+    const first = await riskyProposal(s);
+
+    const runId = await ask(s, "Aditi", "Keep the drone shoot.");
+    const noEstimate = await propose(
+      s,
+      runId,
+      s.people.Aditi,
+      {
+        summary: "Cut Decor to its Estimate, keep the Drone shoot",
+        replaces: first,
+        changes: [
+          {
+            op: "updateEntry",
+            entryId: s.decor,
+            expectedVersion: 1,
+            patch: { kind: "budget", amount: { estimateLow: true } },
+          },
+        ],
+      },
+      "toolu_p2",
+    );
+    // Decor has no Estimate to cut to, and Aditi didn't write an amount.
+    expect(noEstimate).toMatchObject({ ok: false, reason: "noEstimate" });
+    expect((await card(s, "Meera", first)).status.kind).toBe("open");
+
+    const revised = await propose(
+      s,
+      runId,
+      s.people.Aditi,
+      {
+        summary: "Keep the Drone shoot; rename the Contingency",
+        replaces: first,
+        changes: [
+          {
+            op: "updateEntry",
+            entryId: s.contingency,
+            expectedVersion: 1,
+            patch: { kind: "budget", label: "Contingency fund" },
+          },
+        ],
+      },
+      "toolu_p3",
+    );
+    expect(revised.ok, JSON.stringify(revised)).toBe(true);
+
+    expect((await card(s, "Meera", first)).status).toEqual({
+      kind: "replaced",
+      text: "Replaced",
+    });
+    const refused = await s
+      .as("Meera")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId: first });
+    expect(refused).toMatchObject({ ok: false, reason: "closed" });
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+});
+
+describe("Expiry", () => {
+  it("closes an open Proposal 24 hours after it was posted", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+
+    vi.advanceTimersByTime(24 * HOUR);
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect((await card(s, "Meera", proposalId)).status).toEqual({
+      kind: "expired",
+      text: "Expired",
+    });
+
+    const refused = await s
+      .as("Aditi")
+      .mutation(api.proposals.accept, { eventId: s.eventId, proposalId });
+    expect(refused).toMatchObject({ ok: false, reason: "closed" });
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+
+  it("is still open a minute before the 24 hours are up", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    vi.advanceTimersByTime(24 * HOUR - 60_000);
+    await s.t.finishInProgressScheduledFunctions();
+    expect((await card(s, "Meera", proposalId)).status.kind).toBe("open");
+  });
+});
+
+describe("Who may decide", () => {
+  it("shows a Viewer the card without buttons and refuses their Accept and Reject", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+
+    const seen = await card(s, "Papa", proposalId);
+    expect(seen.lines).toEqual([
+      "Decor ₹3,00,000 → ₹2,20,000",
+      'Delete "Drone shoot" (₹60,000)',
+      "Contingency ₹1,00,000 → ₹1,80,000",
+    ]);
+    expect(seen.canDecide).toBe(false);
+    expect((await card(s, "Aditi", proposalId)).canDecide).toBe(true);
+
+    for (const fn of [api.proposals.accept, api.proposals.reject]) {
+      await expect(
+        s.as("Papa").mutation(fn, { eventId: s.eventId, proposalId }),
+      ).rejects.toThrow(/AccessDenied/);
+    }
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+
+  it("refuses a removed or blocked Member, and anyone outside the Event", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch("memberships", s.people.Meera, {
+        status: "removed",
+        endedAt: 1,
+      });
+      await ctx.db.patch("memberships", s.people.Aditi, { blocked: true });
+    });
+    for (const who of ["Meera", "Aditi"] as const) {
+      await expect(
+        s
+          .as(who)
+          .mutation(api.proposals.accept, { eventId: s.eventId, proposalId }),
+      ).rejects.toThrow(/AccessDenied/);
+    }
+    // A Member of another Event can't reach it through their own Event.
+    const other = await s.t.run((ctx) =>
+      seedMembership(ctx, { clerkId: "Kabir" }),
+    );
+    const kabir = s.t.withIdentity(identityFor("Kabir"));
+    await expect(
+      kabir.mutation(api.proposals.accept, {
+        eventId: other.eventId,
+        proposalId,
+      }),
+    ).rejects.toThrow(/AccessDenied/);
+    await expect(
+      kabir.query(api.proposals.get, { eventId: other.eventId, proposalId }),
+    ).rejects.toThrow(/AccessDenied/);
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+
+  it("writes once when two Members tap Accept", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    const args = { eventId: s.eventId, proposalId };
+    expect(await s.as("Aditi").mutation(api.proposals.accept, args)).toEqual({
+      ok: true,
+    });
+    expect(await s.as("Meera").mutation(api.proposals.accept, args)).toEqual({
+      ok: true,
+    });
+    const rows = await s.t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_group", (q) => q.eq("groupKey", proposalId))
+        .collect(),
+    );
+    expect(rows).toHaveLength(3);
+    expect((await card(s, "Rohan", proposalId)).status.text).toBe(
+      "Accepted by Aditi",
+    );
+  });
+
+  it("lets a Member reject it, applying nothing", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    expect(
+      await s
+        .as("Meera")
+        .mutation(api.proposals.reject, { eventId: s.eventId, proposalId }),
+    ).toEqual({ ok: true });
+    expect((await card(s, "Papa", proposalId)).status).toEqual({
+      kind: "rejected",
+      text: "Rejected by Meera",
+    });
+    expect(await plannedOf(s, s.decor)).toBe(300_000);
+  });
+});
+
+describe("The propose tool", () => {
+  it("posts the card in the Chat as a notice, never as Utsavvy's own words", async () => {
+    const s = await setUp();
+    const proposalId = await riskyProposal(s);
+    const annotations = await s.t.run((ctx) =>
+      ctx.db
+        .query("chatAnnotations")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .collect(),
+    );
+    const row = annotations.find((a) => a.card?.kind === "proposal");
+    expect(row?.card).toEqual({ kind: "proposal", id: proposalId });
+    expect(row?.authorMembershipId).toBeNull();
+  });
+
+  it("refuses an amount the asking Member didn't write", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Trim the decor a bit.");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Trim Decor",
+      changes: [
+        {
+          op: "updateEntry",
+          entryId: s.decor,
+          expectedVersion: 1,
+          patch: { kind: "budget", amount: { memberStated: 250_000 } },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+  });
+
+  it("refuses a version the model didn't read, and another Event's Item", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Drop the drone shoot.");
+    const stale = await propose(s, runId, s.people.Rohan, {
+      summary: "Drop the Drone shoot",
+      changes: [{ op: "deleteEntry", entryId: s.drone, expectedVersion: 2 }],
+    });
+    expect(stale).toMatchObject({ ok: false, reason: "stale" });
+
+    const foreign = await s.t.run(async (ctx) => {
+      const { eventId, membershipId } = await seedMembership(ctx, {
+        clerkId: "Kabir",
+      });
+      const sections = await createStartingSections(ctx, eventId, {
+        kind: "member",
+        membershipId,
+      });
+      return await ctx.db.insert("items", {
+        eventId,
+        sectionId: sections.notes,
+        kind: "note",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: { text: "Kabir's note", citations: [] },
+        createdBy: { kind: "member", membershipId },
+        version: 1,
+        deletedAt: null,
+      });
+    });
+    const wrong = await propose(
+      s,
+      runId,
+      s.people.Rohan,
+      {
+        summary: "Delete a Note",
+        changes: [{ op: "deleteItem", itemId: foreign, expectedVersion: 1 }],
+      },
+      "toolu_p9",
+    );
+    expect(wrong).toMatchObject({ ok: false, error: "AccessDenied" });
+  });
+
+  it("returns the first result when the same tool call repeats", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "Drop the drone shoot.");
+    const input = {
+      summary: "Drop the Drone shoot",
+      changes: [{ op: "deleteEntry", entryId: s.drone, expectedVersion: 1 }],
+    };
+    const a = await propose(s, runId, s.people.Rohan, input);
+    const b = await propose(s, runId, s.people.Rohan, input);
+    expect(b).toEqual(a);
+    const proposals = await s.t.run((ctx) =>
+      ctx.db.query("proposals").collect(),
+    );
+    expect(proposals).toHaveLength(1);
+  });
+});
