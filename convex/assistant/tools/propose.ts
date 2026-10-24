@@ -34,7 +34,7 @@ import type {
 import { components, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "../../_generated/server";
-import { MAX_CUSTOM_SECTIONS, placeNewItem } from "../../canvas";
+import { liveSections, MAX_CUSTOM_SECTIONS, placeNewItem } from "../../canvas";
 import { checkNewComment, commentItem } from "../../comments";
 import {
   cleanLabel,
@@ -281,6 +281,36 @@ function estimateProblem(entry: Doc<"entries">, value: unknown): string | null {
   return null;
 }
 
+/**
+ * A budget line's fields after a Proposal's patch, exactly as Accept writes
+ * them: a new quantity rescales the line's Estimate at the same price per
+ * unit, unless the patch sets the Estimate itself. The card, Accept and the
+ * freed-rupees count all use this, so the rupees a card shows are the rupees
+ * Accept writes.
+ */
+export function nextBudgetFields(
+  before: EntryFields<"budget">,
+  patch: Record<string, unknown>,
+): EntryFields<"budget"> {
+  const next = { ...before, ...patch } as EntryFields<"budget">;
+  if (
+    "quantity" in patch &&
+    !("estimate" in patch) &&
+    before.estimate !== null &&
+    next.quantity !== before.quantity
+  )
+    next.estimate = rescaleEstimate(
+      before.estimate,
+      before.unit,
+      before.quantity,
+      next.quantity,
+    );
+  // A Member's own amount (their words) marks the line as theirs; a cut to
+  // the Estimate's low end stays an Estimate.
+  if (typeof patch.plannedAmount === "number") next.editedByMember = true;
+  return next;
+}
+
 export const updateEntryOp: ProposalOpHandler<"updateEntry"> = {
   validate: async (ctx, change) => {
     const entry = await liveDoc(ctx, "entries", change.docId);
@@ -319,25 +349,10 @@ export const updateEntryOp: ProposalOpHandler<"updateEntry"> = {
   apply: async (ctx, change, actor) => {
     const entry = (await ctx.db.get("entries", change.docId))!;
     const patch = (change.values.patch.fields ?? {}) as Record<string, unknown>;
-    const fields = { ...entry.fields, ...patch } as Record<string, unknown>;
-    if (entry.kind === "budget") {
-      const before = entry.fields;
-      const next = fields as EntryFields<"budget">;
-      if (
-        "quantity" in patch &&
-        before.estimate !== null &&
-        next.quantity !== before.quantity
-      )
-        next.estimate = rescaleEstimate(
-          before.estimate,
-          before.unit,
-          before.quantity,
-          next.quantity,
-        );
-      // A Member's own amount (their words) marks the line as theirs; a cut
-      // to the Estimate's low end stays an Estimate.
-      if (typeof patch.plannedAmount === "number") next.editedByMember = true;
-    }
+    const fields =
+      entry.kind === "budget"
+        ? nextBudgetFields(entry.fields, patch)
+        : { ...entry.fields, ...patch };
     const touched = Object.keys(patch);
     const extra: { functionKey?: string | null } = {};
     if ("functionKey" in change.values.patch) {
@@ -610,15 +625,6 @@ export const createSectionOp: ProposalOpHandler<"createSection"> = {
     return [id];
   },
 };
-
-async function liveSections(ctx: Ctx, eventId: Id<"events">) {
-  return (
-    await ctx.db
-      .query("sections")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .take(100)
-  ).filter((s) => s.deletedAt === null);
-}
 
 export const addCommentOp: ProposalOpHandler<"addComment"> = {
   validate: async (ctx, change) => {
@@ -1006,6 +1012,14 @@ export async function resolveChanges(
                 "noEstimate",
                 `${entry.fields.label} has no Estimate to cut to.`,
               );
+            if (
+              patch.quantity !== undefined &&
+              patch.quantity !== entry.fields.quantity
+            )
+              refuse(
+                "cutWithQuantity",
+                `Change ${entry.fields.label}'s quantity on its own first; its Estimate moves with it, and a later Proposal can cut it to the new low end.`,
+              );
             if (estimate.low >= before)
               refuse(
                 "notACut",
@@ -1018,13 +1032,12 @@ export async function resolveChanges(
           } else if (amount && "receiveFreedFrom" in amount) {
             pendingFreed.push(i);
           }
-          if ("plannedAmount" in fields)
-            freed[i] =
-              before -
-              entryAmount({
-                ...entry.fields,
-                ...fields,
-              } as EntryFields<"budget">);
+          // What the line frees is what Accept will write, through the same
+          // helper the card uses (a lower quantity frees rupees too).
+          if (!(amount && "receiveFreedFrom" in amount)) {
+            const after = entryAmount(nextBudgetFields(entry.fields, fields));
+            if (after !== before) freed[i] = before - after;
+          }
         } else if (patch.kind === "timeline") {
           for (const key of [
             "title",
@@ -1644,7 +1657,7 @@ export function buildProposeTools(
   const deps = options.estimateDeps;
   const propose = createTool<ProposeInput, ToolResult, AssistantToolCtx>({
     description:
-      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (lowers the line to its Estimate's low end, never raises it) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines; each change's freed rupees go to one line only); never your own number.",
+      "Post a Proposal: a bundle of changes the Members must Accept before anything happens. Each change names the version you read. A budget amount is memberStated (the asking Member's words), estimateLow (lowers the line to its Estimate's low end, never raises it; not in the same change as a new quantity) or receiveFreedFrom (indexes of changes in this Proposal that lower or delete lines; each change's freed rupees go to one line only); never your own number.",
     inputSchema: proposeInput,
     execute: async (ctx, input, { toolCallId }): Promise<ToolResult> => {
       try {

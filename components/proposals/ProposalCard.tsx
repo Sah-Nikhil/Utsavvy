@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ProposalCardView } from "@/convex/proposals";
 import { cn } from "@/lib/utils";
+import { seenAt, useExpiryClock } from "./expiry";
 
 /*
  * A Proposal (S10, assistant-behavior.md rules 10 to 13, 16 and 19): the
@@ -71,7 +72,8 @@ export function ProposalCard({
   /** False where the line above the card already shows the summary (the Chat). */
   showSummary?: boolean;
 }) {
-  const view = useQuery(api.proposals.get, { eventId, proposalId });
+  const live = useQuery(api.proposals.get, { eventId, proposalId });
+  const now = useExpiryClock(live?.expiresAt);
   const accept = useMutation(api.proposals.accept);
   const reject = useMutation(api.proposals.reject);
   const askAgain = useMutation(api.proposals.askAgain);
@@ -80,7 +82,7 @@ export function ProposalCard({
   const [askedAgain, setAskedAgain] = useState(false);
   const headingId = useId();
 
-  if (view === undefined) {
+  if (live === undefined) {
     return (
       <div
         className="h-28 animate-pulse rounded-md bg-surface-sunk motion-reduce:animate-none"
@@ -111,6 +113,8 @@ export function ProposalCard({
     }
   }
 
+  // Past its 24 hours, an open card reads as expired before the job runs.
+  const view = seenAt(live, now);
   const { status } = view;
   const open = status.kind === "open";
   const busy = pending !== null;

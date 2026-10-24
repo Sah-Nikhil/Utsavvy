@@ -21,7 +21,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { MAX_CUSTOM_SECTIONS } from "./canvas";
+import { liveSections, MAX_CUSTOM_SECTIONS } from "./canvas";
 import { requireAccess, requireAccessFor } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { handlerFor } from "./lib/proposalOps";
@@ -32,6 +32,7 @@ import {
   changeSpecValidator,
   gate,
   MAX_PROPOSAL_CHANGES,
+  nextBudgetFields,
   proposalRefused,
   Refusal,
   refuse,
@@ -184,19 +185,25 @@ async function changedBy(
   return await memberDisplayName(ctx, latest.actor.membershipId);
 }
 
-/** What the card and Accept say when the asker can no longer ask. */
+/** What the card and Accept say when the asker has left the Event. */
 export const ASKER_LEFT =
   "The Member who asked for this has left; ask Utsavvy again.";
+/** What they say when the asker is still in the Event but can't edit it now. */
+export const ASKER_CANT_EDIT =
+  "The Member who asked for this can no longer edit this Event; ask Utsavvy again.";
 
-/** Whether the Member a Proposal is for can still ask the Assistant: active, unblocked, a Member. */
-async function askerActive(ctx: Ctx, proposal: Doc<"proposals">) {
+/**
+ * Why the Member a Proposal is for can no longer have it applied, or null
+ * while they are an active, unblocked Member.
+ */
+async function askerProblem(
+  ctx: Ctx,
+  proposal: Doc<"proposals">,
+): Promise<string | null> {
   const asker = await ctx.db.get("memberships", proposal.requestedBy);
-  return (
-    asker !== null &&
-    asker.status === "active" &&
-    !asker.blocked &&
-    can(asker.role, "chat.post")
-  );
+  if (asker === null || asker.status !== "active" || asker.blocked)
+    return ASKER_LEFT;
+  return can(asker.role, "chat.post") ? null : ASKER_CANT_EDIT;
 }
 
 /**
@@ -211,12 +218,11 @@ async function eventLimitsProblem(
 ): Promise<string | null> {
   const newSections = changes.filter((c) => c.op === "createSection").length;
   if (newSections === 0) return null;
-  const custom = (
-    await ctx.db
-      .query("sections")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .take(MAX_CUSTOM_SECTIONS + 50)
-  ).filter((s) => s.kind === "custom" && s.deletedAt === null).length;
+  // The Canvas's own live count, as the createSection handler uses, so
+  // deleted Sections never crowd out live ones.
+  const custom = (await liveSections(ctx, eventId)).filter(
+    (s) => s.kind === "custom",
+  ).length;
   return custom + newSections > MAX_CUSTOM_SECTIONS
     ? "This Event has as many Sections as it can hold."
     : null;
@@ -470,7 +476,8 @@ export async function applyProposal(
     return { ok: false, reason: "closed", message: closedMessage("expired") };
   }
   // The changes are made "for" the asker, who must still be able to ask.
-  if (!(await askerActive(ctx, proposal))) return await outOfDate(ASKER_LEFT);
+  const asker = await askerProblem(ctx, proposal);
+  if (asker !== null) return await outOfDate(asker);
   const stale = await staleDependencies(ctx, proposal);
   if (stale.length > 0) {
     const who = await changedBy(ctx, stale, proposal.createdAt);
@@ -624,7 +631,7 @@ export const askAgain = mutation({
     return await once(ctx, askAgainKey(proposalId), async () => {
       if (proposal.status === "open") {
         if (
-          (await askerActive(ctx, proposal)) &&
+          (await askerProblem(ctx, proposal)) === null &&
           (await staleDependencies(ctx, proposal)).length === 0
         )
           throw new ConvexError({
@@ -788,16 +795,15 @@ async function describeChange(
         unknown
       >;
       const parts: string[] = [];
-      if (
-        before?.kind === "budget" &&
-        ("plannedAmount" in patch || "estimate" in patch)
-      ) {
+      if (before?.kind === "budget") {
+        // The rupees Accept will write, through the same helper Accept uses,
+        // so a new quantity shows what it does to an Estimate line.
         const from = entryAmount(fields as EntryFields<"budget">);
-        const to = entryAmount({
-          ...fields,
-          ...patch,
-        } as EntryFields<"budget">);
-        parts.push(`${name} ${formatINR(from)} → ${formatINR(to)}`);
+        const to = entryAmount(
+          nextBudgetFields(fields as EntryFields<"budget">, patch),
+        );
+        if ("plannedAmount" in patch || "estimate" in patch || from !== to)
+          parts.push(`${name} ${formatINR(from)} → ${formatINR(to)}`);
       }
       for (const [key, value] of Object.entries(patch)) {
         if (key === "plannedAmount" || key === "estimate") continue;
@@ -961,9 +967,10 @@ export const get = query({
     let text: string;
     if (kind === "open" || kind === "outOfDate") {
       const stale = await staleDependencies(ctx, proposal);
-      if (!(await askerActive(ctx, proposal))) {
+      const asker = await askerProblem(ctx, proposal);
+      if (asker !== null) {
         kind = "outOfDate";
-        text = ASKER_LEFT;
+        text = asker;
       } else if (stale.length > 0) {
         kind = "outOfDate";
         text = `Out of date: ${await changedBy(ctx, stale, proposal.createdAt)} changed this since`;
