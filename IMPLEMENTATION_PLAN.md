@@ -202,7 +202,7 @@ The plan is not a tool call. It is a fixed pipeline in `convex/brief.ts` (S11) a
 
 ### 4.8 Files
 
-Uploads (images up to 10 MB, shrunk in the browser to 2048 px on the long side) and Quote attachments (image or PDF) go to Convex file storage through upload URLs. A query never returns a storage URL to someone without `requireAccess` on the Event.
+Uploads (images up to 10 MB, shrunk in the browser to 2048 px on the long side) and Quote attachments (image or PDF) go to Convex file storage through upload URLs. A query never returns a storage URL to someone without `requireAccess` on the Event. An uploaded Inspiration's file is claimed in `uploadClaims` in the same transaction as its Item: only a fresh (15 minutes), unclaimed file can be attached, a refused upload deletes only such a file, and only the claiming Item's purge deletes it (review of PR #107, 2026-10-24).
 
 ### 4.9 Later stage: Discovery pipeline (X1)
 
@@ -304,6 +304,7 @@ Convex tables, defined once in `convex/schema.ts` by the contract. Field names h
 | `items` | `eventId`, `sectionId`, `kind` (`"budget"`, `"timeline"`, `"checklist"`, `"shortlistedVendor"`, `"googlePlace"`, `"inspiration"`, `"suggestion"`, `"note"`), `position`, `size`, `functionKey` (null means Event-wide), `data` (a union by kind, below), `createdBy`, `deletedAt` | `by_event`, `by_event_kind`, `by_section` | Versioned. One Budget, one Timeline and one Vendor checklist Item per Event. |
 | `entries` | `eventId`, `itemId`, `kind` (`"budget"`, `"timeline"`, `"checklist"`), `order`, `functionKey`, `fields` (a union by kind, below), `assumed`, `createdBy`, `deletedAt` | `by_item`, `by_event_kind` | Versioned. |
 | `comments` | `eventId`, `target` (an Item; an Entry; or a passage with `field`, `start`, `end`, the quoted original and `textChanged`), `rootId` (null for the first in a thread), `authorMembershipId` or `byAssistant` (run and the Member it answered), `body`, `resolved`, `createdAt`, `editedAt` | `by_event`, `by_item`, `by_root` | |
+| `uploadClaims` | `fileId`, `eventId`, `itemId`, `membershipId`, `claimedAt` | `by_file` | One row per uploaded Inspiration's file (section 4.8). Internal functions only. |
 | `highlights` | `eventId`, `runId`, `forMembershipId`, `targets`, `expiresAt` | `by_event` | The Assistant's pointing. Everyone sees the highlight; only the asker's view pans. Expires after 30 seconds. |
 
 Item `data` by kind:

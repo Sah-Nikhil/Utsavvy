@@ -5,6 +5,7 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import type { ItemKind } from "@/lib/types/canvas";
 import { BudgetItem } from "./budget/BudgetItem";
 import { ChecklistItem } from "./checklist/ChecklistItem";
+import { InspirationItem } from "./inspiration/InspirationItem";
 import { ItemFrame } from "./ItemFrame";
 import { NoteItem } from "./note/NoteItem";
 import { SuggestionItem } from "./suggestion/SuggestionItem";
@@ -55,7 +56,7 @@ export const ITEM_COMPONENTS: { [K in ItemKind]: ItemComponent<K> } = {
   checklist: ChecklistItem,
   shortlistedVendor: placeholder("shortlistedVendor", "S9"),
   googlePlace: placeholder("googlePlace", "S20"),
-  inspiration: placeholder("inspiration", "S13"),
+  inspiration: InspirationItem,
   suggestion: SuggestionItem,
   note: NoteItem,
 };
