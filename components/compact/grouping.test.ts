@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EVENT_WIDE_GROUP,
   groupItems,
+  mergeVisibleOrder,
   moveWithin,
   type CompactItem,
   type CompactSection,
@@ -157,5 +158,49 @@ describe("moveWithin", () => {
     expect(moveWithin(list, "b", 1)).toEqual(["a", "c", "b"]);
     expect(moveWithin(list, "a", -1)).toEqual(["a", "b", "c"]);
     expect(moveWithin(list, "c", 1)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("mergeVisibleOrder (review of #113, M1)", () => {
+  it("keeps Items hidden by the Function filter in their places when a visible Item moves", () => {
+    // Notes in the person's order B, A, C; A and C are Haldi, B is Sangeet.
+    const notes = [
+      item("A", "s-notes", "haldi", 0),
+      item("B", "s-notes", "sangeet", 200),
+      item("C", "s-notes", "haldi", 400),
+    ];
+    const order = [{ group: "section:s-notes", itemIds: ["B", "A", "C"] }];
+    const visible = groupItems({
+      grouping: "kind",
+      sections,
+      functions,
+      items: notes,
+      order,
+      functionKey: "haldi",
+    }).find((g) => g.key === "section:s-notes")!;
+    const full = groupItems({
+      grouping: "kind",
+      sections,
+      functions,
+      items: notes,
+      order,
+    }).find((g) => g.key === "section:s-notes")!;
+    const visibleIds = visible.items.map((i) => i._id);
+    expect(visibleIds).toEqual(["A", "C"]);
+
+    // Filtered to Haldi, the person moves C up.
+    const merged = mergeVisibleOrder(
+      full.items.map((i) => i._id),
+      moveWithin(visibleIds, "C", -1),
+    );
+    expect(merged).toEqual(["B", "C", "A"]);
+  });
+
+  it("is the visible order itself when nothing is hidden", () => {
+    expect(mergeVisibleOrder(["a", "b", "c"], ["c", "a", "b"])).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
   });
 });
