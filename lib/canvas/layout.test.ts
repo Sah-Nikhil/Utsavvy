@@ -67,12 +67,13 @@ const S1 = [
   { _id: "inspirations", order: 2, frame: { x: 0, y: 600, w: 720, h: 560 } },
   { _id: "notes", order: 3, frame: { x: 760, y: 600, w: 720, h: 560 } },
 ];
+const S1_SIZE = { w: 332, h: 400 };
 const S1_ITEMS: Record<string, Placed[]> = {
   money: [
-    { position: { x: 24, y: 64 }, size: null },
-    { position: { x: 376, y: 64 }, size: null },
+    { position: { x: 24, y: 64 }, size: S1_SIZE },
+    { position: { x: 376, y: 64 }, size: S1_SIZE },
   ],
-  vendors: [{ position: { x: 24, y: 64 }, size: null }],
+  vendors: [{ position: { x: 24, y: 64 }, size: S1_SIZE }],
   inspirations: [],
   notes: [],
 };
