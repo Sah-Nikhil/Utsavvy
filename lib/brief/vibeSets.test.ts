@@ -1,6 +1,8 @@
 /* eslint-disable no-restricted-syntax -- Theme colours here are data (the hex values a photo gives), not UI styling. */
 import { describe, expect, it } from "vitest";
+import colourNames from "../inspirations/colour-names.json";
 import { findLibraryPhoto, setPhotos } from "../inspirations/library";
+import { colourName, themeChangeLine } from "../inspirations/theme";
 import type { BriefExtraction, Theme } from "../types/brief";
 import { aaravBirthday, jaipurWedding, puneGaneshUtsav } from "./examples";
 import {
@@ -213,5 +215,72 @@ describe("vibeTheme", () => {
 
   it("changes nothing when no photo is tapped", () => {
     expect(vibeTheme(EMPTY, [])).toEqual(EMPTY);
+  });
+});
+
+/** Every way to tap 3 of a set's 12 vibe pick photos. */
+function threes(setKey: string) {
+  const photos = setPhotos([setKey]).filter((p) => p.vibePick);
+  const out: (typeof photos)[] = [];
+  for (let a = 0; a < photos.length; a++)
+    for (let b = a + 1; b < photos.length; b++)
+      for (let c = b + 1; c < photos.length; c++)
+        out.push([photos[a]!, photos[b]!, photos[c]!]);
+  return out;
+}
+
+const isColourName = (word: string) =>
+  Object.hasOwn(colourNames, word.trim().toLowerCase());
+
+describe("vibeTheme style words", () => {
+  it("names the look of Aarav's jungle, pirate and space photos, not their colours", () => {
+    const aarav = [2337838, 26763706, 18127573].map((id) =>
+      findLibraryPhoto(id)!,
+    );
+    const theme = vibeTheme(EMPTY, aarav);
+    expect(theme.styleWords).toEqual([
+      "jungle safari",
+      "pirate adventure",
+      "outer space",
+    ]);
+  });
+
+  it("gives every 3-photo pick 2 to 4 words, at most one of them a colour, none repeating a colour or decor keyword", () => {
+    for (const setKey of [
+      "wedding-north-indian-hindu",
+      "wedding-general",
+      "birthday-child",
+      "community-ganesh-utsav",
+    ]) {
+      for (const three of threes(setKey)) {
+        const theme = vibeTheme(EMPTY, three);
+        const ids = three.map((p) => p.pexelsId).join(", ");
+        expect(theme.styleWords.length, ids).toBeGreaterThanOrEqual(2);
+        expect(theme.styleWords.length, ids).toBeLessThanOrEqual(4);
+        expect(
+          theme.styleWords.filter(isColourName).length,
+          ids,
+        ).toBeLessThanOrEqual(1);
+        const shown = new Set([
+          ...theme.palette.map(colourName),
+          ...theme.decorKeywords.map((w) => w.toLowerCase()),
+        ]);
+        for (const word of theme.styleWords)
+          expect(shown.has(word.toLowerCase()), `${ids}: ${word}`).toBe(false);
+      }
+    }
+  });
+
+  it("keeps the Chat line free of a word it already shows as a colour", () => {
+    const three = setPhotos(["birthday-child"])
+      .filter((p) => p.vibePick)
+      .slice(0, 3);
+    const line = themeChangeLine("Meera", EMPTY, vibeTheme(EMPTY, three));
+    const colours = [...line.matchAll(/\+ ([a-z ]+) #[0-9A-F]{6}/g)].map(
+      (m) => m[1],
+    );
+    const words = [...line.matchAll(/\+ '([^']+)'/g)].map((m) => m[1]);
+    expect(colours.length).toBeGreaterThan(0);
+    for (const word of words) expect(colours).not.toContain(word);
   });
 });
