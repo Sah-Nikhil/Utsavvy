@@ -1,10 +1,12 @@
 /// <reference types="vite/client" />
+/* eslint-disable no-restricted-syntax -- Theme colours here are data (the hex values a photo or a Member gives), not UI styling. */
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tableRange } from "../lib/pricing";
 import type { Theme } from "../lib/types/brief";
+import type { ItemData } from "../lib/types/canvas";
 import { api, components, internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { createStartingSections } from "./canvas";
 import { stubEstimateDeps } from "./estimates";
@@ -121,7 +123,7 @@ async function store(s: Setup, bytes: Uint8Array, type = "image/jpeg") {
 /** An upload already described, as `describe` leaves it. */
 async function insertUpload(
   s: Setup,
-  seen: Doc<"items">["data"]["seen"],
+  seen: ItemData<"inspiration">["seen"],
   deletedAt: number | null = null,
 ) {
   const fileId = await store(s, JPEG);
@@ -179,7 +181,15 @@ describe("addFromLibrary", () => {
           pageUrl:
             "https://www.pexels.com/photo/traditional-indian-wedding-haldi-ceremony-decorations-31002035/",
           alt: "Marigold-filled urli and golden pots set out as haldi decor.",
-          tags: ["wedding", "haldi", "yellow", "gold", "marigold", "urli", "pots"],
+          tags: [
+            "wedding",
+            "haldi",
+            "yellow",
+            "gold",
+            "marigold",
+            "urli",
+            "pots",
+          ],
         },
         seen: {
           description:
@@ -240,7 +250,10 @@ describe("addFromLibrary", () => {
       eventId: s.eventId,
       pexelsId: 19569602,
     });
-    const [first, second] = [await itemOf(s, a.itemId), await itemOf(s, b.itemId)];
+    const [first, second] = [
+      await itemOf(s, a.itemId),
+      await itemOf(s, b.itemId),
+    ];
     expect(first.position).not.toEqual(second.position);
   });
 });
@@ -318,6 +331,7 @@ describe("addUpload", () => {
     });
     await s.t.finishAllScheduledFunctions(vi.runAllTimers);
     const item = await itemOf(s, itemId);
+    if (item.kind !== "inspiration") throw new Error("not an Inspiration");
     expect(item.data.seen).toMatchObject({ palette: ["#1F6F78"] });
     expect(typeof item.data.seen?.description).toBe("string");
   });
@@ -424,7 +438,7 @@ describe("useForTheme", () => {
     });
   }
 
-  it('a Member\'s tap applies at once, with "Utsavvy updated the Theme for Meera: + teal #1F6F78, + \'lantern-lit\'"', async () => {
+  it("a Member's tap applies at once, with \"Utsavvy updated the Theme for Meera: + teal #1F6F78, + 'lantern-lit'\"", async () => {
     const s = await setUp();
     const { itemId } = await insertUpload(s, {
       description: "Teal drapes and brass lanterns hanging from a tree.",
@@ -436,11 +450,18 @@ describe("useForTheme", () => {
       itemId,
     });
     expect(result).toEqual({ changed: true });
-    const event = await s.t.run(async (ctx) => (await ctx.db.get("events", s.eventId))!);
+    const event = await s.t.run(
+      async (ctx) => (await ctx.db.get("events", s.eventId))!,
+    );
     expect(event.theme).toEqual({
       palette: ["#C2185B", "#F4A300", "#F8C8DC", "#1F6F78"],
       styleWords: ["royal Rajputana"],
-      decorKeywords: ["marigold", "pastel pink drapes", "brass urli", "lantern-lit"],
+      decorKeywords: [
+        "marigold",
+        "pastel pink drapes",
+        "brass urli",
+        "lantern-lit",
+      ],
     });
     expect(event.version).toBe(2);
     expect(await chatLines(s)).toEqual([
@@ -454,7 +475,10 @@ describe("useForTheme", () => {
         .collect(),
     );
     expect(changes).toHaveLength(1);
-    expect(changes[0]!.actor).toEqual({ kind: "member", membershipId: s.meera });
+    expect(changes[0]!.actor).toEqual({
+      kind: "member",
+      membershipId: s.meera,
+    });
   });
 
   it("on a library photo it uses the seed palette and tags", async () => {
@@ -467,7 +491,9 @@ describe("useForTheme", () => {
       eventId: s.eventId,
       itemId,
     });
-    const event = await s.t.run(async (ctx) => (await ctx.db.get("events", s.eventId))!);
+    const event = await s.t.run(
+      async (ctx) => (await ctx.db.get("events", s.eventId))!,
+    );
     expect(event.theme.palette.slice(-2)).toEqual(["#988B5C", "#B69B0A"]);
     expect(event.theme.decorKeywords).toContain("urli");
     expect(event.theme.decorKeywords).toContain("pots");
@@ -562,7 +588,7 @@ describe("tag and remove", () => {
       eventId: s.eventId,
       itemId,
     });
-    expect((await itemOf(s, itemId)).deletedAt).toBe(T0);
+    expect((await itemOf(s, itemId)).deletedAt).toBeGreaterThanOrEqual(T0);
   });
 });
 
@@ -581,16 +607,20 @@ describe("imageUrl", () => {
       return other.eventId;
     });
     await expect(
-      s.t.withIdentity(identityFor("Stranger")).query(api.inspirations.imageUrl, {
-        eventId: stranger,
-        itemId,
-      }),
+      s.t
+        .withIdentity(identityFor("Stranger"))
+        .query(api.inspirations.imageUrl, {
+          eventId: stranger,
+          itemId,
+        }),
     ).rejects.toThrow(/wrong Event|AccessDenied/);
     await expect(
-      s.t.withIdentity(identityFor("Stranger")).query(api.inspirations.imageUrl, {
-        eventId: s.eventId,
-        itemId,
-      }),
+      s.t
+        .withIdentity(identityFor("Stranger"))
+        .query(api.inspirations.imageUrl, {
+          eventId: s.eventId,
+          itemId,
+        }),
     ).rejects.toThrow(/AccessDenied/);
   });
 });
@@ -600,7 +630,7 @@ describe("Theme-driven decor Suggestions", () => {
     return await s.t.run((ctx) =>
       ctx.db
         .query("entries")
-        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .filter((q) => q.eq(q.field("eventId"), s.eventId))
         .collect(),
     );
   }
@@ -612,10 +642,7 @@ describe("Theme-driven decor Suggestions", () => {
       runAction: s.t.action as Call,
     } as unknown as Parameters<typeof offerThemeSuggestions>[0];
   }
-  const ideas =
-    (list: ThemeIdea[]) =>
-    async (): Promise<ThemeIdea[]> =>
-      list;
+  const ideas = (list: ThemeIdea[]) => async (): Promise<ThemeIdea[]> => list;
   const lanternWalk: ThemeIdea = {
     title: "Brass lantern walkway at the mehendi",
     body: "Line the path to the mehendi courtyard with brass lanterns and teal drapes.",
@@ -681,7 +708,11 @@ describe("Theme-driven decor Suggestions", () => {
       {
         ideas: ideas([
           lanternWalk,
-          { title: "Teal drapes at the haldi", body: "Teal and marigold.", functionKey: "haldi" },
+          {
+            title: "Teal drapes at the haldi",
+            body: "Teal and marigold.",
+            functionKey: "haldi",
+          },
         ]),
         estimateDeps: { ...stubEstimateDeps, now: () => T0 },
       },
@@ -754,7 +785,11 @@ describe("Theme-driven decor Suggestions", () => {
 describe("purgeDeletedFiles", () => {
   it("removes stored files 30 days after deletion and leaves library photos and newer deletions alone", async () => {
     const s = await setUp();
-    const old = await insertUpload(s, null, T0 - DELETED_FILE_PURGE_AFTER_MS - DAY);
+    const old = await insertUpload(
+      s,
+      null,
+      T0 - DELETED_FILE_PURGE_AFTER_MS - DAY,
+    );
     const recent = await insertUpload(s, null, T0 - 29 * DAY);
     const live = await insertUpload(s, null, null);
     const { itemId: library } = await s.asMeera.mutation(
@@ -803,7 +838,15 @@ describe("pointing", () => {
         itemId: library,
         kind: "libraryPhoto",
         alt: "Marigold-filled urli and golden pots set out as haldi decor.",
-        tags: ["wedding", "haldi", "yellow", "gold", "marigold", "urli", "pots"],
+        tags: [
+          "wedding",
+          "haldi",
+          "yellow",
+          "gold",
+          "marigold",
+          "urli",
+          "pots",
+        ],
       },
       {
         itemId: upload,

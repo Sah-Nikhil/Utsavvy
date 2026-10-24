@@ -1,8 +1,12 @@
 /// <reference types="vite/client" />
+/* eslint-disable no-restricted-syntax -- Theme colours here are data (the hex values a photo or a Member gives), not UI styling. */
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Theme } from "../../../lib/types/brief";
-import { findLibraryPhoto, queryWords } from "../../../lib/inspirations/library";
+import {
+  findLibraryPhoto,
+  queryWords,
+} from "../../../lib/inspirations/library";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";

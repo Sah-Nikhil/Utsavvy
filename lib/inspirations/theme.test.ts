@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- Theme colours here are data (the hex values a photo or a Member gives), not UI styling. */
 import { describe, expect, it } from "vitest";
 import type { Theme, ThemeUpdate } from "../types/brief";
 import {

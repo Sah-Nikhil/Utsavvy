@@ -1,4 +1,5 @@
 import { ALL_FUNCTION_KEYS } from "../types/functions";
+import colourNames from "./colour-names.json";
 import type { Theme, ThemeUpdate } from "../types/brief";
 
 /*
@@ -73,7 +74,7 @@ export function isThemeUnchanged(before: Theme, after: Theme): boolean {
 export function themeUpdateProblem(update: ThemeUpdate): string | null {
   for (const colour of [...update.addPalette, ...update.removePalette]) {
     if (!HEX_COLOUR.test(colour.trim()))
-      return `"${colour}" isn't a colour like #1F6F78.`;
+      return `"${colour}" isn't a colour: use # and six hex digits.`;
   }
   for (const word of [...update.addStyleWords, ...update.addDecorKeywords]) {
     const clean = word.trim();
@@ -92,46 +93,10 @@ export function themeUpdateProblem(update: ThemeUpdate): string | null {
 // ---------------------------------------------------------------------------
 // Colour names, for the Chat line ("+ teal #1F6F78")
 
-/** Colours people name when they plan decor, with a typical shade of each. */
-const NAMED_COLOURS: readonly [string, string][] = [
-  ["white", "#FFFFFF"],
-  ["ivory", "#FFF6E0"],
-  ["cream", "#F3E5C0"],
-  ["beige", "#D8C3A0"],
-  ["gold", "#C9A23A"],
-  ["brass", "#B08D3C"],
-  ["mustard", "#C9A20A"],
-  ["turmeric yellow", "#F2C80F"],
-  ["yellow", "#FFE34D"],
-  ["marigold", "#F4A300"],
-  ["saffron", "#F28C28"],
-  ["orange", "#E8641B"],
-  ["peach", "#F7B89A"],
-  ["coral", "#F2725A"],
-  ["red", "#C8102E"],
-  ["maroon", "#7A1F2B"],
-  ["rani pink", "#D5236F"],
-  ["magenta", "#C2185B"],
-  ["pink", "#F28BB0"],
-  ["pastel pink", "#F8C8DC"],
-  ["lavender", "#C3B1E1"],
-  ["purple", "#6A3D9A"],
-  ["plum", "#5B2A4E"],
-  ["navy", "#1F2A55"],
-  ["royal blue", "#2E52B8"],
-  ["sky blue", "#8EC9EB"],
-  ["turquoise", "#36B7B1"],
-  ["teal", "#1F7A80"],
-  ["emerald", "#1E7A4C"],
-  ["leaf green", "#5A9A3A"],
-  ["mint", "#B5E2C8"],
-  ["olive", "#77783A"],
-  ["copper", "#B26A3A"],
-  ["brown", "#6B4A2E"],
-  ["grey", "#8D8D8D"],
-  ["charcoal", "#36383C"],
-  ["black", "#111111"],
-];
+/** Colours people name when they plan decor, with a typical shade of each (data, not UI colours). */
+const NAMED_COLOURS: readonly [string, string][] = Object.entries(
+  colourNames as Record<string, string>,
+);
 
 function rgb(hex: string): [number, number, number] {
   const n = Number.parseInt(hex.slice(1), 16);
@@ -259,4 +224,13 @@ export function themeUpdateFromImage<Id extends string>(
     addDecorKeywords: keywords,
     fromInspiration,
   };
+}
+
+/**
+ * Whether a Member's message asks about the Theme, so the Assistant may change
+ * it at once (rule 16). Any other change to the Theme is the Assistant's own
+ * idea and goes to the Members as a Proposal.
+ */
+export function asksForTheme(text: string): boolean {
+  return /\b(theme|palette|colou?rs?|colou?r scheme)\b|थीम/i.test(text);
 }
