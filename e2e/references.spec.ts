@@ -101,6 +101,8 @@ test.describe("references", () => {
       page.locator('[data-section-kind="inspirations"] h2 + span'),
     ).toHaveText("0 Items");
     await page.getByRole("button", { name: "Add Inspiration" }).click();
+    // Paste a link is its own tab beside S13's Search and Upload.
+    await page.getByRole("tab", { name: "Paste a link" }).click();
     const form = page.locator("[data-paste-link]");
     await expect(
       form.getByRole("heading", { name: "Paste a link" }),
@@ -159,12 +161,26 @@ test.describe("references", () => {
     await form.getByRole("button", { name: "Save" }).click();
     await expect(form.getByText("Saved to Inspirations.")).toBeVisible();
     await expect(link).toHaveValue("");
-    // The Reference is on the Canvas, in the Inspirations Section (its card
-    // is S13's placeholder until S13 lands).
+    // The Reference is on the Canvas, in the Inspirations Section, and S13's
+    // inspiration card shows its embed through <ReferenceEmbed>.
     await page.keyboard.press("Escape");
     await expect(
       page.locator('[data-section-kind="inspirations"] h2 + span'),
     ).toHaveText(/^1 Items?$/);
+    // The Canvas opens on Money and dates, and a Reference's embed loads only
+    // once its card is on screen, so bring the Inspirations Section into view.
+    await page.getByRole("button", { name: "Show the whole Canvas" }).click();
+    await expect(
+      page.locator('[data-section-kind="inspirations"]'),
+    ).toBeInViewport();
+    await expect(
+      page
+        .locator('[data-canvas-item="inspiration"]')
+        .locator('iframe[title="Pinterest preview"]'),
+    ).toHaveAttribute(
+      "src",
+      `/embed/pinterest?url=${encodeURIComponent("https://www.pinterest.com/pin/123456789/")}`,
+    );
     expect(cspViolations).toEqual([]);
   });
 });
