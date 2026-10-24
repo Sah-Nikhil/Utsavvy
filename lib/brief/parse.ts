@@ -1,3 +1,5 @@
+import { BRIEF_LIMITS } from "./limits";
+
 /**
  * Reading what a Member types into a chip question's "type my own" box.
  * Amounts follow Indian usage: "15 lakh", "₹19.6L", "1.2 crore", "2,40,000",
@@ -25,7 +27,9 @@ export function parseAmount(text: string): number | null {
         ? 1000
         : 1;
   const amount = Math.round(value * multiplier);
-  return Number.isFinite(amount) && amount > 0 ? amount : null;
+  return Number.isFinite(amount) && amount > 0 && amount <= BRIEF_LIMITS.budget
+    ? amount
+    : null;
 }
 
 /** A whole, positive count such as Guests or households, or null. */
@@ -33,5 +37,5 @@ export function parseCount(text: string): number | null {
   const match = text.replace(/,/g, "").match(/^\s*(\d+)\s*\+?\s*$/);
   if (!match) return null;
   const n = Number(match[1]);
-  return n > 0 && n <= 100_000 ? n : null;
+  return n > 0 && n <= BRIEF_LIMITS.guests ? n : null;
 }

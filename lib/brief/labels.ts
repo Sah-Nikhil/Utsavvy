@@ -12,6 +12,7 @@ const FIELD_LABELS: Record<string, string> = {
   invitations: "Invitations",
   photography: "Photography",
   "city.tier": "City tier",
+  eventType: "Event type",
 };
 
 /** The label an Assumption is listed with on the Brief summary: "Haldi date", "Menu". */

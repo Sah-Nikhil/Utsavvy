@@ -22,7 +22,9 @@ import {
   briefLines,
   cityAssumption,
   functionName,
+  usableFunctionKeys,
 } from "../lib/brief/functions";
+import { BRIEF_LIMITS } from "../lib/brief/limits";
 import { assumptionLabel } from "../lib/brief/labels";
 import {
   answerChip as applyAnswer,
@@ -122,6 +124,12 @@ for (const example of BRIEF_EXAMPLES) {
   });
 }
 
+const EVENT_TYPE_LABELS: Record<EventType, string> = {
+  wedding: "Wedding",
+  birthday: "Birthday",
+  community: "Community event",
+};
+
 /** A Brief longer than this is refused; it goes into the prompt. */
 export const MAX_BRIEF_LENGTH = 2000;
 
@@ -138,7 +146,10 @@ async function loadEvent(
   return event;
 }
 
-/** The Event's Functions in order. An Event has a handful, so a small cap is plenty. */
+/**
+ * The Event's Functions in order. Every write path caps them at
+ * `BRIEF_LIMITS.functions`, so this reads them all.
+ */
 async function functionRows(
   ctx: QueryCtx,
   eventId: Id<"events">,
@@ -146,8 +157,24 @@ async function functionRows(
   const rows = await ctx.db
     .query("eventFunctions")
     .withIndex("by_event", (q) => q.eq("eventId", eventId))
-    .take(40);
+    .take(BRIEF_LIMITS.functions);
   return rows.sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Two working markers kept with the Assumptions and never shown: the Brief is
+ * being read (so a second submit waits for the first), and the Functions the
+ * Brief named, which Q7 then shows as chosen.
+ */
+const READING = "brief.reading";
+const NAMED_FUNCTIONS = "brief.namedFunctions";
+const MARKERS = new Set([READING, NAMED_FUNCTIONS]);
+
+function namedFunctionsOf(brief: Brief | null): string[] {
+  const value = brief?.assumptions.find(
+    (a) => a.field === NAMED_FUNCTIONS,
+  )?.value;
+  return value ? value.split(",").filter(Boolean) : [];
 }
 
 function emptyExtraction(eventType: EventType | null): BriefExtraction {
@@ -183,6 +210,7 @@ function progressOf(
     householdsSkipped: has(assumptions, "households"),
     budgetHelp: has(assumptions, "budget"),
     dateUndecided: brief?.extraction.date === null && has(assumptions, "date"),
+    namedFunctions: namedFunctionsOf(brief),
   };
 }
 
@@ -196,19 +224,24 @@ function stateOf(
   };
 }
 
-/** The newest card of a kind in the Event's Chat. */
-async function latestCard(
+/**
+ * Whether one of the Event's newest messages already asks this question, so a
+ * repeated step doesn't post it twice. Mutations only, and bounded: the
+ * question would be among the last few lines (review of #101, M3).
+ */
+async function recentlyAsked(
   ctx: QueryCtx,
   eventId: Id<"events">,
-  kind: "briefChips" | "briefSummary",
-): Promise<Doc<"chatAnnotations"> | null> {
-  for await (const annotation of ctx.db
+  questionId: string,
+): Promise<boolean> {
+  const recent = await ctx.db
     .query("chatAnnotations")
     .withIndex("by_event", (q) => q.eq("eventId", eventId))
-    .order("desc")) {
-    if (annotation.card?.kind === kind) return annotation;
-  }
-  return null;
+    .order("desc")
+    .take(10);
+  return recent.some(
+    (a) => a.card?.kind === "briefChips" && a.card.id === questionId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +297,7 @@ export async function openBrief(
   ctx: MutationCtx,
   eventId: Id<"events">,
 ): Promise<void> {
-  if ((await latestCard(ctx, eventId, "briefChips")) !== null) return;
+  if (await recentlyAsked(ctx, eventId, "opening")) return;
   await postCard(
     ctx,
     eventId,
@@ -332,8 +365,11 @@ async function saveBrief(
     actor,
     groupLabel: "The Brief",
     patch: {
-      brief: { extraction, assumptions },
-      eventType: extraction.eventType ?? event.eventType,
+      // The Event type stays as the Member set it at creation (M8).
+      brief: {
+        extraction: { ...extraction, eventType: event.eventType },
+        assumptions,
+      },
       city,
       tradition: extraction.tradition,
       communityKind: extraction.communityKind,
@@ -486,8 +522,7 @@ async function advance(
     istDay(Date.now()),
   );
   if (question !== null) {
-    const last = await latestCard(ctx, eventId, "briefChips");
-    if (last?.card?.id !== question.id) {
+    if (!(await recentlyAsked(ctx, eventId, question.id))) {
       await postCard(
         ctx,
         eventId,
@@ -507,8 +542,9 @@ async function advance(
   });
   // The summary card arrives at once and shows "Checking current prices in
   // <city>" until the check lands. One message, not a notice and then the
-  // card: the Agent component would merge two Utsavvy lines in a row.
-  if ((await latestCard(ctx, eventId, "briefSummary")) === null) {
+  // card: the Agent component would merge two Utsavvy lines in a row. The
+  // Brief reaches the summary once, from "intake", so the card is posted once.
+  if (event.briefState === "intake") {
     await postCard(ctx, eventId, { kind: "briefSummary", id: null }, "");
   }
   await startBudgetCheck(ctx, eventId);
@@ -517,28 +553,48 @@ async function advance(
 // ---------------------------------------------------------------------------
 // Public functions
 
-/** The Member describes the Event in their own words; the extraction runs next. */
+/**
+ * The Member describes the Event in their own words; the extraction runs next.
+ * Idempotent: the first submit marks the Brief as being read in the same
+ * mutation, so a second one (another tab, another Member) posts nothing,
+ * starts no model call and gets "alreadyGiven"; its card then shows the first
+ * Brief being read.
+ */
 export const submitText = mutation({
   args: { eventId: v.id("events"), text: v.string() },
-  returns: v.null(),
+  returns: v.object({
+    status: v.union(v.literal("started"), v.literal("alreadyGiven")),
+  }),
   handler: async (ctx, { eventId, text }) => {
     const { membership } = await requireAccess(ctx, eventId, "canvas.edit");
     const event = await loadEvent(ctx, eventId);
     if (event.briefState !== "intake" || event.brief !== null) {
-      throw new ConvexError({ kind: "BriefAlreadyGiven" });
+      return { status: "alreadyGiven" as const };
     }
     const body = text.trim();
     if (body.length === 0) throw new ConvexError({ kind: "EmptyBrief" });
     if (body.length > MAX_BRIEF_LENGTH) {
       throw new ConvexError({ kind: "BriefTooLong", max: MAX_BRIEF_LENGTH });
     }
+    await memberWrite(ctx, {
+      table: "events",
+      id: eventId,
+      actor: member(membership._id),
+      groupLabel: "The Brief",
+      patch: {
+        brief: {
+          extraction: emptyExtraction(event.eventType),
+          assumptions: [{ field: READING, value: "", reason: "" }],
+        },
+      },
+    });
     await postMemberLine(ctx, event, membership._id, body);
     await ctx.scheduler.runAfter(0, internal.brief.extract, {
       eventId,
       membershipId: membership._id,
       text: body,
     });
-    return null;
+    return { status: "started" as const };
   },
 });
 
@@ -612,7 +668,9 @@ export const applyExtraction = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = await loadEvent(ctx, args.eventId);
-    if (event.briefState !== "intake" || event.brief !== null) return null;
+    const reading =
+      event.brief?.assumptions.some((a) => a.field === READING) ?? false;
+    if (event.briefState !== "intake" || !reading) return null;
     try {
       await requireAccessFor(
         ctx,
@@ -626,8 +684,40 @@ export const applyExtraction = internalMutation({
     }
     const actor = member(args.membershipId);
     const extraction = args.extraction ?? emptyExtraction(event.eventType);
-    extraction.eventType ??= event.eventType;
-    for (const [order, key] of args.functionKeys.entries()) {
+    const assumptions = [...args.assumptions];
+    // The Event type stays as the Member set it at creation (M8); if the Brief
+    // reads like another type, that shows as an Assumption.
+    if (
+      extraction.eventType !== null &&
+      extraction.eventType !== event.eventType
+    ) {
+      assumptions.push({
+        field: "eventType",
+        value: `${EVENT_TYPE_LABELS[event.eventType]}, as the Event was created`,
+        reason: `The Brief sounded like a ${EVENT_TYPE_LABELS[extraction.eventType].toLowerCase()}; the type is set when an Event is created`,
+      });
+    }
+    extraction.eventType = event.eventType;
+    // Named Functions the type can use (M5). A wedding's still go through Q7,
+    // chosen alongside the Tradition's (H1); the others become rows now.
+    const named = usableFunctionKeys(
+      event.eventType,
+      extraction.communityKind,
+      args.functionKeys,
+    );
+    if (event.eventType === "wedding") {
+      if (named.length > 0) {
+        assumptions.push({
+          field: NAMED_FUNCTIONS,
+          value: named.join(","),
+          reason: "",
+        });
+      }
+    }
+    for (const [order, key] of (event.eventType === "wedding"
+      ? []
+      : named
+    ).entries()) {
       await memberInsert(ctx, {
         table: "eventFunctions",
         actor,
@@ -643,10 +733,7 @@ export const applyExtraction = internalMutation({
         },
       });
     }
-    await saveBrief(ctx, event, actor, {
-      extraction,
-      assumptions: args.assumptions,
-    });
+    await saveBrief(ctx, event, actor, { extraction, assumptions });
     await advance(
       ctx,
       args.eventId,
@@ -738,8 +825,11 @@ export const answerChip = mutation({
       answerText(question, answer),
     );
 
-    // Settled choices with no field of their own are Assumptions.
-    const assumptions = [...(event.brief?.assumptions ?? [])];
+    // Settled choices with no field of their own are Assumptions. Q7's answer
+    // replaces the Functions the Brief named.
+    const assumptions = (event.brief?.assumptions ?? []).filter(
+      (a) => question.id !== "functions" || a.field !== NAMED_FUNCTIONS,
+    );
     if (question.id === "date" && next.progress.dateUndecided) {
       assumptions.push({
         field: "date",
@@ -815,8 +905,9 @@ const briefChangeValidator = v.union(
   v.object({ field: v.literal("assumptionConfirmed"), assumption: v.string() }),
 );
 
-const positiveWhole = (n: number, what: string) => {
-  if (!Number.isInteger(n) || n <= 0 || n > 100_000_000_000) {
+/** A whole number from 1 up to the Brief's limit for it (BRIEF_LIMITS, M2). */
+const positiveWhole = (n: number, what: string, max: number) => {
+  if (!Number.isInteger(n) || n <= 0 || n > max) {
     throw new ConvexError({
       kind: "BadAnswer",
       message: `Type a whole number of ${what}.`,
@@ -916,11 +1007,11 @@ export const editField = mutation({
       }
       extraction.city = essential.city;
     } else if (essential?.field === "budget") {
-      positiveWhole(essential.budget, "rupees");
+      positiveWhole(essential.budget, "rupees", BRIEF_LIMITS.budget);
       extraction.budget = essential.budget;
       drop("budget");
     } else if (essential?.field === "guests") {
-      positiveWhole(essential.guests, "Guests");
+      positiveWhole(essential.guests, "Guests", BRIEF_LIMITS.guests);
       if (essential.functionKey === null) {
         extraction.guests = essential.guests;
         drop("guests");
@@ -952,7 +1043,7 @@ export const editField = mutation({
       extraction.communityKind = change.communityKind.trim() || null;
     } else if (change.field === "households") {
       if (change.households !== null)
-        positiveWhole(change.households, "households");
+        positiveWhole(change.households, "households", BRIEF_LIMITS.households);
       extraction.households = change.households;
       drop("households");
     } else if (change.field === "assumptionConfirmed") {
@@ -1146,10 +1237,8 @@ export const checkBudget = internalAction({
 });
 
 /**
- * Stores a finished check, unless the Brief changed while it ran (a newer
- * check is on its way), and posts the Brief summary the first time. The
- * summary card's ID records what the figures rest on ("researched/lines"),
- * which the card words as its basis line.
+ * Stores a finished check, with what its figures rest on, unless the Brief
+ * changed while it ran (a newer check is on its way).
  */
 export const storeBudgetCheck = internalMutation({
   args: {
@@ -1165,25 +1254,15 @@ export const storeBudgetCheck = internalMutation({
     const current = await budgetInputOf(ctx, args.eventId);
     if (current === null || current.fingerprint !== args.fingerprint)
       return null;
-    // Derived from the Brief, like the check itself: set directly.
+    // Derived from the Brief, like the check itself: set directly. What the
+    // figures rest on is stored with them (M7).
     await ctx.db.patch("events", args.eventId, {
-      budgetCheck: args.budgetCheck,
+      budgetCheck: {
+        ...args.budgetCheck,
+        basis: { researched: args.researched, lines: args.lines },
+      },
       ...(args.setBudget !== null ? { budgetTotal: args.setBudget } : {}),
     });
-    const basis = `${args.researched}/${args.lines}`;
-    const card = await latestCard(ctx, args.eventId, "briefSummary");
-    if (card === null) {
-      await postCard(
-        ctx,
-        args.eventId,
-        { kind: "briefSummary", id: basis },
-        "",
-      );
-    } else if (card.card?.id !== basis) {
-      await ctx.db.patch("chatAnnotations", card._id, {
-        card: { kind: "briefSummary", id: basis },
-      });
-    }
     return null;
   },
 });
@@ -1347,9 +1426,11 @@ const summaryValidator = v.object({
  * and basis line. Viewers can read it; only Members can change it.
  */
 export const summary = query({
-  args: { eventId: v.id("events") },
+  // `today` (ISO, India time) comes from the client: a query can't read the
+  // clock, and the festival question depends on the date.
+  args: { eventId: v.id("events"), today: v.string() },
   returns: v.union(summaryValidator, v.null()),
-  handler: async (ctx, { eventId }) => {
+  handler: async (ctx, { eventId, today }) => {
     let membership: Doc<"memberships">;
     try {
       ({ membership } = await requireAccess(ctx, eventId, "canvas.view"));
@@ -1363,27 +1444,21 @@ export const summary = query({
 
     let pendingQuestion: string | null = null;
     let question: ChipQuestion | null = null;
+    // Worked out from the Brief alone, so the query never reads the Chat (M3).
     if (event.briefState === "intake") {
       if (brief === null) pendingQuestion = "text";
+      else if (has(brief.assumptions, READING)) pendingQuestion = "reading";
       else {
-        const card = await latestCard(ctx, eventId, "briefChips");
-        if (card !== null && card.card?.id !== "opening") {
-          const state = stateOf(event, rows);
-          // The question as it was asked: its festival dates are those of the day it was posted.
-          question = nextQuestion(
-            state.extraction,
-            state.progress,
-            istDay(card._creationTime),
-          );
-          pendingQuestion = question?.id ?? null;
-        }
+        const state = stateOf(event, rows);
+        question = nextQuestion(
+          state.extraction,
+          state.progress,
+          /^d{4}-d{2}-d{2}$/.test(today) ? today : istDay(event.createdAt),
+        );
+        pendingQuestion = question?.id ?? null;
       }
     }
 
-    const summaryCard = await latestCard(ctx, eventId, "briefSummary");
-    const [researched, lines] = (summaryCard?.card?.id ?? "")
-      .split("/")
-      .map(Number);
     const stored = event.budgetCheck;
     const budget = event.budgetTotal;
     const budgetCheck =
@@ -1403,8 +1478,8 @@ export const summary = query({
             raiseLabel:
               budget < stored.minimum ? aboutAmount(stored.minimum) : null,
             basis:
-              lines !== undefined && Number.isFinite(lines) && lines! > 0
-                ? basisLine({ researched: researched ?? 0, lines: lines! })
+              stored.basis && stored.basis.lines > 0
+                ? basisLine(stored.basis)
                 : null,
           };
 
@@ -1438,10 +1513,9 @@ export const summary = query({
         guests: row.guests,
         assumed: row.assumed,
       })),
-      assumptions: (brief?.assumptions ?? []).map((a) => ({
-        ...a,
-        label: assumptionLabel(a.field),
-      })),
+      assumptions: (brief?.assumptions ?? [])
+        .filter((a) => !MARKERS.has(a.field))
+        .map((a) => ({ ...a, label: assumptionLabel(a.field) })),
       checking: event.briefState === "summary" && stored === null,
       budgetCheck,
       canPlanAnyway: budgetCheck?.band === "belowMinimum",

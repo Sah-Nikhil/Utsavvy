@@ -8,7 +8,8 @@ import type {
   FunctionDate,
   Honoree,
 } from "../types";
-import { isFunctionKey } from "../types/functions";
+import { FUNCTION_KEYS, isFunctionKey } from "../types/functions";
+import { BRIEF_LIMITS } from "./limits";
 import {
   addDays,
   daysInRange,
@@ -174,11 +175,11 @@ const FUNCTION_WORDS: [RegExp, string][] = [
   [/walima|valima/, "walima"],
   [/nis?chayathar?tham/, "nichayathartham"],
   [/muhurt(h)?am/, "muhurtham"],
-  [/haldi|pithi|ubtan/, "haldi"],
+  [/haldi|haldee|pithi|ubtan/, "haldi"],
   [/meh[ae]?n?di|mehandi/, "mehendi"],
   [/sangeet|sangit/, "sangeet"],
   [/reception/, "reception"],
-  [/^wedding$|pheras?|shaadi|vivah|wedding ceremony/, "wedding"],
+  [/^wedding$|pheras?|phere|shaa?di|vivah|wedding ceremony/, "wedding"],
   [/sthapana|sthapna|installation/, "sthapana"],
   [/aa?rti/, "daily_aarti"],
   [/cultural/, "cultural_night"],
@@ -186,22 +187,50 @@ const FUNCTION_WORDS: [RegExp, string][] = [
   [/shasht(i|y)/, "shashtipoorthi"],
 ];
 
-/** A slug: lowercase words joined by underscores. */
+/**
+ * Devanagari names, matched on the name as typed (NFC) before it becomes a
+ * slug. Hinglish spellings are in `FUNCTION_WORDS`.
+ */
+const HINDI_FUNCTION_WORDS: [RegExp, string][] = [
+  [/हल्दी|उबटन/u, "haldi"],
+  [/मेहंदी|मेंहदी|मेहँदी|मेहन्दी/u, "mehendi"],
+  [/संगीत/u, "sangeet"],
+  [/रिसेप्शन/u, "reception"],
+  [/तिलक|टीका/u, "tilak"],
+  [/सगाई/u, "engagement"],
+  [/रोका/u, "roka"],
+  [/चुन्नी|चुनरी/u, "chunni"],
+  [/जग्गो/u, "jaggo"],
+  [/मायरा|भात/u, "mayra"],
+  [/निकाह/u, "nikah"],
+  [/वलीमा/u, "walima"],
+  [/शादी|विवाह|फेरे|फेरा/u, "wedding"],
+  [/स्थापना/u, "sthapana"],
+  [/आरती/u, "daily_aarti"],
+  [/सांस्कृतिक/u, "cultural_night"],
+  [/विसर्जन/u, "visarjan"],
+];
+
+/** A slug: lowercase words joined by underscores. Marks stay, so Devanagari keeps its vowel signs. */
 function slug(name: string): string {
   return name
-    .normalize("NFKD")
+    .normalize("NFC")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, "_");
 }
 
 /**
- * Normalises a Function's name to its `FUNCTION_KEYS` key. A Function the
- * Member names that isn't on the list keeps its own slug
- * (lib/types/functions.ts).
+ * Normalises a Function's name to its `FUNCTION_KEYS` key, in English,
+ * Hinglish or Hindi. A Function the Member names that isn't on the list keeps
+ * its own slug (lib/types/functions.ts).
  */
 export function functionKey(name: string): string {
+  const typed = name.normalize("NFC");
+  for (const [pattern, known] of HINDI_FUNCTION_WORDS) {
+    if (pattern.test(typed)) return known;
+  }
   const key = slug(name);
   if (isFunctionKey(key)) return key;
   const words = key.replace(/_/g, " ");
@@ -209,6 +238,29 @@ export function functionKey(name: string): string {
     if (pattern.test(words)) return known;
   }
   return key;
+}
+
+/**
+ * The named Functions an Event type can use, as keys: a wedding keeps every
+ * Function the Member named (Q7 then confirms them with the Tradition's); a
+ * birthday keeps its own Functions; a Ganesh utsav keeps its programmes. Other
+ * names would only be empty rows, so they are dropped (review of #101, M5).
+ */
+export function usableFunctionKeys(
+  eventType: EventType,
+  communityKind: string | null,
+  keys: readonly string[],
+): string[] {
+  const unique = [...new Set(keys)].slice(0, BRIEF_LIMITS.functions);
+  if (eventType === "wedding") return unique;
+  if (eventType === "birthday") {
+    const birthday: readonly string[] = FUNCTION_KEYS.birthday;
+    return unique.filter((key) => birthday.includes(key));
+  }
+  if (communityKindKey(communityKind ?? "") === "ganesh-utsav") {
+    return unique.filter((key) => GANESH.includes(key));
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------

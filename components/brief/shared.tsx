@@ -108,3 +108,11 @@ export function AnswerChip({
     </button>
   );
 }
+
+/** Today in India (ISO), for `api.brief.summary`: a query can't read the clock. */
+export function useIndiaToday(): string {
+  const [today] = useState(() =>
+    new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10),
+  );
+  return today;
+}

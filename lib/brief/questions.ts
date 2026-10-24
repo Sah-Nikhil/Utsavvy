@@ -14,6 +14,7 @@ import {
   TRADITIONS,
   traditionLabel,
 } from "./functions";
+import { BRIEF_LIMITS } from "./limits";
 import { parseAmount, parseCount } from "./parse";
 
 /**
@@ -67,6 +68,11 @@ export type BriefProgress = {
   budgetHelp: boolean;
   /** "Not decided yet": the date becomes an Assumption. */
   dateUndecided: boolean;
+  /**
+   * Functions the Brief named. They don't answer Q7: a wedding still shows its
+   * Tradition's Functions, with these added and all chosen (review of #101, H1).
+   */
+  namedFunctions: string[];
 };
 
 export const NO_PROGRESS: BriefProgress = {
@@ -74,6 +80,7 @@ export const NO_PROGRESS: BriefProgress = {
   householdsSkipped: false,
   budgetHelp: false,
   dateUndecided: false,
+  namedFunctions: [],
 };
 
 export type BriefState = {
@@ -238,7 +245,12 @@ export function nextQuestion(
           id: "functions",
           number: 7,
           prompt: "Which Functions are you planning?",
-          chips: defaultFunctions(extraction.tradition).map((key) => ({
+          chips: [
+            ...new Set([
+              ...defaultFunctions(extraction.tradition),
+              ...progress.namedFunctions,
+            ]),
+          ].map((key) => ({
             value: key,
             label: functionName(key),
           })),
@@ -438,6 +450,11 @@ export function answerChip(
         .filter(Boolean)
         .map(functionKey);
       const unique = [...new Set(chosen)];
+      if (unique.length > BRIEF_LIMITS.functions) {
+        throw new BriefAnswerError(
+          `Choose at most ${BRIEF_LIMITS.functions} Functions.`,
+        );
+      }
       // Choosing nothing keeps the Tradition's Functions rather than none.
       progress.functionKeys =
         unique.length > 0 ? unique : defaultFunctions(extraction.tradition);

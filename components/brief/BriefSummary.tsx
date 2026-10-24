@@ -745,9 +745,12 @@ function BudgetCheckPanel({
       {check.perHousehold !== null ? (
         <p className="text-label text-ink-2">
           <Money amount={check.perHousehold} /> per household
-          {below && check.raiseTo && brief.households
-            ? `; raising the budget makes it about ₹${Math.round(check.raiseTo / brief.households).toLocaleString("en-IN")}`
-            : ""}
+          {below && check.raiseTo && brief.households ? (
+            <>
+              ; raising the budget makes it about{" "}
+              <Money amount={Math.round(check.raiseTo / brief.households)} />
+            </>
+          ) : null}
           .
         </p>
       ) : null}

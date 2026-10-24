@@ -517,12 +517,13 @@ describe("who may answer", () => {
         answer: ["200"],
       }),
     ).rejects.toThrow(/QuestionNotAsked/);
-    await expect(
-      s.asMeera.mutation(api.brief.submitText, {
+    // A second Brief is not an error: it says the first was given (M4).
+    expect(
+      await s.asMeera.mutation(api.brief.submitText, {
         eventId: s.eventId,
         text: "again",
       }),
-    ).rejects.toThrow(/BriefAlreadyGiven/);
+    ).toEqual({ status: "alreadyGiven" });
   });
 });
 
