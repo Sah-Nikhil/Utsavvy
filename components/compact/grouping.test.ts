@@ -161,7 +161,7 @@ describe("moveWithin", () => {
   });
 });
 
-describe("mergeVisibleOrder (review of #113, M1)", () => {
+describe("mergeVisibleOrder (PR review finding M1)", () => {
   it("keeps Items hidden by the Function filter in their places when a visible Item moves", () => {
     // Notes in the person's order B, A, C; A and C are Haldi, B is Sangeet.
     const notes = [
