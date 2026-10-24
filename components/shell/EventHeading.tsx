@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { EVENT_TYPE_LABELS } from "@/components/people/labels";
 import type { BriefDate } from "@/lib/types/brief";
@@ -33,12 +34,16 @@ function formatBriefDate(date: BriefDate): string {
  * says "Dates not set yet" rather than guessing.
  */
 export function eventSubtitle(event: HeadingEvent): string {
+  return subtitleParts(event).join(" · ");
+}
+
+function subtitleParts(event: HeadingEvent): string[] {
   const parts: string[] = [EVENT_TYPE_LABELS[event.eventType]];
   const city = event.city?.name ?? event.brief?.extraction.city ?? null;
   if (city) parts.push(city);
   const date = event.brief?.extraction.date ?? null;
   parts.push(date ? formatBriefDate(date) : "Dates not set yet");
-  return parts.join(" · ");
+  return parts;
 }
 
 /**
@@ -65,7 +70,26 @@ export function EventHeading({
       <h1 className="truncate font-display text-title font-semibold tracking-[-0.01em]">
         {event.name}
       </h1>
-      <p className="truncate text-caption text-ink-3">{eventSubtitle(event)}</p>
+      <p className="truncate text-caption text-ink-3">
+        {subtitleParts(event).map((part, index) => (
+          <Fragment key={index}>
+            {index > 0 ? (
+              <>
+                {" "}
+                {/* The dot's glyph sits off-centre in Anek Devanagari, so it gets
+                    its own centred box to keep the space either side even. */}
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-1 text-center"
+                >
+                  ·
+                </span>{" "}
+              </>
+            ) : null}
+            {part}
+          </Fragment>
+        ))}
+      </p>
     </>
   );
 }

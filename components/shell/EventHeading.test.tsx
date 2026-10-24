@@ -71,7 +71,18 @@ describe("EventHeading", () => {
       />,
     );
     expect(html).toMatch(/<h1[^>]*>Ananya &amp; Rohan<\/h1>/);
-    expect(html).toContain("Wedding · Jaipur · Dates not set yet");
+    // Each part is its own text; the dots between them are decorative,
+    // centred in a fixed-width box so the space either side looks even.
+    const subtitle = html.match(/<p[^>]*>(.*)<\/p>/)![1]!;
+    expect(subtitle.replace(/<[^>]+>/g, "")).toBe(
+      "Wedding · Jaipur · Dates not set yet",
+    );
+    const dots = subtitle.match(/<span[^>]*>·<\/span>/g) ?? [];
+    expect(dots).toHaveLength(2);
+    for (const dot of dots) {
+      expect(dot).toContain('aria-hidden="true"');
+      expect(dot).toContain("text-center");
+    }
     expect(html).not.toContain("S1");
   });
 
