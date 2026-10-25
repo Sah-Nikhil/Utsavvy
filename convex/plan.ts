@@ -14,6 +14,7 @@ import {
   type BriefFunction,
   cityAssumption,
 } from "../lib/brief/functions";
+import { entryAmount } from "../components/items/budget/rollup";
 import { BRIEF_LIMITS } from "../lib/brief/limits";
 import { formatINR, formatLakh } from "../lib/format";
 import {
@@ -34,6 +35,7 @@ import {
 import { cityTier, referenceTable } from "../lib/pricing/table";
 import {
   type Actor,
+  actorValidator,
   type Assumption,
   assumptionValidator,
   type BriefExtraction,
@@ -44,6 +46,7 @@ import {
   type EntryFields,
   type EssentialChange,
   essentialChangeValidator,
+  estimateBasisValidator,
   type EventType,
   type FirstPlanDraft,
   firstPlanDraftValidator,
@@ -66,7 +69,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { placeNewItem } from "./canvas";
-import { planItemOf } from "./entries";
+import { nextOrder, planItemOf } from "./entries";
 import {
   type EstimateCtx,
   type EstimateDeps,
@@ -384,6 +387,15 @@ export function validateDraft(
   let lines = 0;
   for (const fn of draft.functions) {
     fn.budgetEntries.forEach((line) => checkLine(line, `${fn.name} budget`));
+    const seen = new Set<string>();
+    for (const line of fn.budgetEntries) {
+      const key = `${line.category}\u0000${line.unit}`;
+      if (seen.has(key))
+        errors.push(
+          `${fn.name} budget lists ${line.category} twice; list each category once per Function`,
+        );
+      seen.add(key);
+    }
     lines += fn.budgetEntries.length;
     const n = fn.runSheet.length;
     if (n < RUN_SHEET.min || n > RUN_SHEET.max)
@@ -2572,6 +2584,13 @@ export type EssentialInput = {
     version: number;
     amount: number;
   } | null;
+  unallocated: {
+    id: Id<"entries">;
+    version: number;
+    amount: number;
+  } | null;
+  contingencyShare: number;
+  households: number | null;
   /** Deadlines the Assistant set that no Member has touched since. */
   deadlines: {
     id: Id<"entries">;
@@ -2673,11 +2692,18 @@ export async function essentialInputOf(
   ).filter((e) => e.deletedAt === null);
   const lines: EssentialInput["lines"] = [];
   let contingency: EssentialInput["contingency"] = null;
+  let unallocated: EssentialInput["unallocated"] = null;
   const deadlines: EssentialInput["deadlines"] = [];
   for (const entry of entries) {
     if (entry.kind === "budget") {
       if (entry.fields.role === "contingency") {
         contingency = {
+          id: entry._id,
+          version: entry.version,
+          amount: entry.fields.plannedAmount ?? 0,
+        };
+      } else if (entry.fields.role === "unallocated") {
+        unallocated = {
           id: entry._id,
           version: entry.version,
           amount: entry.fields.plannedAmount ?? 0,
@@ -2726,6 +2752,9 @@ export async function essentialInputOf(
     timelineItemId: timelineItem?._id ?? null,
     lines,
     contingency,
+    unallocated,
+    contingencyShare: event.contingencyShare,
+    households: event.households,
     deadlines,
   };
 }
@@ -2922,6 +2951,184 @@ function tableEstimate(
     : null;
 }
 
+/** A line's stored per-unit range, as the cascade returned it. */
+function storedRange(fields: EntryFields<"budget">): LineEstimate | null {
+  const basis = fields.estimate?.basis;
+  return basis
+    ? {
+        unit: basis.unit,
+        unitLow: basis.unitLow,
+        unitHigh: basis.unitHigh,
+        basis,
+      }
+    : null;
+}
+
+/** The Budget after re-pricing: each re-priced line's new fields, and what the Budget holds back. */
+export type Repriced = {
+  lines: {
+    id: Id<"entries">;
+    version: number;
+    fields: EntryFields<"budget">;
+  }[];
+  /** Every line's amount added up, kept lines included. */
+  linesTotal: number;
+  contingency: number;
+  unallocated: number;
+  /** How far the lines alone pass the budget; 0 when they fit. */
+  overBy: number;
+  budgetCheck: BudgetCheck;
+};
+
+/**
+ * The pricing step run again over the plan's own lines (first-brief.md
+ * "Pricing a plan"): every line a Member didn't set or get a Quote for is
+ * priced by `pricePlan` at the budget, from its stored per-unit range or the
+ * one in `ranges` (a new city's), with the Contingency share and anything
+ * above the high end as Unallocated. Kept lines count at their amounts. A
+ * budget change passes no ranges; a city change passes the new city's.
+ */
+export function repriceBudget(
+  state: Pick<
+    EssentialInput,
+    "lines" | "contingencyShare" | "households" | "city"
+  >,
+  budget: number,
+  ranges: ReadonlyMap<Id<"entries">, LineEstimate | null> = new Map(),
+): Repriced {
+  const share = state.contingencyShare;
+  type Line = EssentialInput["lines"][number];
+  const rangeOf = (l: Line) =>
+    ranges.has(l.id) ? ranges.get(l.id)! : storedRange(l.fields);
+  const free = state.lines.filter(
+    (l) => !l.kept && l.fields.category !== null && rangeOf(l) !== null,
+  );
+  const fixedTotal = state.lines
+    .filter((l) => !free.includes(l))
+    .reduce((sum, l) => sum + entryAmount(l.fields), 0);
+  const lineOf = (l: Line): DraftBudgetLine => ({
+    category: l.fields.category ?? l.fields.label,
+    quantity: l.fields.quantity,
+    unit: l.fields.unit,
+  });
+  const opts = {
+    contingencyShare: share,
+    households: state.households,
+    city: state.city?.name ?? null,
+  };
+  // The kept lines take their own share of the Contingency first.
+  const room = Math.max(0, budget - Math.round(fixedTotal * (1 + share)));
+  const priced = pricePlan(
+    { functions: [], eventWide: free.map(lineOf) },
+    free.map(rangeOf),
+    { ...opts, budget: room },
+  );
+  const lines: Repriced["lines"] = [];
+  let linesTotal = fixedTotal;
+  free.forEach((l, i) => {
+    const fields: EntryFields<"budget"> = {
+      ...l.fields,
+      estimate: priced.entries[i]!,
+      belowUsualRange: priced.belowUsualRange,
+    };
+    linesTotal += entryAmount(fields);
+    if (JSON.stringify(fields) !== JSON.stringify(l.fields))
+      lines.push({ id: l.id, version: l.version, fields });
+  });
+  const unallocated = priced.budgetCheck.unallocated;
+  const contingency = Math.max(0, budget - linesTotal - unallocated);
+  // The Budget check over every line, at the prices it now rests on.
+  const all = state.lines.filter((l) => rangeOf(l) !== null);
+  const check = pricePlan(
+    { functions: [], eventWide: all.map(lineOf) },
+    all.map(rangeOf),
+    { ...opts, budget },
+  ).budgetCheck;
+  return {
+    lines,
+    linesTotal,
+    contingency,
+    unallocated,
+    overBy: Math.max(0, linesTotal - budget),
+    budgetCheck: { ...check, contingency, unallocated },
+  };
+}
+
+/**
+ * Writes a re-priced Budget for an accepted Proposal: the lines, then the
+ * Contingency and Unallocated (adding the row when there is some and none
+ * yet). Every write is version-checked and once-keyed by `key`.
+ */
+async function writeRepriced(
+  ctx: MutationCtx,
+  state: EssentialInput,
+  repriced: Repriced,
+  actor: Actor,
+  key: string,
+): Promise<Id<"entries">[]> {
+  const touched: Id<"entries">[] = [];
+  const args = (id: string) => ({
+    ...acceptArgs(actor, id),
+    toolCallId: `accept:${key}:${id}`,
+  });
+  for (const line of repriced.lines) {
+    await assistantWrite(ctx, {
+      table: "entries",
+      id: line.id,
+      expectedVersion: line.version,
+      patch: { fields: line.fields },
+      ...args(line.id),
+    });
+    touched.push(line.id);
+  }
+  const held = [
+    ["contingency", state.contingency, repriced.contingency],
+    ["unallocated", state.unallocated, repriced.unallocated],
+  ] as const;
+  for (const [role, entry, amount] of held) {
+    if (entry !== null) {
+      if (entry.amount === amount) continue;
+      const row = await ctx.db.get("entries", entry.id);
+      if (row?.kind !== "budget") continue;
+      await assistantWrite(ctx, {
+        table: "entries",
+        id: entry.id,
+        expectedVersion: entry.version,
+        patch: { fields: { ...row.fields, plannedAmount: amount } },
+        ...args(entry.id),
+      });
+      touched.push(entry.id);
+    } else if (amount > 0 && state.budgetItemId !== null) {
+      const { id } = await assistantInsert(ctx, {
+        table: "entries",
+        value: {
+          eventId: state.eventId,
+          itemId: state.budgetItemId,
+          order: await nextOrder(ctx, state.budgetItemId),
+          functionKey: null,
+          kind: "budget",
+          assumed: [],
+          createdBy: actor,
+          fields: {
+            label: role === "contingency" ? "Contingency" : "Unallocated",
+            category: null,
+            quantity: 1,
+            unit: "per_event",
+            estimate: null,
+            plannedAmount: amount,
+            role,
+            belowUsualRange: false,
+            editedByMember: false,
+          },
+        },
+        ...args(role),
+      });
+      touched.push(id);
+    }
+  }
+  return touched;
+}
+
 /** Lines a Guest-count change adds (a small Venue becoming a large one), for the cascade. */
 export function linesToPrice(
   state: EssentialInput,
@@ -2958,8 +3165,10 @@ export function linesToPrice(
  *   the cascade (`estimates`, the table without it) at the same position in
  *   its range; and the Venues' capacity goes on the Timeline to recheck.
  * - Date: each deadline the Assistant set moves with its Function.
- * - Budget: the difference goes to the Contingency.
- * - City: the Brief's city; Estimates stay until Members re-price lines.
+ * - Budget and city: Accept re-prices the Budget itself (`repriceBudget`):
+ *   at the new budget over the stored ranges, or, after the cascade has run
+ *   for the new city, at its prices (`applyCityPrices`). The Proposal guards
+ *   every line it will re-price.
  */
 export function diffEssentialChange(
   state: EssentialInput,
@@ -2981,8 +3190,31 @@ export function diffEssentialChange(
 
   if (change.field === "guests") {
     let venuesGrew: string[] = [];
+    const assumed = (field: string) =>
+      state.assumptions.some((a) => a.field === field);
     for (const l of state.lines) {
-      if (l.kept || l.functionKey === null) continue;
+      if (l.kept) continue;
+      if (l.functionKey === null) {
+        // One card for every two Guests, while that is still an Assumption.
+        if (
+          change.functionKey === null &&
+          l.fields.category === "invitations" &&
+          l.fields.unit === "per_card" &&
+          assumed("invitations")
+        ) {
+          const quantity = Math.ceil(change.guests / 2);
+          if (quantity !== l.fields.quantity)
+            changes.push({
+              op: "updateEntry",
+              table: "entries",
+              docId: l.id,
+              expectedVersion: l.version,
+              guards: [],
+              values: { patch: { fields: { quantity } } },
+            });
+        }
+        continue;
+      }
       const fn = functions.find((f) => f.key === l.functionKey);
       const before = state.functions.find((f) => f.key === l.functionKey);
       if (!fn || !before || fn.guests === before.guests) continue;
@@ -2991,7 +3223,9 @@ export function diffEssentialChange(
         venuesGrew = [...venuesGrew, fn.name];
       const quantity = followsGuests(l.fields.unit)
         ? guestQuantity(l.fields.unit, fn)
-        : l.fields.quantity;
+        : category === "cake" && l.fields.unit === "per_kg" && assumed("cake")
+          ? Math.max(1, Math.ceil(fn.guests / 20))
+          : l.fields.quantity;
       const sized =
         category === null ? null : sizedCategory(category, fn.guests);
       if (category !== null && sized !== null && sized !== category) {
@@ -3070,25 +3304,21 @@ export function diffEssentialChange(
     }
   }
 
-  if (
-    change.field === "budget" &&
-    state.contingency !== null &&
-    state.budget !== null
-  ) {
-    const amount = Math.max(
-      0,
-      state.contingency.amount + change.budget - state.budget,
-    );
-    if (amount !== state.contingency.amount) {
-      changes.push({
-        op: "updateEntry",
-        table: "entries",
-        docId: state.contingency.id,
-        expectedVersion: state.contingency.version,
-        guards: [],
-        values: { patch: { fields: { plannedAmount: amount } } },
-      });
-    }
+  if (change.field === "budget" || change.field === "city") {
+    // Accept re-prices these lines itself (`repriceBudget`), so the Proposal
+    // is out of date if any of them, or what the Budget holds back, moves.
+    const guarded = [
+      ...state.lines.filter((l) => !l.kept),
+      ...[state.contingency, state.unallocated].filter((e) => e !== null),
+    ];
+    changes[0] = {
+      ...changes[0]!,
+      guards: guarded.map((e) => ({
+        table: "entries" as const,
+        docId: e.id,
+        version: e.version,
+      })),
+    } as ProposedChange;
   }
   return changes;
 }
@@ -3179,18 +3409,32 @@ export function describeEssentialChange(
       `${group} ${delta > 0 ? "up" : "down"} by ${formatINR(Math.abs(delta))}`,
     );
   }
-  if (parts.length > 1 && total !== 0)
+  if (moves.size > 1 && parts.length > 1 && total !== 0)
     parts.push(
       `total ${total > 0 ? "up" : "down"} by ${formatINR(Math.abs(total))}`,
     );
   if (change.field === "budget") {
-    const c = changes.find((x) => x.op === "updateEntry");
-    const amount =
-      c?.op === "updateEntry"
-        ? (c.values.patch.fields as { plannedAmount?: number }).plannedAmount
-        : undefined;
-    if (amount !== undefined)
-      parts.push(`the Contingency becomes ${formatINR(amount)}`);
+    const r = repriceBudget(state, change.budget);
+    parts.push(
+      `lines re-priced to fit, with ${formatINR(r.contingency)} of Contingency`,
+    );
+    if (r.unallocated > 0)
+      parts.push(`${formatINR(r.unallocated)} Unallocated`);
+    if (r.overBy > 0)
+      parts.push(
+        `the lines you set are over the ${formatLakh(change.budget)} budget by ${formatINR(r.overBy)}`,
+      );
+  }
+  if (change.field === "guests" && state.budget !== null) {
+    const now =
+      state.lines.reduce((sum, l) => sum + entryAmount(l.fields), 0) +
+      (state.contingency?.amount ?? 0) +
+      (state.unallocated?.amount ?? 0);
+    const over = now + total - state.budget;
+    if (over > 0)
+      parts.push(
+        `over the ${formatLakh(state.budget)} budget by ${formatINR(over)}`,
+      );
   }
   if (change.field === "date") {
     const { functions } = followBrief(state, change);
@@ -3211,7 +3455,7 @@ export function describeEssentialChange(
 
 /** The Member's edit as it reads in the Chat: "Change the Guests to 400". */
 export function essentialChangeLine(
-  state: Pick<EssentialInput, "functions">,
+  state: { functions: readonly { key: string; name: string }[] },
   change: EssentialChange,
 ): string {
   switch (change.field) {
@@ -3247,9 +3491,17 @@ export async function proposeEssentialChange(
       kind: "BadAnswer",
       message: "Wait for the plan to finish, then change it.",
     });
-  const problem = essentialProblem(change, await functionsOf(ctx, eventId));
+  const rows = await functionsOf(ctx, eventId);
+  const problem = essentialProblem(change, rows);
   if (problem !== null)
     throw new ConvexError({ kind: "BadAnswer", message: problem });
+  // The Member's edit shows in the Chat at once; the Proposal card answers it.
+  await postMemberLine(
+    ctx,
+    event!,
+    membership._id,
+    essentialChangeLine({ functions: rows }, change),
+  );
   await ctx.scheduler.runAfter(0, internal.plan.essentialProposal, {
     eventId,
     change,
@@ -3272,6 +3524,29 @@ export const essentialProposal = internalAction({
 });
 
 export async function runEssentialProposal(
+  ctx: EstimateCtx,
+  args: {
+    eventId: Id<"events">;
+    change: EssentialChange;
+    requestedBy: Id<"memberships">;
+  },
+  deps?: Partial<EstimateDeps>,
+): Promise<void> {
+  try {
+    await proposeFromState(ctx, args, deps);
+  } catch (error) {
+    console.warn(
+      `The essential change couldn't be priced: ${error instanceof Error ? error.message.slice(0, 300) : "unknown error"}`,
+    );
+    await ctx.runMutation(internal.chat.postSystem, {
+      eventId: args.eventId,
+      card: { kind: "system", id: null },
+      text: "I couldn't price that change just now, so nothing was proposed. Make the change again in a moment.",
+    });
+  }
+}
+
+async function proposeFromState(
   ctx: EstimateCtx,
   args: {
     eventId: Id<"events">;
@@ -3309,15 +3584,14 @@ export async function runEssentialProposal(
       estimates.set(estimateKey(l.category, l.unit), ranges[i] ?? null),
     );
   }
-  if (args.change.field === "city" && city.tier !== state.city.tier) {
-    extra = `${city.name} is a tier ${city.tier} city and ${state.city.name} tier ${state.city.tier}, so prices there run differently; Estimates stay until you re-price lines`;
+  if (args.change.field === "city") {
+    extra = `Estimates will be re-priced for ${city.name} (tier ${city.tier}) when you accept; lines you set or got Quotes for stay`;
   }
   const changes = diffEssentialChange(state, args.change, estimates);
   const summary = describeEssentialChange(state, args.change, changes, extra);
   await ctx.runMutation(internal.planEssentials.post, {
     eventId: args.eventId,
     requestedBy: args.requestedBy,
-    memberLine: essentialChangeLine(state, args.change),
     summary,
     changes,
   });
@@ -3453,10 +3727,31 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
         moved.push(move.id);
       }
     }
+    const repriced: Id<"entries">[] = [];
+    if (values.field === "budget") {
+      const current = await essentialInputOf(ctx, event._id, today);
+      if (current !== null)
+        repriced.push(
+          ...(await writeRepriced(
+            ctx,
+            current,
+            repriceBudget(current, values.budget),
+            actor,
+            "budget",
+          )),
+        );
+    }
     if (values.field === "city") {
       await ctx.scheduler.runAfter(0, internal.brief.locateCity, {
         eventId: event._id,
         city: values.city,
+      });
+      // Research can't run in a mutation: the cascade prices the new city
+      // next, and its mutation writes the Estimates in the same history group.
+      await ctx.scheduler.runAfter(0, internal.plan.repriceCity, {
+        eventId: event._id,
+        city: values.city,
+        actor,
       });
     }
     // Once the whole Accept has landed, the Budget check follows the plan and
@@ -3471,9 +3766,134 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
         },
       });
     }
-    return [event._id, ...touched, ...moved];
+    return [event._id, ...touched, ...moved, ...repriced];
   },
 };
+
+const lineEstimateValidator = v.object({
+  unit: v.string(),
+  unitLow: v.number(),
+  unitHigh: v.number(),
+  basis: estimateBasisValidator,
+});
+
+/**
+ * After an accepted city change (Sah-Nikhil, 2026-10-25): the estimate
+ * cascade prices every line a Member didn't set or get a Quote for in the
+ * new city, then `applyCityPrices` re-prices the Budget with them. Quotes and
+ * Listed prices are never touched.
+ */
+export const repriceCity = internalAction({
+  args: { eventId: v.id("events"), city: v.string(), actor: actorValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await runCityReprice(ctx, args);
+    return null;
+  },
+});
+
+export async function runCityReprice(
+  ctx: EstimateCtx,
+  args: { eventId: Id<"events">; city: string; actor: Actor },
+  deps?: Partial<EstimateDeps>,
+): Promise<void> {
+  const state: EssentialInput | null = await ctx.runQuery(
+    internal.plan.essentialInput,
+    { eventId: args.eventId, today: istDay(Date.now()) },
+  );
+  if (state === null || state.city?.name !== args.city) return;
+  const free = state.lines.filter((l) => !l.kept && l.fields.category !== null);
+  try {
+    const ranges = await estimateLines(
+      ctx,
+      {
+        eventId: args.eventId,
+        city: state.city.name,
+        tier: state.city.tier,
+        eventType: state.eventType,
+        lines: free.map((l) => ({
+          category: l.fields.category!,
+          quantity: l.fields.quantity,
+          unit: l.fields.unit,
+        })),
+      },
+      deps,
+    );
+    await ctx.runMutation(internal.plan.applyCityPrices, {
+      eventId: args.eventId,
+      city: args.city,
+      actor: args.actor,
+      prices: free.map((l, i) => ({
+        id: l.id,
+        version: l.version,
+        range: ranges[i] ?? null,
+      })),
+    });
+  } catch (error) {
+    console.warn(
+      `The Budget couldn't be re-priced for ${args.city}: ${error instanceof Error ? error.message.slice(0, 300) : "unknown error"}`,
+    );
+    await ctx.runMutation(internal.chat.postSystem, {
+      eventId: args.eventId,
+      card: { kind: "system", id: null },
+      text: `I couldn't re-price the Budget for ${args.city} just now, so its Estimates keep their earlier prices. Ask me in the Chat to try again.`,
+    });
+  }
+}
+
+/**
+ * Writes the new city's prices: each line priced by the cascade, at the
+ * plan's position for the budget, with the Contingency and Unallocated from
+ * the same arithmetic. A line that moved since it was priced keeps its own
+ * price; a line the cascade couldn't price keeps its amount.
+ */
+export const applyCityPrices = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    city: v.string(),
+    actor: actorValidator,
+    prices: v.array(
+      v.object({
+        id: v.id("entries"),
+        version: v.number(),
+        range: v.union(lineEstimateValidator, v.null()),
+      }),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const state = await essentialInputOf(ctx, args.eventId, istDay(Date.now()));
+    if (
+      state === null ||
+      state.city?.name !== args.city ||
+      state.budget === null
+    )
+      return null;
+    const given = new Map(args.prices.map((p) => [p.id, p]));
+    const lines = state.lines.map((l) => {
+      const price = given.get(l.id);
+      return price !== undefined && price.version === l.version
+        ? l
+        : { ...l, kept: true };
+    });
+    const ranges = new Map(args.prices.map((p) => [p.id, p.range] as const));
+    const repriced = repriceBudget({ ...state, lines }, state.budget, ranges);
+    await writeRepriced(ctx, { ...state, lines }, repriced, args.actor, "city");
+    const priced = args.prices.filter((p) => p.range !== null);
+    await ctx.db.patch("events", args.eventId, {
+      // Derived from the plan's lines, like the Brief's own check.
+      budgetCheck: {
+        ...repriced.budgetCheck,
+        basis: {
+          researched: priced.filter((p) => p.range!.basis.kind === "researched")
+            .length,
+          lines: priced.length,
+        },
+      },
+    });
+    return null;
+  },
+});
 
 /**
  * After a Venue or decor line swapped between its small and large rows, the

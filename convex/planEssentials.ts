@@ -2,7 +2,6 @@ import { ConvexError, v } from "convex/values";
 import type { ProposedChange } from "../lib/types";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
-import { postMemberLine } from "./plan";
 import { createProposal } from "./proposals";
 
 // S14 (The first plan) owns this file.
@@ -21,8 +20,6 @@ export const post = internalMutation({
     eventId: v.id("events"),
     requestedBy: v.id("memberships"),
     summary: v.string(),
-    /** The Member's edit, posted as their own line so the card answers it. */
-    memberLine: v.string(),
     // Checked by `createProposal` against the op registry, change by change.
     changes: v.array(v.any()),
   },
@@ -30,7 +27,6 @@ export const post = internalMutation({
   handler: async (ctx, args) => {
     const event = await ctx.db.get("events", args.eventId);
     if (event === null) return null;
-    await postMemberLine(ctx, event, args.requestedBy, args.memberLine);
     try {
       await createProposal(ctx, {
         eventId: args.eventId,
