@@ -428,7 +428,8 @@ function fitComment(text: string): string {
 /**
  * Posts the reply as Utsavvy's Comment in the asking thread and, unless the
  * run failed, the one Chat line, saying when a Proposal from this run waits
- * in the thread. Posts once per run.
+ * in the thread. When the Item is at its Comment limit, the answer goes to
+ * the Chat instead. Posts once per run.
  */
 export const reply = internalMutation({
   args: {
@@ -468,7 +469,20 @@ export const reply = internalMutation({
           editedAt: null,
         });
       }
-      if (failed || !posted) return null;
+      if (body === "") return null;
+      if (!posted) {
+        // The Item is at its Comment limit: the answer goes to the Chat
+        // rather than nowhere.
+        const asker = await nameOf(ctx, run.requestedBy);
+        const on = await targetName(ctx, asking.target);
+        await ctx.runMutation(internal.chat.postSystem, {
+          eventId: run.eventId,
+          card: { kind: "system", id: null },
+          text: `The Comment thread on ${on} is full, so here is ${ASSISTANT_NAME}'s answer for ${asker}: ${body}`,
+        });
+        return null;
+      }
+      if (failed) return null;
       const waiting = (
         await ctx.db
           .query("proposals")

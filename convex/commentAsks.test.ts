@@ -8,6 +8,7 @@ import type { MutationCtx } from "./_generated/server";
 import { buildProposeTools } from "./assistant/tools/propose";
 import type { ToolResult } from "./assistant/tools/core";
 import { createStartingSections } from "./canvas";
+import { MAX_COMMENTS_PER_ITEM } from "./comments";
 import { commentTurn } from "./commentAsks";
 import { stubEstimateDeps } from "./estimates";
 import {
@@ -356,6 +357,46 @@ describe("the reply", () => {
     );
     // The card is in the thread, not the Chat.
     expect(cards).toEqual([]);
+  });
+
+  it("posts the answer in the Chat when the Item's Comments are full, instead of dropping it", async () => {
+    const s = await setUp();
+    const commentId = await comment(s, "Aditi", "@Utsavvy is this enough?");
+    const runId = await s
+      .as("Aditi")
+      .mutation(api.commentAsks.ask, { commentId });
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch("runs", runId!, {
+        status: "running",
+        startedAt: Date.now(),
+      });
+      // Fill the Item to its limit: the asking Comment plus 499 more.
+      for (let i = 1; i < MAX_COMMENTS_PER_ITEM; i++)
+        await ctx.db.insert("comments", {
+          eventId: s.eventId,
+          itemId: s.budget,
+          target: onCaterer(s),
+          rootId: commentId,
+          author: { kind: "member", membershipId: s.people.Rohan },
+          body: `Reply ${i}`,
+          resolved: false,
+          createdAt: Date.now(),
+          editedAt: null,
+        });
+    });
+
+    await s.t.mutation(internal.commentAsks.reply, {
+      runId: runId!,
+      text: "Yes, ₹2,10,000 covers 150 Guests at that rate.",
+    });
+
+    const thread = await s
+      .as("Meera")
+      .query(api.comments.listForItem, { itemId: s.budget });
+    expect(thread.some((c) => c.byAssistant)).toBe(false);
+    expect(await chatTexts(s)).toEqual([
+      "The Comment thread on Caterer is full, so here is Utsavvy's answer for Aditi: Yes, ₹2,10,000 covers 150 Guests at that rate.",
+    ]);
   });
 
   it("shows who is being answered while the run waits and runs", async () => {
