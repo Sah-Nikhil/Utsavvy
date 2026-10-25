@@ -500,6 +500,16 @@ async function price(
 // readCanvas
 
 const MAX_READ_IDS = 20;
+/** The most Entries the summary lists per plan Item; the rest are read by ID (review of #99, L6). */
+const MAX_SUMMARY_ENTRIES = 60;
+
+/** A plan Item's first Entries for the summary, and how many it left out. */
+function summaryEntries(entries: readonly Doc<"entries">[]) {
+  return {
+    entries: entries.slice(0, MAX_SUMMARY_ENTRIES).map(entrySummary),
+    moreEntries: Math.max(0, entries.length - MAX_SUMMARY_ENTRIES),
+  };
+}
 
 function itemSummary(item: Doc<"items">): Value {
   const base = {
@@ -773,19 +783,19 @@ export const readCanvasForRun = internalQuery({
                   contingency: rollup.contingency,
                 }
               : null,
-            entries: budget.entries.map(entrySummary),
+            ...summaryEntries(budget.entries),
           }
         : null,
       timeline: timeline
         ? {
             itemId: timeline.item._id,
-            entries: timeline.entries.map(entrySummary),
+            ...summaryEntries(timeline.entries),
           }
         : null,
       checklist: checklist
         ? {
             itemId: checklist.item._id,
-            entries: checklist.entries.map(entrySummary),
+            ...summaryEntries(checklist.entries),
           }
         : null,
       items: items
@@ -1597,6 +1607,9 @@ export const updateItemForRun = internalMutation({
 // ---------------------------------------------------------------------------
 // moveItem
 
+/** How far past its Section's frame the Assistant may place an Item, in px. */
+const ASSISTANT_MOVE_MARGIN = 400;
+
 export const moveItemForRun = internalMutation({
   args: {
     ...callRef,
@@ -1618,11 +1631,15 @@ export const moveItemForRun = internalMutation({
         (i) => i._id !== item._id,
       );
       const size = item.size ?? NOTE_SIZE;
+      // A position stays within the Section's frame plus a margin, so a
+      // stray number can't send an Item far off the Canvas (review of #99, L5).
+      const clamp = (n: number, max: number) =>
+        Math.min(max, Math.max(0, Math.round(n)));
       const position =
         args.position !== null
           ? {
-              x: Math.max(0, Math.round(args.position.x)),
-              y: Math.max(0, Math.round(args.position.y)),
+              x: clamp(args.position.x, target.frame.w + ASSISTANT_MOVE_MARGIN),
+              y: clamp(args.position.y, target.frame.h + ASSISTANT_MOVE_MARGIN),
             }
           : placeInFreeSpace(target, others, size);
       const result = await versionedUpdate(ctx, g, {
@@ -1837,6 +1854,8 @@ export const pointAtForRun = internalMutation({
 // "Save as Note" on a web search answer (the citations card)
 
 const MAX_CITATIONS = 20;
+/** The most messages read for one reply's steps. */
+const MAX_REPLY_STEPS = 50;
 
 /**
  * Saves one of Utsavvy's web search answers as a Note with its citations
@@ -1849,6 +1868,19 @@ export const saveAnswerAsNote = mutation({
   returns: v.id("items"),
   handler: async (ctx, { eventId, messageId }) => {
     const { membership } = await requireAccess(ctx, eventId, "canvas.edit");
+    // One Note per answer: a reload or a second tab gets the same Note back
+    // while it is on the Canvas (review of #99, L3). The key lives in the
+    // idempotency table `once()` uses.
+    const savedKey = `saveAnswerAsNote:${eventId}:${messageId}`;
+    const saved = await ctx.db
+      .query("toolCalls")
+      .withIndex("by_key", (q) => q.eq("key", savedKey))
+      .unique();
+    if (saved !== null) {
+      const noteId = ctx.db.normalizeId("items", String(saved.result));
+      const note = noteId ? await ctx.db.get("items", noteId) : null;
+      if (note !== null && note.deletedAt === null) return note._id;
+    }
     const event = await ctx.db.get("events", eventId);
     if (event === null || event.agentThreadId === null)
       throw new AccessDenied("wrongEvent", "canvas.edit");
@@ -1871,14 +1903,17 @@ export const saveAnswerAsNote = mutation({
     )
       invalid("Only Utsavvy's answers can be saved as a Note.");
 
-    // A reply with tool steps is several messages at the same order.
+    // A reply with tool steps is several messages at the same order. Reading
+    // down from the reply's own order finds them however much newer Chat
+    // there is (review of #99, L2).
     const page = await ctx.runQuery(
       components.agent.messages.listMessagesByThreadId,
       {
         threadId: event.agentThreadId,
         order: "desc",
         statuses: ["success"],
-        paginationOpts: { numItems: 100, cursor: null },
+        upToAndIncludingMessageId: doc._id,
+        paginationOpts: { numItems: MAX_REPLY_STEPS, cursor: null },
       },
     );
     const steps = page.page
@@ -1928,6 +1963,13 @@ export const saveAnswerAsNote = mutation({
       },
       actor,
     });
+    if (saved === null)
+      await ctx.db.insert("toolCalls", {
+        key: savedKey,
+        result: id,
+        at: Date.now(),
+      });
+    else await ctx.db.patch("toolCalls", saved._id, { result: id });
     return id;
   },
 });
@@ -2113,7 +2155,7 @@ export function buildCoreTools(options: CoreToolOptions = {}): CoreTools {
       AssistantToolCtx
     >({
       description:
-        "Read the Canvas fresh: the Event, Functions, Budget with roll-up, Timeline, Vendor checklist, other Items and open Proposals, with the IDs and versions to write against. Pass ids to read named Items, Entries or Sections in full. Call it before changing anything.",
+        "Read the Canvas fresh: the Event, Functions, Budget with roll-up, Timeline, Vendor checklist, other Items and open Proposals, with the IDs and versions to write against. Each plan Item lists its first 60 Entries; moreEntries says how many it left out. Pass ids to read named Items, Entries or Sections in full. Call it before changing anything.",
       inputSchema: z.strictObject({
         ids: z.array(id).max(MAX_READ_IDS).optional(),
       }),
