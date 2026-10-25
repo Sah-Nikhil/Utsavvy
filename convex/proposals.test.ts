@@ -663,6 +663,28 @@ describe("The propose tool", () => {
     );
   });
 
+  it("refuses an amount the message gives another line of the Event", async () => {
+    // "Drone shoot" is a line of this Event, not a category word, so propose
+    // must pass the Event's other lines (orchestrator check of PR 116).
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "drone shoot quoted 50k, add a DJ too");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Add Entertainment",
+      changes: [
+        {
+          op: "addEntry",
+          entry: {
+            kind: "budget",
+            label: "Entertainment",
+            functionKey: null,
+            amountSource: { memberStated: 50_000 },
+          },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+  });
+
   it("refuses a version the model didn't read, and another Event's Item", async () => {
     const s = await setUp();
     const runId = await ask(s, "Rohan", "Drop the drone shoot.");

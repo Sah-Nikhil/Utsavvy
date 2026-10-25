@@ -144,6 +144,37 @@ describe("checkMemberStatedAmount ties an amount to the line it names (review M3
   });
 
   it.each([
+    [15_000, "let's go with 15k", "Photographer"],
+    [15_000, "ok fine, 15k works", "Photographer"],
+    [15_000, "yes please keep 15k", "Mehendi artist"],
+    [15_000, "15k sounds good", "Mehendi artist"],
+    [15_000, "make it 15k for now", "Mehendi artist"],
+  ])(
+    "accepts %i for %j, a reply that names no other line, on the %j line",
+    (amount, text, label) => {
+      // Words such as "go", "works" and "sounds" are no evidence that the
+      // amount is for another line (orchestrator check of PR 116).
+      expect(checkMemberStatedAmount(amount, text, [label])).toBe(true);
+    },
+  );
+
+  it("refuses an amount whose clause names another line of the Event", () => {
+    // "Sharma ji" is no category word, but the Event has a line by that name.
+    const text = "Sharma ji quoted 2.4L, add a DJ too";
+    expect(
+      checkMemberStatedAmount(
+        240_000,
+        text,
+        ["Entertainment"],
+        ["Sharma ji (halwai)", "Entertainment"],
+      ),
+    ).toBe(false);
+    expect(checkMemberStatedAmount(240_000, text, ["Entertainment"])).toBe(
+      true,
+    );
+  });
+
+  it.each([
     // The Member answers the Assistant's "How much for the mehendi artist?"
     [15_000, "15k", "Mehendi artist"],
     [200_000, "keep it at 2L", "Decor"],
