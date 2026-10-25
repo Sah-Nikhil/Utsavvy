@@ -378,7 +378,11 @@ function DeadlineRow({
           </p>
         ) : null}
       </div>
-      <EntryCommentCount entryId={entry._id} className="shrink-0" />
+      <EntryCommentCount
+        entryId={entry._id}
+        entryLabel={fields.title}
+        className="shrink-0"
+      />
       <ViewerAvatars viewers={row.viewers} className="shrink-0" />
       {canEdit ? (
         <TinyIconButton
@@ -475,7 +479,11 @@ function RunSheetRow({ entry, canEdit, run }: RowProps) {
           </p>
         ) : null}
       </div>
-      <EntryCommentCount entryId={entry._id} className="shrink-0" />
+      <EntryCommentCount
+        entryId={entry._id}
+        entryLabel={fields.title}
+        className="shrink-0"
+      />
       <ViewerAvatars viewers={row.viewers} className="shrink-0" />
       {canEdit ? (
         <TinyIconButton

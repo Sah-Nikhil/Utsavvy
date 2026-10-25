@@ -47,8 +47,8 @@ export type ItemCommentsState = {
   itemCount: number | undefined;
   /** Comments in open threads on one Entry. */
   entryCount: (entryId: Id<"entries">) => number;
-  /** Opens the thread sheet on the Item, or on one of its Entries. */
-  open: (target?: CommentViewTarget) => void;
+  /** Opens the thread sheet on the Item, or on one of its Entries (named, e.g. "Caterer"). */
+  open: (target?: CommentViewTarget, entryLabel?: string) => void;
 };
 
 /** An Item's Comments: undefined while loading; `failed` when the query threw. */
@@ -105,15 +105,27 @@ export function ItemComments({
 }) {
   const { comments } = useCommentList(itemId);
   const [openOn, setOpenOn] = useState<CommentViewTarget | null>(null);
+  const [openLabel, setOpenLabel] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
   const open = useCallback(
-    (target?: CommentViewTarget) => {
+    (target?: CommentViewTarget, entryLabel?: string) => {
       setOpenOn(target ?? { kind: "item", itemId });
+      setOpenLabel(entryLabel ?? null);
       setIsOpen(true);
     },
     [itemId],
   );
+  // The Entry the sheet is on, by the name its row gave or its Comments carry.
+  const openEntryLabel =
+    openOn?.kind === "entry"
+      ? (openLabel ??
+        comments?.find(
+          (c) =>
+            c.target.kind === "entry" && c.target.entryId === openOn.entryId,
+        )?.entryLabel ??
+        null)
+      : null;
 
   const state = useMemo<ItemCommentsState>(
     () => ({
@@ -138,7 +150,7 @@ export function ItemComments({
             title="Comments"
             description={
               openOn.kind === "entry"
-                ? `On an Entry in the ${itemLabel}`
+                ? `On ${openEntryLabel ? `“${openEntryLabel}”` : "an Entry"} in the ${itemLabel}`
                 : `On the ${itemLabel}`
             }
             bodyClassName="flex flex-col p-0"
@@ -177,10 +189,10 @@ function CommentsSheetBody({
   const mixed =
     on.kind === "item" &&
     (threads ?? []).some((t) => t.root.target.kind === "entry");
-  const labelOf = (target: CommentViewTarget) =>
+  const labelOf = (root: CommentView) =>
     mixed
-      ? target.kind === "entry"
-        ? "On an Entry"
+      ? root.target.kind === "entry"
+        ? `On ${root.entryLabel ? `“${root.entryLabel}”` : "an Entry"}`
         : "On this Item"
       : undefined;
 
@@ -213,7 +225,7 @@ function CommentsSheetBody({
                     <CommentThread
                       itemId={itemId}
                       rootId={t.root._id}
-                      label={labelOf(t.root.target)}
+                      label={labelOf(t.root)}
                     />
                   </li>
                 ))}
@@ -232,7 +244,7 @@ function CommentsSheetBody({
                           <CommentThread
                             itemId={itemId}
                             rootId={t.root._id}
-                            label={labelOf(t.root.target)}
+                            label={labelOf(t.root)}
                           />
                         </li>
                       ))}
@@ -284,9 +296,12 @@ function EmptyComments() {
  */
 export function EntryCommentCount({
   entryId,
+  entryLabel,
   className,
 }: {
   entryId: Id<"entries">;
+  /** What the row is called ("Caterer"), so the sheet says which Entry it is on. */
+  entryLabel?: string;
   className?: string;
 }) {
   const comments = useItemComments();
@@ -304,7 +319,10 @@ export function EntryCommentCount({
       data-entry-comments={count}
       onClick={(event) => {
         event.stopPropagation();
-        comments.open({ kind: "entry", itemId: comments.itemId, entryId });
+        comments.open(
+          { kind: "entry", itemId: comments.itemId, entryId },
+          entryLabel,
+        );
       }}
       className={cn(
         "state-layer inline-flex h-7 shrink-0 items-center gap-1 rounded-xs px-1.5 text-caption font-medium",
