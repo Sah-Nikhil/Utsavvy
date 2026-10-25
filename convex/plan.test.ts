@@ -12,18 +12,26 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { estimateLines, stubEstimateDeps } from "./estimates";
 import { addDays } from "../lib/brief/dates";
-import { STUB_MODEL } from "./lib/models";
+import {
+  languageModel,
+  STUB_FALLBACK_MODEL,
+  STUB_MODEL,
+  type ModelV4,
+} from "./lib/models";
 import { istDay } from "./lib/time";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 import {
   aaravBirthdayDraft,
   applyPlan,
+  describeEssentialChange,
   diffEssentialChange,
+  draftWithModel,
   jaipurWeddingDraft,
   mentionsAmount,
   planLinesOf,
   pricePlanDraft,
   puneGaneshUtsavDraft,
+  runEssentialProposal,
   runPlan,
   toFirstPlanDraft,
   validateDraft,
@@ -307,6 +315,36 @@ const jaipurDraft = (): FirstPlanDraft =>
 const check = (draft: FirstPlanDraft) =>
   validateDraft(draft, { eventType: "wedding", functionKeys: KEYS });
 
+/** System notices posted in the Event's Chat. */
+async function notices(s: S): Promise<number> {
+  return (
+    await s.t.run((ctx) =>
+      ctx.db
+        .query("chatAnnotations")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .take(100),
+    )
+  ).filter((a) => a.card?.kind === "system").length;
+}
+
+/** A model that never answers until its call is aborted, like a stalled provider. */
+function stalledModel(modelId: string): ModelV4 {
+  const hang = (options: { abortSignal?: AbortSignal }) =>
+    new Promise<never>((_, reject) => {
+      options.abortSignal?.addEventListener("abort", () =>
+        reject(options.abortSignal!.reason),
+      );
+    });
+  return {
+    specificationVersion: "v4",
+    provider: "stub",
+    modelId,
+    supportedUrls: {},
+    doGenerate: hang,
+    doStream: hang,
+  } as unknown as ModelV4;
+}
+
 // ---------------------------------------------------------------------------
 
 describe("validateDraft", () => {
@@ -326,6 +364,13 @@ describe("validateDraft", () => {
     const asField = jaipurDraft();
     (asField.eventWide[0] as Record<string, unknown>).amount = 40000;
     expect(check(asField).join(" ")).toMatch(/amount/i);
+  });
+
+  it("rejects the same category twice in one Function", () => {
+    const twice = jaipurDraft();
+    const lines = twice.functions[0]!.budgetEntries;
+    lines.push({ ...lines[0]! });
+    expect(check(twice).join(" ")).toMatch(/catering_light.*twice/);
   });
 
   it("tells a plain count from a rupee amount", () => {
@@ -624,6 +669,158 @@ describe("a stopped plan whose action never ends", () => {
     await s.t.mutation(internal.plan.watchdog, { eventId: s.eventId, runId });
     const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
     expect(event!.briefState).toBe("summary");
+  });
+});
+
+describe("the plan run's contracts", () => {
+  it("waits in S5's queue behind a running Chat reply, then runs alone", async () => {
+    const s = await aaravAtSummary();
+    const chatRun = await s.t.run((ctx) =>
+      ctx.db.insert("runs", {
+        eventId: s.eventId,
+        requestedBy: s.member,
+        source: "chat",
+        messageId: null,
+        commentId: null,
+        status: "running",
+        stoppedBy: null,
+        model: "",
+        createdAt: Date.now(),
+        startedAt: Date.now(),
+        endedAt: null,
+      }),
+    );
+    const made = await s.asMeera.mutation(api.plan.make, {
+      eventId: s.eventId,
+      belowMinimum: false,
+    });
+    expect(made.status).toBe("started");
+    await s.t.finishInProgressScheduledFunctions();
+    const running = (
+      await s.t.run((ctx) =>
+        ctx.db
+          .query("runs")
+          .withIndex("by_event_status", (q) =>
+            q.eq("eventId", s.eventId).eq("status", "running"),
+          )
+          .take(10),
+      )
+    ).map((r) => r.source);
+    expect(running).toEqual(["chat"]);
+    const planRun = await s.t.run((ctx) => ctx.db.get("runs", made.runId!));
+    expect(planRun!.status).toBe("queued");
+
+    await s.t.mutation(internal.runs.finish, {
+      runId: chatRun,
+      outcome: "done",
+    });
+    const event = await until(
+      s,
+      () => s.t.run((ctx) => ctx.db.get("events", s.eventId)),
+      (e) => e?.briefState === "planned",
+    );
+    expect(event!.briefState).toBe("planned");
+  });
+
+  it("stops writing when the Member who asked loses access, and says so", async () => {
+    const s = await jaipurAtSummary();
+    const runId = await startRun(s);
+    const run = await s.t.run((ctx) => ctx.db.get("runs", runId));
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", run!.requestedBy, {
+        status: "removed",
+        endedAt: Date.now(),
+      }),
+    );
+    const before = await notices(s);
+    await runPlan(
+      actionCtx(s.t),
+      { eventId: s.eventId, runId },
+      {
+        draft: async (input) => ({
+          draft: toFirstPlanDraft(jaipurWeddingDraft, input.functions),
+          model: STUB_MODEL,
+        }),
+        estimate: stubEstimateDeps,
+        today: TODAY,
+      },
+    );
+    expect(await liveEntries(s)).toEqual([]);
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(event!.briefState).toBe("summary");
+    expect((await s.t.run((ctx) => ctx.db.get("runs", runId)))!.status).toBe(
+      "failed",
+    );
+    expect(await notices(s)).toBe(before + 1);
+  });
+
+  it("falls back to the next model when the first one stalls", async () => {
+    const s = await jaipurAtSummary();
+    const runId = await startRun(s);
+    const input = await s.t.query(internal.plan.planInput, {
+      eventId: s.eventId,
+      runId,
+    });
+    const source = { DEFAULT_MODEL: STUB_FALLBACK_MODEL };
+    const { model } = await draftWithModel(input!, {
+      source,
+      modelFor: (id) =>
+        id === "stub-claude" ? stalledModel(id) : languageModel(id, source),
+      timeoutMs: 300,
+    });
+    expect(model).toBe("stub-gemini");
+  });
+
+  it("records handing the Brief back in the history, and a partial plan gets its own Budget check", async () => {
+    const s = await jaipurAtSummary();
+    const runId = await startRun(s);
+    const input = await s.t.query(internal.plan.planInput, {
+      eventId: s.eventId,
+      runId,
+    });
+    const draft = toFirstPlanDraft(jaipurWeddingDraft, input!.functions);
+    const ranges = await estimateLines(
+      actionCtx(s.t),
+      {
+        eventId: s.eventId,
+        city: input!.event.city.name,
+        tier: input!.event.city.tier,
+        eventType: input!.event.eventType,
+        lines: planLinesOf(draft),
+      },
+      stubEstimateDeps,
+    );
+    const priced = pricePlanDraft(input!, draft, ranges, TODAY);
+    // The Budget lands, then the run fails before the rest.
+    await s.t.run((ctx) =>
+      applyPlan(ctx, s.eventId, priced, ["functions", "budget"]),
+    );
+    await s.t.mutation(internal.plan.end, {
+      eventId: s.eventId,
+      runId,
+      outcome: "failed",
+      reason: null,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(event!.briefState).toBe("planned");
+    expect(event!.budgetCheck?.minimum).toBe(priced.budgetCheck.minimum);
+    const history = await s.t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", s.eventId))
+        .take(100),
+    );
+    expect(
+      history.some(
+        (row) =>
+          row.actor.kind === "assistant" &&
+          (row.before as { briefState?: string } | null)?.briefState ===
+            "planning" &&
+          (row.after as { briefState?: string } | null)?.briefState ===
+            "planned",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -1002,5 +1199,175 @@ describe("changing an essential after the plan", () => {
         change: { field: "guests", functionKey: null, guests: 400 },
       }),
     ).rejects.toThrow(/Wait for the plan to finish/);
+  });
+
+  const rollupOf = async (s: S) => {
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    return {
+      event: event!,
+      rollup: budgetRollup(await budgetEntries(s), event!.budgetTotal),
+    };
+  };
+  const linesTotal = (r: ReturnType<typeof budgetRollup>) =>
+    r.total - r.contingency - r.unallocated;
+
+  it("a lower budget re-prices the lines to fit, with a 10% Contingency", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2200000 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event, rollup } = await rollupOf(s);
+    expect(event.budgetTotal).toBe(2200000);
+    expect(rollup.total).toBe(2200000);
+    expect(rollup.overBy).toBe(0);
+    expect(
+      Math.abs(rollup.contingency - 0.1 * linesTotal(rollup)),
+    ).toBeLessThanOrEqual(5000);
+  });
+
+  it("a budget above the high end puts the rest in Unallocated", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 5000000 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event, rollup } = await rollupOf(s);
+    expect(rollup.total).toBe(5000000);
+    expect(rollup.unallocated).toBeGreaterThan(0);
+    expect(
+      Math.abs(rollup.contingency - 0.1 * linesTotal(rollup)),
+    ).toBeLessThanOrEqual(5000);
+    expect(event.budgetCheck?.band).toBe("aboveHigh");
+  });
+
+  it("says when the change leaves the Budget over", async () => {
+    const { s } = await plannedJaipur();
+    const state = await s.t.query(internal.plan.essentialInput, {
+      eventId: s.eventId,
+      today: TODAY,
+    });
+    // Meera's own ₹3,90,000 catering line alone is over a ₹3L budget.
+    const budget = { field: "budget" as const, budget: 300000 };
+    expect(
+      describeEssentialChange(
+        state!,
+        budget,
+        diffEssentialChange(state!, budget),
+      ),
+    ).toMatch(/over the ₹3L budget by/);
+    const guests = {
+      field: "guests" as const,
+      functionKey: null,
+      guests: 400,
+    };
+    expect(
+      describeEssentialChange(
+        state!,
+        guests,
+        diffEssentialChange(state!, guests),
+      ),
+    ).toMatch(/over the ₹25L budget by/);
+  });
+
+  it("invitations follow the Guests while they are still assumed", async () => {
+    const { s } = await plannedJaipur();
+    const state = await s.t.query(internal.plan.essentialInput, {
+      eventId: s.eventId,
+      today: TODAY,
+    });
+    const invitations = state!.lines.find(
+      (l: { fields: { category: string | null } }) =>
+        l.fields.category === "invitations",
+    )!;
+    const change = diffEssentialChange(state!, {
+      field: "guests",
+      functionKey: null,
+      guests: 400,
+    }).find((c) => c.docId === invitations.id);
+    expect(
+      change?.op === "updateEntry" &&
+        (change.values.patch.fields as { quantity: number }).quantity,
+    ).toBe(200);
+  });
+
+  it("a city change re-prices the Estimates for the new city on Accept", async () => {
+    const { s, weddingCateringId } = await plannedJaipur();
+    const before = await budgetEntries(s);
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const [proposal] = await until(
+      s,
+      () =>
+        s.t.run((ctx) =>
+          ctx.db
+            .query("proposals")
+            .withIndex("by_event_status", (q) =>
+              q.eq("eventId", s.eventId).eq("status", "open"),
+            )
+            .take(5),
+        ),
+      (rows) => rows.length > 0,
+    );
+    expect(proposal!.summary).toMatch(/re-priced for Mumbai/);
+    await acceptNext(s);
+    const receptionText = async () =>
+      (await budgetEntries(s)).find(
+        (e) =>
+          e.functionKey === "reception" &&
+          e.fields.category === "catering_main",
+      )!.fields.estimate!.basis.text;
+    await until(s, receptionText, (text) => /X tier/.test(text));
+    await s.t.finishAllScheduledFunctions(() => {});
+    const after = await budgetEntries(s);
+    const reception = after.find(
+      (e) =>
+        e.functionKey === "reception" && e.fields.category === "catering_main",
+    )!;
+    expect(reception.fields.estimate!.basis.text).toBe(
+      "Utsavvy reference table, X tier, Oct 2026",
+    );
+    expect(reception.fields.estimate!.basis.unitLow).toBe(1250);
+    // Meera's own line stays as she set it, Estimate and all.
+    expect(after.find((e) => e._id === weddingCateringId)!.fields).toEqual(
+      before.find((e) => e._id === weddingCateringId)!.fields,
+    );
+    const { event, rollup } = await rollupOf(s);
+    expect(event.city?.tier).toBe("X");
+    expect(rollup.total).toBe(2500000);
+    expect(event.budgetCheck!.minimum).toBeGreaterThan(1962400 * 1.2);
+  });
+
+  it("says so in the Chat when pricing the change fails", async () => {
+    const { s } = await plannedJaipur();
+    const owner = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner"),
+    );
+    const before = await notices(s);
+    await runEssentialProposal(
+      actionCtx(s.t),
+      {
+        eventId: s.eventId,
+        change: { field: "guests", functionKey: null, guests: 400 },
+        requestedBy: owner!._id,
+      },
+      {
+        now: () => {
+          throw new Error("the cascade is down");
+        },
+      },
+    );
+    expect(await notices(s)).toBe(before + 1);
   });
 });
