@@ -1,13 +1,18 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMutation } from "convex/react";
+import { LoaderCircle } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { BriefError, useBriefCall } from "./shared";
 
 /**
- * "Make my plan" and "Plan at my budget anyway". The hook S14 (the first plan)
- * fills: it starts the plan from the Brief, and with `belowMinimum` plans at
- * the budget anyway, every Entry below its usual range. Until then it says so.
+ * "Make my plan" and "Plan at my budget anyway" (S14): starts the first plan
+ * from the Brief, and with `belowMinimum` plans at the budget anyway, every
+ * Entry below its usual range. The plan's progress shows in the Chat; a second
+ * tap, by anyone, finds it already started.
  */
 export function MakePlanButton({
   eventId,
@@ -20,24 +25,27 @@ export function MakePlanButton({
   variant?: "filled" | "outline";
   children: ReactNode;
 }) {
-  const [note, setNote] = useState<string | null>(null);
-  void eventId;
-  void belowMinimum;
+  const make = useMutation(api.plan.make);
+  const call = useBriefCall(() => make({ eventId, belowMinimum }));
   return (
     <div className="flex flex-col gap-1.5">
       <Button
         size="lg"
         variant={variant}
         data-make-plan
-        onClick={() => setNote("The first plan arrives with S14.")}
+        disabled={call.busy}
+        aria-busy={call.busy || undefined}
+        onClick={() => void call.run()}
       >
+        {call.busy ? (
+          <LoaderCircle
+            aria-hidden
+            className="size-4 animate-spin motion-reduce:animate-none"
+          />
+        ) : null}
         {children}
       </Button>
-      {note ? (
-        <p role="status" className="text-caption text-ink-3">
-          {note}
-        </p>
-      ) : null}
+      <BriefError>{call.error}</BriefError>
     </div>
   );
 }

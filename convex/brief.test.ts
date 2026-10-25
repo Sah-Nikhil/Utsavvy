@@ -404,12 +404,11 @@ describe("editField", () => {
       ctx.db.patch("events", s.eventId, { briefState: "planned" }),
     );
     const before = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
-    await expect(
-      s.asMeera.mutation(api.brief.editField, {
-        eventId: s.eventId,
-        change: { field: "guests", functionKey: null, guests: 100 },
-      }),
-    ).rejects.toThrow(/changing an essential after the first plan/);
+    // S14 sends it as a Proposal (convex/plan.test.ts); the Brief waits for Accept.
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "guests", functionKey: null, guests: 100 },
+    });
     const after = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
     expect(after).toEqual(before);
   });
