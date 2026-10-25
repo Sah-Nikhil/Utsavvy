@@ -639,8 +639,8 @@ function CanvasFlow({
     [sections],
   );
   // Showing an Item from elsewhere (a history row, a Chat reference, a new
-  // Note) pans to it when it is wholly out of sight. An Item someone clicks
-  // on the Canvas is already in view, so a click never moves the view.
+  // Note) pans to it when it is out of sight or shows only a sliver. An Item
+  // someone clicks on the Canvas is usually well in view, so it stays put.
   const revealed = useRef<string | null>(null);
   useEffect(() => {
     if (selectedItemId === null) {
