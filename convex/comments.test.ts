@@ -254,6 +254,44 @@ describe("targets", () => {
     ]);
   });
 
+  it("names the Entry each Comment is on, so the sheet can say which (review of #91)", async () => {
+    const { t, asPapa, asMeera, checklistId, entryId, eventId, meera } =
+      await setUp("viewer");
+    const dhol = await t.run(async (ctx) => {
+      const id = await insertChecklistEntry(
+        ctx,
+        eventId,
+        checklistId,
+        meera.membershipId,
+      );
+      await ctx.db.patch("entries", id, {
+        fields: {
+          vendorCategory: null,
+          freeLabel: "Dhol player",
+          functionKeys: [],
+          bookByEntryId: null,
+          budgetEntryIds: [],
+        },
+      });
+      return id;
+    });
+    for (const [target, body] of [
+      [{ kind: "entry" as const, itemId: checklistId, entryId }, "Called?"],
+      [{ kind: "entry" as const, itemId: checklistId, entryId: dhol }, "Who?"],
+      [{ kind: "item" as const, itemId: checklistId }, "All booked?"],
+    ] as const) {
+      await asPapa.mutation(api.comments.add, { target, body, rootId: null });
+    }
+    const comments = await asMeera.query(api.comments.listForItem, {
+      itemId: checklistId,
+    });
+    expect(comments.map((c) => [c.body, c.entryLabel])).toEqual([
+      ["Called?", "Caterer"],
+      ["Who?", "Dhol player"],
+      ["All booked?", null],
+    ]);
+  });
+
   it("refuses an Entry paired with another Item", async () => {
     const { asMeera, itemId, entryId } = await setUp();
     await expect(
