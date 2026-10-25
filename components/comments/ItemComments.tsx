@@ -23,6 +23,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { CommentComposer } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
+import { sheetEntryLabel } from "./sheetLabel";
 import {
   isOn,
   openCount,
@@ -116,16 +117,7 @@ export function ItemComments({
     },
     [itemId],
   );
-  // The Entry the sheet is on, by the name its row gave or its Comments carry.
-  const openEntryLabel =
-    openOn?.kind === "entry"
-      ? (openLabel ??
-        comments?.find(
-          (c) =>
-            c.target.kind === "entry" && c.target.entryId === openOn.entryId,
-        )?.entryLabel ??
-        null)
-      : null;
+  const openEntryLabel = sheetEntryLabel(openOn, openLabel, comments);
 
   const state = useMemo<ItemCommentsState>(
     () => ({
