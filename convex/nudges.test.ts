@@ -249,6 +249,28 @@ async function propose(
   return await tool.execute(input, { toolCallId: "toolu_p1", messages: [] });
 }
 
+/** A JPEG's first bytes: enough for `addUpload`'s type check. */
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70]);
+
+/**
+ * A Member uploads a photo through `api.inspirations.addUpload`, the only
+ * place that knows its arguments, so a change to them is made here.
+ */
+async function uploadPhoto(s: Setup, who: Name) {
+  await s.t.run((ctx) =>
+    ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
+  );
+  const fileId = await s.t.run((ctx) =>
+    ctx.storage.store(new Blob([JPEG], { type: "image/jpeg" })),
+  );
+  return await s.as(who).action(api.inspirations.addUpload, {
+    eventId: s.eventId,
+    fileId,
+    rightsTicked: false,
+    palette: [],
+  });
+}
+
 // ---------------------------------------------------------------------------
 
 describe("the post-write hook", () => {
@@ -305,23 +327,7 @@ describe("the post-write hook", () => {
     expect(await checksScheduled(s)).toBe(1);
     await settle(s);
 
-    await s.t.run((ctx) =>
-      ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
-    );
-    const fileId = await s.t.run((ctx) =>
-      ctx.storage.store(
-        new Blob(
-          [new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70])],
-          { type: "image/jpeg" },
-        ),
-      ),
-    );
-    await s.as("Aditi").action(api.inspirations.addUpload, {
-      eventId: s.eventId,
-      fileId,
-      rightsTicked: false,
-      palette: [],
-    });
+    await uploadPhoto(s, "Aditi");
     expect(await checksScheduled(s)).toBe(1);
   });
 
@@ -551,6 +557,15 @@ describe("the new Inspiration Nudge", () => {
     await settle(s);
     expect(await nudgeLines(s)).toEqual([
       "Meera added a pastel lehenga photo. Want me to update the Theme to match?",
+    ]);
+  });
+
+  it('words an upload "Aditi added a photo.": the Nudge goes out before the photo is described', async () => {
+    const s = await setUp();
+    await uploadPhoto(s, "Aditi");
+    await settle(s);
+    expect(await nudgeLines(s)).toEqual([
+      "Aditi added a photo. Want me to update the Theme to match?",
     ]);
   });
 

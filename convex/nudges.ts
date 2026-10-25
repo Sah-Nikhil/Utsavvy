@@ -316,6 +316,11 @@ function istDayStart(dayIst: string): number {
  * open Pinterest or Instagram (ADR 0014), so it couldn't match the Theme to
  * one. So are photos added in a labelled group, such as the vibe pick, which
  * set the Theme as they arrive.
+ *
+ * An upload's Nudge reads "Aditi added a photo.": the check runs as the photo
+ * arrives, before `describeUpload` has written what it shows, and the
+ * once-a-day rule keeps it from being worded again later. A library photo
+ * already carries its alt text, so it reads "added a photo of …".
  */
 async function checkInspirations(
   ctx: MutationCtx,
