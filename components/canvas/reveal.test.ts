@@ -12,9 +12,15 @@ describe("isOffScreen", () => {
     expect(isOffScreen(BUDGET, { x: 0, y: 0, zoom: 1 }, CANVAS)).toBe(false);
   });
 
-  it("is false for an Item only partly in view, which a click could reach", () => {
-    // Panned left so only the Budget's last 32 px show.
-    expect(isOffScreen(BUDGET, { x: -400, y: 0, zoom: 1 }, CANVAS)).toBe(false);
+  it("is false for an Item with a good part in view", () => {
+    // Panned left so the Budget's right 132 px show.
+    expect(isOffScreen(BUDGET, { x: -300, y: 0, zoom: 1 }, CANVAS)).toBe(false);
+  });
+
+  it("is true when only a sliver of the Item shows, such as a new Note's top edge", () => {
+    // Its last 32 px at the left edge, or its top 15 px at the bottom.
+    expect(isOffScreen(BUDGET, { x: -400, y: 0, zoom: 1 }, CANVAS)).toBe(true);
+    expect(isOffScreen(BUDGET, { x: 0, y: 685, zoom: 1 }, CANVAS)).toBe(true);
   });
 
   it("is true once the Item is wholly past an edge", () => {
