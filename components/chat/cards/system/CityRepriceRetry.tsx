@@ -9,9 +9,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 /**
  * Try again on the notice of a failed city re-price (issue #102, review of
- * #114 L3). The notice carries the accepted city Proposal as its card ID;
- * the button shows only while that re-price hasn't landed, and only Members
- * see it.
+ * #114 L3). The notice carries the accepted city Proposal in its card ID
+ * (`lib/chat/notices.ts`); the button shows only while that re-price hasn't
+ * landed, and only to Members, while the Member who asked still can.
  */
 export function CityRepriceRetry({
   eventId,

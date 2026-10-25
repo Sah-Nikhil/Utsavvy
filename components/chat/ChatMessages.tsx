@@ -14,7 +14,7 @@ import {
   Citations,
   type CitationSource,
 } from "@/components/chat/cards/citations/Citations";
-import { CityRepriceRetry } from "@/components/chat/cards/system/CityRepriceRetry";
+import { SystemNoticeAction } from "@/components/chat/cards/system/SystemNoticeAction";
 import { CHAT_CARDS } from "@/components/chat/cards/registry";
 import { UndoAllButton } from "@/components/history/UndoAllButton";
 import { AssistantOrb } from "@/components/shell/AssistantOrb";
@@ -321,12 +321,8 @@ function SystemMessage({
             annotation={row.annotation}
           />
         ) : null}
-        {card.kind === "system" && card.id !== null ? (
-          // A system notice with a Proposal is a failed city re-price (#102).
-          <CityRepriceRetry
-            eventId={eventId}
-            proposalId={card.id as Id<"proposals">}
-          />
+        {card.kind === "system" ? (
+          <SystemNoticeAction eventId={eventId} cardId={card.id} />
         ) : null}
       </div>
     </li>

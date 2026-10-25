@@ -16,6 +16,7 @@ import {
 } from "../lib/brief/functions";
 import { entryAmount } from "../components/items/budget/rollup";
 import { can } from "../lib/access/permissions";
+import { cityRepriceNoticeId } from "../lib/chat/notices";
 import { BRIEF_LIMITS } from "../lib/brief/limits";
 import { formatINR, formatLakh } from "../lib/format";
 import {
@@ -3350,15 +3351,17 @@ function amountAfter(
 }
 
 /**
- * "below the usual minimum of ₹19,62,400 for Jaipur" when a re-priced Budget
- * falls below its minimum: the same Budget check the plan holds after Accept.
+ * "the ₹15L budget would be below the usual minimum of ₹19,62,400 for
+ * Jaipur" when a re-priced Budget falls below its minimum: the same Budget
+ * check the plan holds after Accept.
  */
 function belowMinimumNote(
   check: BudgetCheck,
+  budget: number,
   city: string | null,
 ): string | null {
   if (check.band !== "belowMinimum") return null;
-  return `below the usual minimum of ${formatINR(check.minimum)}${city ? ` for ${city}` : ""}`;
+  return `the ${formatLakh(budget)} budget would be below the usual minimum of ${formatINR(check.minimum)}${city ? ` for ${city}` : ""}`;
 }
 
 /**
@@ -3446,7 +3449,11 @@ export function describeEssentialChange(
       parts.push(
         `the lines you set are over the ${formatLakh(change.budget)} budget by ${formatINR(r.overBy)}`,
       );
-    const below = belowMinimumNote(r.budgetCheck, state.city?.name ?? null);
+    const below = belowMinimumNote(
+      r.budgetCheck,
+      change.budget,
+      state.city?.name ?? null,
+    );
     if (below) parts.push(below);
   }
   if (change.field === "guests" && state.budget !== null) {
@@ -3476,7 +3483,7 @@ export function describeEssentialChange(
   if (change.field === "city" && cityRanges !== null && state.budget !== null) {
     const city = { name: change.city, tier: cityTier(change.city) };
     const r = repriceBudget({ ...state, city }, state.budget, cityRanges);
-    const below = belowMinimumNote(r.budgetCheck, city.name);
+    const below = belowMinimumNote(r.budgetCheck, state.budget, city.name);
     if (below) parts.push(below);
   }
   const text = parts.length > 0 ? `${head}: ${parts.join("; ")}.` : `${head}.`;
@@ -3615,12 +3622,14 @@ async function proposeFromState(
     );
   }
   let cityRanges: Map<Id<"entries">, LineEstimate | null> | null = null;
+  let stored: StoredCityPrices | undefined;
   if (args.change.field === "city") {
     extra = `Estimates will be re-priced for ${city.name} (tier ${city.tier}) when you accept; lines you set or got Quotes for stay`;
-    // The same cascade Accept runs (`runCityReprice`), so the card can warn
-    // up front; the Estimate cache makes the run at Accept cheap.
+    // The new city's prices, looked up once: the card warns from them, and
+    // they are stored with the Proposal so Accept writes exactly these.
     const prices = await cityPrices(ctx, state, city, deps);
     cityRanges = new Map(prices.map((p) => [p.id, p.range]));
+    stored = { city: city.name, prices };
   }
   const changes = diffEssentialChange(state, args.change, estimates);
   const summary = describeEssentialChange(
@@ -3635,6 +3644,7 @@ async function proposeFromState(
     requestedBy: args.requestedBy,
     summary,
     changes,
+    ...(stored ? { cityPrices: stored } : {}),
   });
 }
 
@@ -3818,11 +3828,47 @@ const lineEstimateValidator = v.object({
   basis: estimateBasisValidator,
 });
 
+/** The new city's price for one line, with the version the line was read at. */
+export const cityPriceValidator = v.object({
+  id: v.id("entries"),
+  version: v.number(),
+  range: v.union(lineEstimateValidator, v.null()),
+});
+type CityPrice = Infer<typeof cityPriceValidator>;
+
+/** The prices a city Proposal's card was made from, stored with it. */
+export const storedCityPricesValidator = v.object({
+  city: v.string(),
+  prices: v.array(cityPriceValidator),
+});
+type StoredCityPrices = Infer<typeof storedCityPricesValidator>;
+
+/** The `toolCalls` key that holds a city Proposal's prices (no schema change). */
+export function cityPricesKey(proposalId: Id<"proposals">): string {
+  return `${proposalId}:city:prices`;
+}
+
+/** The prices stored with a city Proposal, or null when there are none for that city. */
+export const storedCityPrices = internalQuery({
+  args: { proposalId: v.id("proposals"), city: v.string() },
+  returns: v.union(v.array(cityPriceValidator), v.null()),
+  handler: async (ctx, { proposalId, city }) => {
+    const row = await ctx.db
+      .query("toolCalls")
+      .withIndex("by_key", (q) => q.eq("key", cityPricesKey(proposalId)))
+      .unique();
+    const stored = row?.result as StoredCityPrices | undefined;
+    return stored?.city === city ? stored.prices : null;
+  },
+});
+
 /**
- * After an accepted city change (Sah-Nikhil, 2026-10-25): the estimate
- * cascade prices every line a Member didn't set or get a Quote for in the
- * new city, then `applyCityPrices` re-prices the Budget with them. Quotes and
- * Listed prices are never touched.
+ * After an accepted city change (Sah-Nikhil, 2026-10-25): `applyCityPrices`
+ * re-prices the Budget with the new city's prices for every line a Member
+ * didn't set or get a Quote for. Those are the prices stored with the
+ * Proposal when its card was made (review of #118, M1), so the Budget
+ * matches the card and the lookup runs once; only a Proposal without them
+ * looks them up again. Quotes and Listed prices are never touched.
  */
 export const repriceCity = internalAction({
   args: { eventId: v.id("events"), city: v.string(), actor: actorValidator },
@@ -3843,12 +3889,21 @@ export async function runCityReprice(
     { eventId: args.eventId, today: istDay(Date.now()) },
   );
   if (state === null || state.city?.name !== args.city) return;
+  const proposalId =
+    args.actor.kind === "assistant" ? args.actor.proposalId : null;
   try {
+    const stored: CityPrice[] | null =
+      proposalId === null
+        ? null
+        : await ctx.runQuery(internal.plan.storedCityPrices, {
+            proposalId,
+            city: args.city,
+          });
     await ctx.runMutation(internal.plan.applyCityPrices, {
       eventId: args.eventId,
       city: args.city,
       actor: args.actor,
-      prices: await cityPrices(ctx, state, state.city, deps),
+      prices: stored ?? (await cityPrices(ctx, state, state.city, deps)),
     });
   } catch (error) {
     console.warn(
@@ -3856,11 +3911,12 @@ export async function runCityReprice(
     );
     // The notice carries the Proposal, so its Try again (`retryCityReprice`)
     // knows what to re-price.
-    const proposalId =
-      args.actor.kind === "assistant" ? args.actor.proposalId : null;
     await ctx.runMutation(internal.chat.postSystem, {
       eventId: args.eventId,
-      card: { kind: "system", id: proposalId },
+      card: {
+        kind: "system",
+        id: proposalId === null ? null : cityRepriceNoticeId(proposalId),
+      },
       text: `I couldn't re-price the Budget for ${args.city} just now, so its Estimates keep their earlier prices.${proposalId ? " Use Try again to re-price them." : ""}`,
     });
   }
@@ -3876,9 +3932,7 @@ async function cityPrices(
   state: EssentialInput,
   city: { name: string; tier: CityTier },
   deps?: Partial<EstimateDeps>,
-): Promise<
-  { id: Id<"entries">; version: number; range: LineEstimate | null }[]
-> {
+): Promise<CityPrice[]> {
   const free = state.lines.filter((l) => !l.kept && l.fields.category !== null);
   const ranges = await estimateLines(
     ctx,
@@ -3915,9 +3969,33 @@ type CityRetry =
       proposal: Doc<"proposals">;
       city: string;
       state: "failed" | "retrying" | "landed";
+      /** Why the Member who asked can't have it re-priced now, or null. */
+      askerProblem: string | null;
       /** The `toolCalls` row that holds the last retry's scheduled step. */
       last: Doc<"toolCalls"> | null;
     };
+
+/**
+ * Accept's rule for the Member a Proposal is for (`applyProposal`): still an
+ * active, unblocked Member who can ask. A retry can come days after Accept.
+ */
+async function askerCantAsk(
+  ctx: QueryCtx,
+  proposal: Doc<"proposals">,
+): Promise<string | null> {
+  try {
+    await requireAccessFor(
+      ctx,
+      proposal.requestedBy,
+      proposal.eventId,
+      "chat.post",
+    );
+    return null;
+  } catch (error) {
+    if (!(error instanceof AccessDenied)) throw error;
+    return "The Member who asked for this has left or can no longer edit this Event, so it can't be re-priced. Change the city again to ask afresh.";
+  }
+}
 
 async function cityRetryOf(
   ctx: QueryCtx,
@@ -3927,6 +4005,7 @@ async function cityRetryOf(
   const proposal = await ctx.db.get("proposals", proposalId);
   if (proposal === null || proposal.eventId !== eventId)
     throw new AccessDenied("wrongEvent", "canvas.view");
+  const askerProblem = await askerCantAsk(ctx, proposal);
   const change = proposal.changes.find((c) => c.op === "changeEssential");
   const city =
     change?.op === "changeEssential" && change.values.field === "city"
@@ -3945,7 +4024,14 @@ async function cityRetryOf(
       .withIndex("by_key", (q) => q.eq("key", key))
       .unique();
   if ((await keyed(cityRepriceKey(proposalId))) !== null)
-    return { problem: null, proposal, city, state: "landed", last: null };
+    return {
+      problem: null,
+      proposal,
+      city,
+      state: "landed",
+      askerProblem,
+      last: null,
+    };
   const last = await keyed(`${cityRepriceKey(proposalId)}:retry`);
   const step =
     last === null
@@ -3962,6 +4048,7 @@ async function cityRetryOf(
     proposal,
     city,
     state: waiting ? "retrying" : "failed",
+    askerProblem,
     last,
   };
 }
@@ -3969,11 +4056,12 @@ async function cityRetryOf(
 /**
  * For the notice of a failed city re-price: the city, whether the re-price
  * has failed, is being tried again or has landed, and whether the caller may
- * try again (Members). Null when the Proposal isn't an accepted city change
- * for the Event's current city.
+ * try again (Members, while the Member who asked still can). Null when the ID
+ * isn't one of the Event's Proposals, or the Proposal isn't an accepted city
+ * change for the Event's current city: a notice never takes the Chat down.
  */
 export const cityRepriceStatus = query({
-  args: { eventId: v.id("events"), proposalId: v.id("proposals") },
+  args: { eventId: v.id("events"), proposalId: v.string() },
   returns: v.union(
     v.object({
       city: v.string(),
@@ -3988,12 +4076,16 @@ export const cityRepriceStatus = query({
   ),
   handler: async (ctx, { eventId, proposalId }) => {
     const { membership } = await requireAccess(ctx, eventId, "canvas.view");
-    const retry = await cityRetryOf(ctx, eventId, proposalId);
+    const id = ctx.db.normalizeId("proposals", proposalId);
+    const proposal = id === null ? null : await ctx.db.get("proposals", id);
+    if (proposal === null || proposal.eventId !== eventId) return null;
+    const retry = await cityRetryOf(ctx, eventId, proposal._id);
     if (retry.problem !== null) return null;
     return {
       city: retry.city,
       state: retry.state,
-      canRetry: can(membership.role, "canvas.edit"),
+      canRetry:
+        can(membership.role, "canvas.edit") && retry.askerProblem === null,
     };
   },
 });
@@ -4020,6 +4112,8 @@ export const retryCityReprice = mutation({
         ok: false as const,
         message: `The Budget is already re-priced for ${retry.city}.`,
       };
+    if (retry.askerProblem !== null)
+      return { ok: false as const, message: retry.askerProblem };
     // A double tap schedules one step: the last retry's step, while it is
     // still waiting or running, stands for this one.
     if (retry.state === "retrying") return { ok: true as const };
@@ -4061,13 +4155,7 @@ export const applyCityPrices = internalMutation({
     eventId: v.id("events"),
     city: v.string(),
     actor: actorValidator,
-    prices: v.array(
-      v.object({
-        id: v.id("entries"),
-        version: v.number(),
-        range: v.union(lineEstimateValidator, v.null()),
-      }),
-    ),
+    prices: v.array(cityPriceValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {

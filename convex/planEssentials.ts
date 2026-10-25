@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { ProposedChange } from "../lib/types";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
+import { cityPricesKey, storedCityPricesValidator } from "./plan";
 import { createProposal } from "./proposals";
 
 // S14 (The first plan) owns this file.
@@ -22,13 +23,18 @@ export const post = internalMutation({
     summary: v.string(),
     // Checked by `createProposal` against the op registry, change by change.
     changes: v.array(v.any()),
+    /**
+     * For a city change: the new city's prices the summary was made from,
+     * stored with the Proposal so Accept writes exactly these.
+     */
+    cityPrices: v.optional(storedCityPricesValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = await ctx.db.get("events", args.eventId);
     if (event === null) return null;
     try {
-      await createProposal(ctx, {
+      const proposalId = await createProposal(ctx, {
         eventId: args.eventId,
         runId: null,
         requestedBy: args.requestedBy,
@@ -36,6 +42,12 @@ export const post = internalMutation({
         summary: args.summary,
         changes: args.changes as ProposedChange[],
       });
+      if (args.cityPrices)
+        await ctx.db.insert("toolCalls", {
+          key: cityPricesKey(proposalId),
+          result: args.cityPrices,
+          at: Date.now(),
+        });
     } catch (error) {
       if (!(error instanceof ConvexError)) throw error;
       const data = error.data as { message?: unknown } | null;
