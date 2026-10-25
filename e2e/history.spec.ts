@@ -84,7 +84,19 @@ test("lists changes with who made them, Restores a deleted Section and highlight
   await page.keyboard.press("Escape");
   await expect(sangeet).toBeVisible({ timeout: 5_000 });
 
-  // Clicking a row closes the panel and selects its Item on the Canvas.
+  // Pan the Budget out of sight first (review of #90): the row brings it back.
+  const budget = page.locator('[data-canvas-item="budget"]');
+  const pane = page.locator(".react-flow__pane");
+  const box = (await pane.boundingBox())!;
+  for (let i = 0; i < 2; i++) {
+    await page.mouse.move(box.x + box.width - 40, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 40, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+  }
+  await expect(budget).not.toBeInViewport();
+
+  // Clicking a row closes the panel, selects its Item and pans to it.
   await page.getByRole("button", { name: "History" }).click();
   await panel
     .getByRole("button", {
@@ -95,7 +107,27 @@ test("lists changes with who made them, Restores a deleted Section and highlight
   await expect(
     page.locator('[data-canvas-item="budget"] [data-item-id][data-selected]'),
   ).toBeVisible();
+  await expect(budget).toBeInViewport({ timeout: 5_000 });
   await testInfo.attach("history-highlight", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+
+  // "Add a Note" on the Canvas toolbar puts a Note in the Notes Section and
+  // shows it (review of #92).
+  await page.getByRole("button", { name: "Add a Note" }).click();
+  const noteDialog = page.getByRole("dialog", { name: "Add a Note" });
+  await noteDialog
+    .getByRole("textbox", { name: "Note" })
+    .fill("Ask Nani about the haldi songs");
+  await noteDialog.getByRole("button", { name: "Add Note" }).click();
+  await expect(noteDialog).toBeHidden();
+  const note = page
+    .locator('[data-canvas-item="note"]')
+    .filter({ hasText: "Ask Nani about the haldi songs" });
+  await expect(note).toBeInViewport({ timeout: 5_000 });
+  await expect(note.locator("[data-item-id][data-selected]")).toBeVisible();
+  await testInfo.attach("add-a-note", {
     body: await page.screenshot(),
     contentType: "image/png",
   });
