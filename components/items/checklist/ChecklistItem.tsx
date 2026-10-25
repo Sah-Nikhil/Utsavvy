@@ -32,6 +32,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { scriptClass } from "@/lib/script";
 import { cn } from "@/lib/utils";
 import { CHECKLIST_STATUS_LABELS, type ChecklistStatus } from "./status";
+import { categoryName } from "@/lib/canvas/entryLabel";
 
 /*
  * The Vendor checklist (S4): one row per Vendor the plan needs, with the
@@ -44,11 +45,7 @@ type View = NonNullable<
   ReturnType<typeof useQuery<typeof api.entries.forItem>>
 >;
 
-/** How a Vendor category reads in a row, e.g. "mehendi_artists" → "Mehendi artists". */
-export function categoryName(category: string): string {
-  const words = category.replace(/_/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
+export { categoryName };
 
 const STATUS_TONE: Record<ChecklistStatus, "neutral" | "action" | "booked"> = {
   toFind: "neutral",
@@ -253,7 +250,11 @@ function ChecklistRow({
           ) : null}
         </p>
       </div>
-      <EntryCommentCount entryId={entry._id} className="shrink-0" />
+      <EntryCommentCount
+        entryId={entry._id}
+        entryLabel={name}
+        className="shrink-0"
+      />
       <ViewerAvatars
         viewers={canvas?.viewersByEntry.get(entry._id) ?? []}
         className="shrink-0"

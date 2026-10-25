@@ -14,6 +14,12 @@ export const PROPOSAL_THRESHOLDS = {
   maxDirectTouches: 5,
 } as const;
 
+/**
+ * Without a Budget total there is no 10% to measure, so one Assistant reply
+ * may move at most this many rupees directly (review of #99, L1).
+ */
+export const NO_BUDGET_SHIFT_CAP = 50_000;
+
 /** An open Proposal expires this long after it was posted (S10). */
 export const PROPOSAL_EXPIRY_MS = 24 * HOUR_MS;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useAction, useMutation } from "convex/react";
+import { useAction } from "convex/react";
 import { CircleAlert, CircleCheck, ImageUp, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { errorMessage } from "@/components/people/errors";
@@ -46,7 +46,6 @@ export function UploadTab({
   const [pending, setPending] = useState<File[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
-  const generateUploadUrl = useMutation(api.inspirations.generateUploadUrl);
   const addUpload = useAction(api.inspirations.addUpload);
   const busy = rows.some(
     (r) => r.state === "uploading" || r.state === "waiting",
@@ -74,20 +73,10 @@ export function UploadTab({
         setRow(key, { state: "uploading" });
         try {
           const { blob, palette } = await prepareUpload(file);
-          const url = await generateUploadUrl({ eventId });
-          const response = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": blob.type },
-            body: blob,
-          });
-          if (!response.ok)
-            throw new Error(`Upload failed (${response.status})`);
-          const { storageId } = (await response.json()) as {
-            storageId: Id<"_storage">;
-          };
+          // The photo's bytes go to addUpload, which stores the file itself.
           await addUpload({
             eventId,
-            fileId: storageId,
+            file: await blob.arrayBuffer(),
             rightsTicked,
             palette,
           });
@@ -101,7 +90,7 @@ export function UploadTab({
       }
       setTicked(false);
     },
-    [addUpload, eventId, generateUploadUrl],
+    [addUpload, eventId],
   );
 
   /** Checks a new batch; uploads it now, or holds it for the rights tick. */

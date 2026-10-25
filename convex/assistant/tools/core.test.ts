@@ -400,6 +400,47 @@ describe("addEntry with a member-stated amount", () => {
   });
 });
 
+describe("a member-stated amount belongs to the line it names (review of #99, M3)", () => {
+  it("refuses the caterer's ₹2,40,000 on a new DJ line and writes nothing", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "caterer quoted 2.4L, add a DJ too");
+    const before = await changeCount(s);
+    const result = await call(s, runId, "addEntry", {
+      kind: "budget",
+      label: "DJ",
+      functionKey: "sangeet",
+      amountSource: { memberStated: 240_000 },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+    expect(await entriesOf(s, s.items.budget)).toHaveLength(0);
+    expect(await changeCount(s)).toBe(before);
+  });
+
+  it("puts the same ₹2,40,000 on the Caterer line", async () => {
+    const s = await setUp();
+    const caterer = await insertCaterer(s);
+    const runId = await ask(s, "caterer quoted 2.4L, add a DJ too");
+    const result = await call(s, runId, "updateEntry", {
+      entryId: caterer,
+      expectedVersion: 1,
+      patch: { kind: "budget", memberStatedAmount: 240_000 },
+    });
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("refuses the DJ's ₹50,000 on the Caterer line", async () => {
+    const s = await setUp();
+    const caterer = await insertCaterer(s);
+    const runId = await ask(s, "DJ 50k and keep the caterer as it is");
+    const result = await call(s, runId, "updateEntry", {
+      entryId: caterer,
+      expectedVersion: 1,
+      patch: { kind: "budget", memberStatedAmount: 50_000 },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+  });
+});
+
 describe("the Proposal thresholds", () => {
   it("refuses the sixth Entry of one reply and tells the model to propose", async () => {
     const s = await setUp();
@@ -1129,5 +1170,376 @@ describe("saveAnswerAsNote", () => {
         .collect(),
     );
     expect(notes).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review of #99: the low findings (L2, L3, L5, L6, L7), followed up in #102
+
+/** The other Event's own Section, Function and Entry, for cross-Event IDs. */
+async function otherEventDocs(s: Setup) {
+  return await s.t.run(async (ctx) => {
+    const sections = await ctx.db
+      .query("sections")
+      .withIndex("by_event", (q) => q.eq("eventId", s.other.eventId))
+      .collect();
+    await ctx.db.insert("eventFunctions", {
+      eventId: s.other.eventId,
+      key: "haldi",
+      name: "Haldi",
+      date: null,
+      guests: null,
+      assumed: [],
+      order: 0,
+      version: 1,
+    });
+    const budgetId = await ctx.db.insert("items", {
+      eventId: s.other.eventId,
+      sectionId: sections[0]!._id,
+      kind: "budget",
+      position: { x: 0, y: 0 },
+      size: null,
+      functionKey: null,
+      data: { note: null },
+      createdBy: { kind: "member", membershipId: s.other.membershipId },
+      version: 1,
+      deletedAt: null,
+    });
+    const entryId = await ctx.db.insert("entries", {
+      eventId: s.other.eventId,
+      itemId: budgetId,
+      kind: "budget",
+      order: 0,
+      functionKey: null,
+      fields: catererFields(100_000),
+      assumed: [],
+      createdBy: { kind: "member", membershipId: s.other.membershipId },
+      version: 1,
+      deletedAt: null,
+    });
+    return { sectionId: sections[0]!._id, entryId };
+  });
+}
+
+describe("IDs from another Event (review of #99, L7)", () => {
+  it("updateEntry refuses another Event's Entry and leaves it alone", async () => {
+    const s = await setUp();
+    const other = await otherEventDocs(s);
+    const runId = await ask(s, "Make the caterer ₹1,50,000");
+    const result = await call(s, runId, "updateEntry", {
+      entryId: other.entryId,
+      expectedVersion: 1,
+      patch: { kind: "budget", memberStatedAmount: 150_000 },
+    });
+    expect(result).toMatchObject({ ok: false, error: "AccessDenied" });
+    const row = await s.t.run((ctx) => ctx.db.get("entries", other.entryId));
+    expect(row!.version).toBe(1);
+  });
+
+  it("updateItem and moveItem refuse another Event's Item", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Change that note and move it");
+    const update = await call(s, runId, "updateItem", {
+      itemId: s.other.noteId,
+      expectedVersion: 1,
+      patch: { kind: "note", text: "Overwritten" },
+    });
+    expect(update).toMatchObject({ ok: false, error: "AccessDenied" });
+    const move = await call(
+      s,
+      runId,
+      "moveItem",
+      { itemId: s.other.noteId, expectedVersion: 1, sectionId: null },
+      "toolu_02",
+    );
+    expect(move).toMatchObject({ ok: false, error: "AccessDenied" });
+    const note = await s.t.run((ctx) => ctx.db.get("items", s.other.noteId));
+    expect(note).toMatchObject({
+      version: 1,
+      data: { text: "Rohan's private note" },
+    });
+  });
+
+  it("moveItem refuses to move this Event's Item into another Event's Section", async () => {
+    const s = await setUp();
+    const other = await otherEventDocs(s);
+    const runId = await ask(s, "Move the Budget");
+    const result = await call(s, runId, "moveItem", {
+      itemId: s.items.budget,
+      expectedVersion: 1,
+      sectionId: other.sectionId,
+    });
+    expect(result).toMatchObject({ ok: false, error: "AccessDenied" });
+    const budget = await s.t.run((ctx) => ctx.db.get("items", s.items.budget));
+    expect(budget!.sectionId).toBe(s.sections.money);
+  });
+
+  it("addItem refuses another Event's Section and a Function only another Event has", async () => {
+    const s = await setUp();
+    const other = await otherEventDocs(s);
+    const runId = await ask(s, "Note: book the haldi dhol");
+    const before = await changeCount(s);
+    const intoOther = await call(s, runId, "addItem", {
+      kind: "note",
+      text: "Book the dhol",
+      sectionId: other.sectionId,
+    });
+    expect(intoOther).toMatchObject({ ok: false, error: "AccessDenied" });
+    const otherFunction = await call(
+      s,
+      runId,
+      "addItem",
+      { kind: "note", text: "Book the dhol", functionKey: "haldi" },
+      "toolu_02",
+    );
+    expect(otherFunction).toMatchObject({ ok: false });
+    expect(await changeCount(s)).toBe(before);
+  });
+});
+
+describe("writes a Member didn't ask for (review of #99, L7)", () => {
+  it("refuses every write in a run no Member asked, not only createSection", async () => {
+    const s = await setUp();
+    const caterer = await insertCaterer(s);
+    const runId = await ask(s, "Add a note");
+    await s.t.run((ctx) => ctx.db.patch("runs", runId, { source: "nudge" }));
+    const before = await changeCount(s);
+    const tries: [keyof Tools, unknown][] = [
+      [
+        "addEntry",
+        {
+          kind: "checklist",
+          label: "Dhol player",
+          functionKey: null,
+          functionKeys: ["sangeet"],
+        },
+      ],
+      ["addItem", { kind: "note", text: "Book the dhol" }],
+      [
+        "updateEntry",
+        {
+          entryId: caterer,
+          expectedVersion: 1,
+          patch: { kind: "budget", label: "Caterer (all Functions)" },
+        },
+      ],
+      [
+        "updateItem",
+        {
+          itemId: s.items.budget,
+          expectedVersion: 1,
+          patch: { kind: "planNote", note: "Keep it simple" },
+        },
+      ],
+      [
+        "moveItem",
+        { itemId: s.items.budget, expectedVersion: 1, sectionId: null },
+      ],
+    ];
+    for (const [name, input] of tries) {
+      const result = await call(s, runId, name, input, `toolu_${name}`);
+      expect(result, name).toMatchObject({ ok: false, reason: "notAsked" });
+    }
+    expect(await changeCount(s)).toBe(before);
+  });
+});
+
+describe("the asker is blocked mid-reply (review of #99, L7)", () => {
+  it("refuses every later tool call, reads included, and writes nothing", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Add a mehendi artist, around ₹15,000");
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.meera, { blocked: true }),
+    );
+    const before = await changeCount(s);
+    const tries: [keyof Tools, unknown][] = [
+      ["readCanvas", {}],
+      [
+        "addEntry",
+        {
+          kind: "budget",
+          label: "Mehendi artist",
+          functionKey: "mehendi",
+          amountSource: { memberStated: 15_000 },
+        },
+      ],
+      ["addItem", { kind: "note", text: "Book the mehendi artist" }],
+    ];
+    for (const [name, input] of tries) {
+      const result = await call(s, runId, name, input, `toolu_${name}`);
+      expect(result, name).toMatchObject({
+        ok: false,
+        error: "AccessDenied",
+      });
+    }
+    expect(await changeCount(s)).toBe(before);
+  });
+});
+
+describe("updateEntry's memberStatedAmount (review of #99, L7)", () => {
+  it("refuses an amount the Member didn't write and leaves the line alone", async () => {
+    const s = await setUp();
+    const caterer = await insertCaterer(s);
+    const runId = await ask(s, "Make the caterer cheaper");
+    const result = await call(s, runId, "updateEntry", {
+      entryId: caterer,
+      expectedVersion: 1,
+      patch: { kind: "budget", memberStatedAmount: 180_000 },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+    const row = await s.t.run((ctx) => ctx.db.get("entries", caterer));
+    expect(row).toMatchObject({
+      version: 1,
+      fields: { plannedAmount: 210_000 },
+    });
+  });
+});
+
+describe("moveItem keeps an Item near its Section (review of #99, L5)", () => {
+  it("clamps a far-off position to the Section's frame plus a margin", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "Move the Budget way over to the right");
+    const money = (await s.t.run((ctx) =>
+      ctx.db.get("sections", s.sections.money),
+    ))!;
+    const result = await call(s, runId, "moveItem", {
+      itemId: s.items.budget,
+      expectedVersion: 1,
+      sectionId: null,
+      position: { x: 1_000_000, y: 1_000_000 },
+    });
+    expect(result).toMatchObject({ ok: true });
+    const budget = (await s.t.run((ctx) =>
+      ctx.db.get("items", s.items.budget),
+    ))!;
+    // 400 px past the frame's far edge at most (ASSISTANT_MOVE_MARGIN).
+    expect(budget.position.x).toBeLessThanOrEqual(money.frame.w + 400);
+    expect(budget.position.y).toBeLessThanOrEqual(money.frame.h + 400);
+    expect(budget.position.x).toBeGreaterThan(0);
+  });
+});
+
+describe("readCanvas stays small on a long plan (review of #99, L6)", () => {
+  it("returns at most 60 Entries per plan Item and says how many more there are", async () => {
+    const s = await setUp();
+    await s.t.run(async (ctx) => {
+      for (let order = 0; order < 75; order++) {
+        await ctx.db.insert("entries", {
+          eventId: s.eventId,
+          itemId: s.items.timeline,
+          kind: "timeline",
+          order,
+          functionKey: null,
+          fields: {
+            title: `Task ${order + 1}`,
+            date: null,
+            time: null,
+            leadKey: null,
+            priority: null,
+            late: false,
+            note: null,
+            vendorCategory: null,
+            done: false,
+          },
+          assumed: [],
+          createdBy: { kind: "member", membershipId: s.meera },
+          version: 1,
+          deletedAt: null,
+        });
+      }
+    });
+    const runId = await ask(s, "What's on the Timeline?");
+    const result = (await call(s, runId, "readCanvas", {})) as unknown as {
+      timeline: { entries: { title: string }[]; moreEntries: number };
+    };
+    expect(result.timeline.entries).toHaveLength(60);
+    expect(result.timeline.entries[0]!.title).toBe("Task 1");
+    expect(result.timeline.moreEntries).toBe(15);
+  });
+});
+
+describe("saveAnswerAsNote on a real reply (review of #99, L2 and L3)", () => {
+  it("keeps every step of a reply, even after more than 100 newer messages", async () => {
+    const s = await setUp();
+    const { threadId, messageId } = await s.t.run(async (ctx) => {
+      const event = (await ctx.db.get("events", s.eventId))!;
+      let threadId = event.agentThreadId;
+      if (threadId === null) {
+        threadId = await createThread(ctx, components.agent, {
+          title: event.name,
+        });
+        await ctx.db.patch("events", s.eventId, { agentThreadId: threadId });
+      }
+      await saveMessage(ctx, components.agent, {
+        threadId,
+        message: { role: "user", content: "Pune per plate?" },
+      });
+      // One reply in two steps: a text step before its web search, then the answer.
+      await saveMessage(ctx, components.agent, {
+        threadId,
+        agentName: "Utsavvy",
+        message: { role: "assistant", content: "Let me look that up." },
+        metadata: { finishReason: "tool-calls" },
+      });
+      const { messageId } = await saveMessage(ctx, components.agent, {
+        threadId,
+        agentName: "Utsavvy",
+        message: {
+          role: "assistant",
+          content: "Pune caterers list about ₹900 to ₹1,600 per plate.",
+        },
+        metadata: { finishReason: "stop" },
+      });
+      return { threadId, messageId };
+    });
+    await s.t.run(async (ctx) => {
+      for (let i = 0; i < 105; i++) {
+        await saveMessage(ctx, components.agent, {
+          threadId,
+          message: { role: "user", content: `Later message ${i}` },
+        });
+      }
+    });
+    const itemId = await s.asAditi.mutation(
+      api.assistant.tools.core.saveAnswerAsNote,
+      { eventId: s.eventId, messageId },
+    );
+    const item = (await s.t.run((ctx) => ctx.db.get("items", itemId)))!;
+    expect(item.data).toMatchObject({
+      text: "Let me look that up.\n\nPune caterers list about ₹900 to ₹1,600 per plate.",
+    });
+  });
+
+  it("saving the same answer twice gives one Note, and a new one once that Note is deleted", async () => {
+    const s = await setUp();
+    const messageId = await saveAnswer(s);
+    const first = await s.asAditi.mutation(
+      api.assistant.tools.core.saveAnswerAsNote,
+      { eventId: s.eventId, messageId },
+    );
+    const again = await s.asMeera.mutation(
+      api.assistant.tools.core.saveAnswerAsNote,
+      { eventId: s.eventId, messageId },
+    );
+    expect(again).toBe(first);
+    const notes = () =>
+      s.t.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("items")
+            .withIndex("by_event_kind", (q) =>
+              q.eq("eventId", s.eventId).eq("kind", "note"),
+            )
+            .collect()
+        ).filter((n) => n.deletedAt === null),
+      );
+    expect(await notes()).toHaveLength(1);
+    await s.t.run((ctx) => ctx.db.patch("items", first, { deletedAt: T0 + 1 }));
+    const afterDelete = await s.asAditi.mutation(
+      api.assistant.tools.core.saveAnswerAsNote,
+      { eventId: s.eventId, messageId },
+    );
+    expect(afterDelete).not.toBe(first);
+    expect(await notes()).toHaveLength(1);
   });
 });

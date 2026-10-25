@@ -22,7 +22,7 @@ export const ASSISTANT_INSTRUCTIONS = `How you change the Canvas:
 - After every change, call pointAt with what you changed, then reply in one or two short lines saying what you did.
 
 Amounts:
-- You never invent a number. A new budget line names its line with an estimate source (a category from the reference table, or a short free label) and the server prices it; use memberStated only for an amount the asking Member wrote in their message, such as "around ₹15,000" or "15k". If a tool says "amountNotStated", ask the Member for the amount.
+- You never invent a number. A new budget line names its line with an estimate source (a category from the reference table, or a short free label) and the server prices it; use memberStated only for an amount the asking Member wrote in their message for that same line, such as "around ₹15,000" or "15k" (in "caterer quoted 2.4L, add a DJ too", ₹2,40,000 is the caterer's, not the DJ's). If a tool says "amountNotStated", ask the Member for the amount.
 - An Estimate is never a Listed price or a Quote. When you mention one, say where it came from: "${ESTIMATE_SOURCE_WORDS.researched}" (with its sources), "${ESTIMATE_SOURCE_WORDS.referenceTable}", or "${ESTIMATE_SOURCE_WORDS.assistantKnowledge}". A line with no Estimate shows "No Estimate yet"; offer to add a Quote or an amount.
 
 When the Canvas moved under you:

@@ -299,85 +299,21 @@ export const addFromLibrary = mutation({
 // ---------------------------------------------------------------------------
 // Uploads (rules 4 and 5)
 
-/** An upload URL for one file. Viewers can't upload. */
-export const generateUploadUrl = mutation({
-  args: { eventId: v.id("events") },
-  returns: v.string(),
-  handler: async (ctx, args) => {
-    await requireAccess(ctx, args.eventId, "canvas.edit");
-    return await ctx.storage.generateUploadUrl();
-  },
-});
-
-/**
- * How long after its upload a file can still become an Inspiration. A fresh
- * file that no Inspiration claims yet is known only to the person who just
- * uploaded it; an older one may be someone else's, read off another Canvas.
+/*
+ * Only this path makes upload files (review of #107, Medium). The browser
+ * sends the shrunk photo's bytes to `addUpload`, which checks them, stores the
+ * file itself and claims it with its Item. No public function takes a storage
+ * ID, so a file another feature stores (a Quote attachment, a generated image)
+ * can never be attached or deleted from here, however its ID leaked.
  */
-export const UPLOAD_FRESH_FOR_MS = 15 * 60 * 1000;
-
-const fileStateValidator = v.union(
-  v.literal("fresh"),
-  v.literal("missing"),
-  v.literal("claimed"),
-  v.literal("expired"),
-);
-type FileState = typeof fileStateValidator.type;
-
-/** Whether a storage ID is a fresh upload no Inspiration has claimed (review of #107, H1). */
-async function fileState(
-  ctx: Ctx,
-  fileId: Id<"_storage">,
-  now: number,
-): Promise<FileState> {
-  const file = await ctx.db.system.get("_storage", fileId);
-  if (file === null) return "missing";
-  const claim = await ctx.db
-    .query("uploadClaims")
-    .withIndex("by_file", (q) => q.eq("fileId", fileId))
-    .first();
-  if (claim !== null) return "claimed";
-  if (now - file._creationTime > UPLOAD_FRESH_FOR_MS) return "expired";
-  return "fresh";
-}
-
-/** Refuses a file that isn't the caller's own fresh, unclaimed upload, without touching it. */
-function refuseUnlessFresh(state: FileState): void {
-  if (state === "missing")
-    throw new InspirationRefused("missing", "That upload didn't arrive.");
-  if (state === "claimed")
-    throw new InspirationRefused(
-      "claimed",
-      "That photo is already on a Canvas. Upload it again from your device.",
-    );
-  if (state === "expired")
-    throw new InspirationRefused("expired", "That upload expired. Try again.");
-}
 
 export const uploadCheck = internalQuery({
-  args: { eventId: v.id("events"), fileId: v.id("_storage"), now: v.number() },
-  returns: v.object({
-    uploadRightsOn: v.boolean(),
-    file: fileStateValidator,
-  }),
+  args: { eventId: v.id("events") },
+  returns: v.object({ uploadRightsOn: v.boolean() }),
   handler: async (ctx, args) => {
     await requireAccess(ctx, args.eventId, "canvas.edit");
     const event = await loadEvent(ctx, args.eventId);
-    return {
-      uploadRightsOn: event.uploadRightsOn,
-      file: await fileState(ctx, args.fileId, args.now),
-    };
-  },
-});
-
-/** Deletes a refused upload, but only while it is still fresh and unclaimed. */
-export const discardUpload = internalMutation({
-  args: { fileId: v.id("_storage") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    if ((await fileState(ctx, args.fileId, Date.now())) === "fresh")
-      await ctx.storage.delete(args.fileId);
-    return null;
+    return { uploadRightsOn: event.uploadRightsOn };
   },
 });
 
@@ -394,18 +330,18 @@ function cleanPalette(palette: readonly string[]): string[] {
 }
 
 /**
- * Saves one uploaded file as an Inspiration. The file must be the caller's
- * own fresh upload that no Inspiration claims yet; anything else is refused
- * and left alone. Its own first bytes must be a JPEG, PNG or WebP, whatever
- * type the browser claimed, and it must be at most 10 MB; a refused fresh
- * file is deleted. With the Event's upload rights setting off, the batch's
- * tick is required. `palette` is the browser's node-vibrant reading of the
- * shrunk photo. The helper model describes the photo once, after it is saved.
+ * Saves one photo as an Inspiration. `file` is the photo's bytes: its own
+ * first bytes must be a JPEG, PNG or WebP, whatever type the browser claimed,
+ * and it must be at most 10 MB. Nothing is stored until every check passes,
+ * and the stored file is deleted again if saving its Item fails. With the
+ * Event's upload rights setting off, the batch's tick is required. `palette`
+ * is the browser's node-vibrant reading of the shrunk photo. The helper model
+ * describes the photo once, after it is saved.
  */
 export const addUpload = action({
   args: {
     eventId: v.id("events"),
-    fileId: v.id("_storage"),
+    file: v.bytes(),
     rightsTicked: v.boolean(),
     palette: paletteValidator,
     functionKey: v.optional(v.union(v.string(), v.null())),
@@ -413,12 +349,10 @@ export const addUpload = action({
   },
   returns: v.object({ itemId: v.id("items") }),
   handler: async (ctx, args): Promise<{ itemId: Id<"items"> }> => {
-    const check = await ctx.runQuery(internal.inspirations.uploadCheck, {
-      eventId: args.eventId,
-      fileId: args.fileId,
-      now: Date.now(),
-    });
-    refuseUnlessFresh(check.file);
+    const { uploadRightsOn } = await ctx.runQuery(
+      internal.inspirations.uploadCheck,
+      { eventId: args.eventId },
+    );
     if (
       args.palette.length > MAX_PALETTE_SENT ||
       args.palette.some((c) => c.length > 7)
@@ -427,39 +361,34 @@ export const addUpload = action({
         "palette",
         "That photo's palette didn't come through. Try again.",
       );
-    // From here the file is this caller's own fresh upload, so a refusal
-    // deletes it (if it is still fresh and unclaimed).
-    const refuse = async (problem: string, message: string) => {
-      await ctx.runMutation(internal.inspirations.discardUpload, {
-        fileId: args.fileId,
-      });
-      throw new InspirationRefused(problem, message);
-    };
-    const { uploadRightsOn } = check;
     if (!uploadRightsOn && !args.rightsTicked)
-      return await refuse(
+      throw new InspirationRefused(
         "rights",
         `Tick the box to confirm you may use these photos: "${UPLOAD_RIGHTS_WORDING}"`,
       );
-    const blob = await ctx.storage.get(args.fileId);
-    if (blob === null)
-      throw new InspirationRefused("missing", "That upload didn't arrive.");
-    if (blob.size > MAX_UPLOAD_BYTES)
-      return await refuse("size", "That photo is over 10 MB.");
-    const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
-    if (sniffImageType(head) === null)
-      return await refuse(
+    if (args.file.byteLength > MAX_UPLOAD_BYTES)
+      throw new InspirationRefused("size", "That photo is over 10 MB.");
+    const type = sniffImageType(new Uint8Array(args.file.slice(0, 16)));
+    if (type === null)
+      throw new InspirationRefused(
         "type",
         "That file isn't a photo. Upload JPEG, PNG or WebP images.",
       );
-    return await ctx.runMutation(internal.inspirations.saveUpload, {
-      eventId: args.eventId,
-      fileId: args.fileId,
-      rightsTicked: args.rightsTicked,
-      palette: cleanPalette(args.palette),
-      functionKey: args.functionKey ?? null,
-      fromReference: args.fromReference ?? null,
-    });
+    const fileId = await ctx.storage.store(new Blob([args.file], { type }));
+    try {
+      return await ctx.runMutation(internal.inspirations.saveUpload, {
+        eventId: args.eventId,
+        fileId,
+        rightsTicked: args.rightsTicked,
+        palette: cleanPalette(args.palette),
+        functionKey: args.functionKey ?? null,
+        fromReference: args.fromReference ?? null,
+      });
+    } catch (error) {
+      // Nothing claimed the file: the save rolled back with its claim.
+      await ctx.storage.delete(fileId);
+      throw error;
+    }
   },
 });
 
@@ -480,9 +409,13 @@ export const saveUpload = internalMutation({
       "canvas.edit",
     );
     const event = await loadEvent(ctx, args.eventId);
-    // Checked again here, in the transaction that claims the file, so two
-    // saves of one file can't both win.
-    refuseUnlessFresh(await fileState(ctx, args.fileId, Date.now()));
+    // Only `addUpload` calls this, with the file it has just stored.
+    const claimed = await ctx.db
+      .query("uploadClaims")
+      .withIndex("by_file", (q) => q.eq("fileId", args.fileId))
+      .first();
+    if (claimed !== null)
+      throw new InspirationRefused("claimed", "That photo is already saved.");
     if (!event.uploadRightsOn && !args.rightsTicked)
       throw new InspirationRefused(
         "rights",

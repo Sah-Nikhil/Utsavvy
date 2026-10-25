@@ -14,6 +14,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { requireAccess } from "./lib/access";
+import { entryLabel } from "../lib/canvas/entryLabel";
 
 /*
  * Comments (S8): everyone in an Event, Viewers included, can Comment on an
@@ -253,6 +254,8 @@ const commentViewValidator = v.object({
   byYou: v.boolean(),
   canEdit: v.boolean(),
   canResolve: v.boolean(),
+  /** What the Entry it is on is called ("Caterer"); null on the Item itself. */
+  entryLabel: v.union(v.string(), v.null()),
 });
 
 /**
@@ -302,23 +305,26 @@ export const listForItem = query({
 
     // A Comment on a deleted Entry is hidden, not deleted: restoring the
     // Entry brings it back. Each Entry is read once.
-    const liveEntries = new Map<Id<"entries">, boolean>();
-    async function entryIsLive(entryId: Id<"entries">) {
-      const known = liveEntries.get(entryId);
-      if (known !== undefined) return known;
+    // Each live Entry's name, so the sheet can say which Entry a thread is on.
+    const liveEntries = new Map<Id<"entries">, string | null>();
+    async function liveEntryLabel(entryId: Id<"entries">) {
+      if (liveEntries.has(entryId)) return liveEntries.get(entryId)!;
       const entry = await ctx.db.get("entries", entryId);
-      const live =
-        entry !== null && entry.deletedAt === null && entry.itemId === itemId;
-      liveEntries.set(entryId, live);
-      return live;
+      const label =
+        entry !== null && entry.deletedAt === null && entry.itemId === itemId
+          ? entryLabel(entry)
+          : null;
+      liveEntries.set(entryId, label);
+      return label;
     }
 
     const views = [];
     for (const comment of comments) {
       const { target } = comment;
       if (target.kind === "passage") continue;
-      if (target.kind === "entry" && !(await entryIsLive(target.entryId)))
-        continue;
+      const label =
+        target.kind === "entry" ? await liveEntryLabel(target.entryId) : null;
+      if (target.kind === "entry" && label === null) continue;
       const byAssistant = comment.author.kind === "assistant";
       const author =
         comment.author.kind === "member"
@@ -347,6 +353,7 @@ export const listForItem = query({
         canEdit: byYou,
         canResolve:
           comment.rootId === null && mayResolve(comment, membership._id),
+        entryLabel: label,
       });
     }
     return views;
