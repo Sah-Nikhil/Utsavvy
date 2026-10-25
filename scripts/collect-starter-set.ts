@@ -232,7 +232,7 @@ export function parseRobots(text: string) {
       .replace(/#.*/, "")
       .match(/^\s*([a-z-]+)\s*:\s*(.*?)\s*$/i);
     if (!match) continue;
-    const [, key, value] = match;
+    const [, key = "", value = ""] = match;
     const field = key.toLowerCase();
     if (field === "user-agent") {
       if (!current || current.rules.length > 0)
@@ -307,7 +307,7 @@ export function htmlToText(html: string) {
       .replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, name: string) => {
         if (name[0] !== "#") return ENTITIES[name.toLowerCase()] ?? entity;
         const code =
-          name[1].toLowerCase() === "x"
+          name[1]!.toLowerCase() === "x"
             ? parseInt(name.slice(2), 16)
             : Number(name.slice(1));
         return code <= 0x10ffff ? String.fromCodePoint(code) : entity;
@@ -420,7 +420,7 @@ function sameSiteLinks(html: string, base: string) {
     /<a\b[^>]*\bhref\s*=\s*["']([^"'#]+)/gi,
   )) {
     try {
-      const url = new URL(href.replace(/&amp;/g, "&"), base);
+      const url = new URL(href!.replace(/&amp;/g, "&"), base);
       if (
         /^https?:$/.test(url.protocol) &&
         domainOf(url.href) === domainOf(base)
@@ -587,9 +587,10 @@ async function checkStep(
 }
 
 async function main([step, ...args]: string[]) {
-  if (step === "fetch" && args.length === 2) return fetchStep(args[0], args[1]);
+  if (step === "fetch" && args.length === 2)
+    return fetchStep(args[0]!, args[1]!);
   if (step === "check" && args.length === 3)
-    return checkStep(args[0], args[1], args[2]);
+    return checkStep(args[0]!, args[1]!, args[2]!);
   console.error(
     "Usage: see the comment at the top of scripts/collect-starter-set.ts",
   );

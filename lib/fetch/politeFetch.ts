@@ -63,7 +63,7 @@ async function resolvePublic(hostname: string, lookup: Lookup) {
     throw new Error(`politeFetch: ${hostname} did not resolve`);
   // Refuse if any address is internal, so a mixed answer can't be raced.
   for (const { address } of addresses) assertPublic(address);
-  return addresses[0].address;
+  return addresses[0]!.address;
 }
 
 const MAX_REDIRECTS = 3;

@@ -31,7 +31,7 @@ vi.mock("node:http", async (importOriginal) => {
     dialled.push({
       host: String(options.host),
       port: Number(options.port),
-      hostHeader: headers.Host,
+      hostHeader: headers.Host!,
     });
     return real.request(
       { ...options, host: "127.0.0.1", port: local.port },
