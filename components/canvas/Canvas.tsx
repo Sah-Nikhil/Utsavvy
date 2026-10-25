@@ -27,7 +27,11 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { useSelection, useSetSelection } from "@/components/shell/selection";
+import {
+  useRevealRequest,
+  useSelection,
+  useSetSelection,
+} from "@/components/shell/selection";
 import { Avatar, AvatarStack } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -638,21 +642,19 @@ function CanvasFlow({
       )?.box ?? null,
     [sections],
   );
-  // Showing an Item from elsewhere (a history row, a Chat reference, a new
-  // Note) pans to it when it is out of sight or shows only a sliver. An Item
-  // someone clicks on the Canvas is usually well in view, so it stays put.
-  const revealed = useRef<string | null>(null);
+  // Showing an Item from elsewhere (a history row, a new Note) pans to it when
+  // it is out of sight or shows only a sliver, each time it is asked for. An
+  // Item someone clicks on the Canvas asks for nothing, so it stays put.
+  const reveal = useRevealRequest();
+  // A request made before this Canvas mounted (in the list view) is old news.
+  const revealed = useRef(reveal?.seq ?? 0);
   useEffect(() => {
-    if (selectedItemId === null) {
-      revealed.current = null;
-      return;
-    }
-    if (revealed.current === selectedItemId) return;
-    const node = flow.getInternalNode(selectedItemId);
+    if (reveal === null || revealed.current === reveal.seq) return;
+    const node = flow.getInternalNode(reveal.itemId);
     const element = canvasRef.current;
     // A Note just added may not be a node yet; try again when it is.
     if (!node || !element) return;
-    revealed.current = selectedItemId;
+    revealed.current = reveal.seq;
     const { width, height } = element.getBoundingClientRect();
     const box = {
       ...node.internals.positionAbsolute,
@@ -661,12 +663,12 @@ function CanvasFlow({
     };
     if (!isOffScreen(box, flow.getViewport(), { width, height })) return;
     void flow.fitView({
-      nodes: [{ id: selectedItemId }],
+      nodes: [{ id: reveal.itemId }],
       padding: 0.4,
       maxZoom: 1,
       duration: prefersReducedMotion() ? 0 : 450,
     });
-  }, [selectedItemId, nodes, flow]);
+  }, [reveal, nodes, flow]);
 
   const onInit = useCallback(() => {
     if (savedViewport !== null) return;

@@ -4,7 +4,10 @@ import { useMutation } from "convex/react";
 import { StickyNote } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { errorMessage } from "@/components/people/errors";
-import { useSetSelection } from "@/components/shell/selection";
+import {
+  useRequestReveal,
+  useSetSelection,
+} from "@/components/shell/selection";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -54,6 +57,7 @@ function AddNoteForm({
 }) {
   const add = useMutation(api.notes.add);
   const setSelection = useSetSelection();
+  const requestReveal = useRequestReveal();
   const filter = useFunctionFilter();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +82,7 @@ function AddNoteForm({
       });
       close();
       setSelection({ kind: "item", itemId });
+      requestReveal(itemId);
     } catch (caught) {
       setError(errorMessage(caught, "The Note didn't save. Try again."));
     } finally {
