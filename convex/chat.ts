@@ -504,7 +504,10 @@ export const history = query({
  * cards (S10) and notices. `card` picks the card the Chat renders from the
  * card registry; `text` is the line shown with it and the Assistant reads it
  * in later replies. With `promptMessageId` the line joins that message's
- * reply, at the same place in the thread, instead of going to the end.
+ * reply, at the same place in the thread. Without it, the line starts its
+ * own turn at the end of the thread: `useUIMessages` combines assistant
+ * messages that share a turn under the first one's ID, which would hide this
+ * line's card (S17).
  */
 export const postSystem = internalMutation({
   args: {
@@ -520,7 +523,9 @@ export const postSystem = internalMutation({
       threadId,
       agentName: ASSISTANT_NAME,
       message: { role: "assistant", content: text ?? "" },
-      promptMessageId,
+      ...(promptMessageId === undefined
+        ? { order: "next" as const }
+        : { promptMessageId }),
     });
     await ctx.db.insert("chatAnnotations", {
       eventId,
