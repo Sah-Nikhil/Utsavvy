@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { UIMessage } from "@convex-dev/agent/react";
+import { buildTimeline } from "../components/chat/timeline";
 import type { EntryFields } from "../lib/types/canvas";
 import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -694,5 +696,44 @@ describe("act", () => {
     });
     expect(doc?.text).toBe(nudgeRequest("dueSoon"));
     expect(doc?.text).not.toContain("decorator");
+  });
+});
+
+describe("postSystem (contract change for S17)", () => {
+  it("gives a line without promptMessageId its own turn, so the Chat shows its card instead of merging it", async () => {
+    const s = await setUp();
+    // An Utsavvy line, then a stock strip posted the way a Comment run posts
+    // it (no Chat message to join).
+    await s.t.mutation(internal.chat.postSystem, {
+      eventId: s.eventId,
+      card: { kind: "system", id: null },
+      text: "Utsavvy answered Aditi in a Comment on Caterer",
+    });
+    await s.t.mutation(internal.chat.postSystem, {
+      eventId: s.eventId,
+      card: { kind: "stockStrip", id: null },
+      text: "A few mehendi decor ideas from the library.",
+    });
+
+    const asMeera = s.as("Meera");
+    const details = (await asMeera.query(api.chat.details, {
+      eventId: s.eventId,
+    }))!;
+    const page = await asMeera.query(api.chat.list, {
+      eventId: s.eventId,
+      threadId: details.threadId!,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    const messages = (page.page as UIMessage[]).sort(
+      (a, b) => a.order - b.order || a.stepOrder - b.stepOrder,
+    );
+    // useUIMessages combines assistant messages that share an order.
+    expect(new Set(messages.map((m) => m.order)).size).toBe(2);
+    const rows = buildTimeline(messages, details);
+    expect(
+      rows.map((row) =>
+        row.kind === "system" ? row.annotation.card?.kind : row.kind,
+      ),
+    ).toEqual(["system", "stockStrip"]);
   });
 });

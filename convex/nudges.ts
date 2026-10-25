@@ -232,7 +232,6 @@ async function post(
     eventId,
     card: { kind: "nudge", id: nudgeId },
     text,
-    ownTurn: true,
   });
   await ctx.db.patch("nudges", nudgeId, { messageId });
 }

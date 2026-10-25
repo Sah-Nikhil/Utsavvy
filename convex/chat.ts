@@ -504,10 +504,10 @@ export const history = query({
  * cards (S10) and notices. `card` picks the card the Chat renders from the
  * card registry; `text` is the line shown with it and the Assistant reads it
  * in later replies. With `promptMessageId` the line joins that message's
- * reply, at the same place in the thread, instead of going to the end.
- * With `ownTurn` it starts a new turn at the end of the thread, so the Chat
- * never merges it into the message before it (S17's Nudges and Comment
- * lines): `useUIMessages` combines assistant messages that share a turn.
+ * reply, at the same place in the thread. Without it, the line starts its
+ * own turn at the end of the thread: `useUIMessages` combines assistant
+ * messages that share a turn under the first one's ID, which would hide this
+ * line's card (S17).
  */
 export const postSystem = internalMutation({
   args: {
@@ -515,16 +515,15 @@ export const postSystem = internalMutation({
     card: cardValidator,
     text: v.optional(v.string()),
     promptMessageId: v.optional(v.string()),
-    ownTurn: v.optional(v.boolean()),
   },
   returns: v.string(),
-  handler: async (ctx, { eventId, card, text, promptMessageId, ownTurn }) => {
+  handler: async (ctx, { eventId, card, text, promptMessageId }) => {
     const threadId = await ensureThread(ctx, await loadEvent(ctx, eventId));
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId,
       agentName: ASSISTANT_NAME,
       message: { role: "assistant", content: text ?? "" },
-      ...(ownTurn && promptMessageId === undefined
+      ...(promptMessageId === undefined
         ? { order: "next" as const }
         : { promptMessageId }),
     });

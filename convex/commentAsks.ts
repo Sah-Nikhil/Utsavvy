@@ -482,7 +482,6 @@ export const reply = internalMutation({
       await ctx.runMutation(internal.chat.postSystem, {
         eventId: run.eventId,
         card: { kind: "system", id: null },
-        ownTurn: true,
         text: `${ASSISTANT_NAME} answered ${asker} in a Comment on ${on}${waiting ? " (Proposal waiting)" : ""}`,
       });
       return null;
