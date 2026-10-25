@@ -90,7 +90,8 @@ function amountsIn(normalized: string): StatedAmount[] {
  * Words that say nothing about which line an amount is for: articles, verbs
  * of asking and setting, money words and the Hinglish glue around them. A
  * clause made only of these ("around ₹15,000", "quoted 50k") belongs to the
- * clause before it.
+ * clause before it. "Budget" and "total" are not here: "Budget 5L" says what
+ * the amount is for.
  */
 const FILLER = new Set([
   ...["a", "an", "the", "it", "its", "this", "that", "to", "of", "for", "on"],
@@ -101,7 +102,7 @@ const FILLER = new Set([
   ...["asking", "wants", "charges", "charge", "charging", "costs", "cost"],
   ...["costing", "pay", "paying", "told", "came", "comes", "around", "about"],
   ...["approx", "approximately", "roughly", "nearly", "max", "maximum"],
-  ...["upto", "up", "only", "just", "total", "budget", "amount", "price"],
+  ...["upto", "up", "only", "just", "amount", "price"],
   ...["rs", "inr", "rupee", "rupees", "k", "l", "lakh", "lakhs", "lac"],
   ...["lacs", "crore", "crores", "cr", "thousand", "hazar", "hazaar", "rakho"],
   ...["rakh", "kar", "karo", "do", "de", "dena", "ka", "ki", "ke", "ko", "se"],
@@ -159,6 +160,11 @@ function names(
   return words.some((word) => lineWords.some((line) => sameWord(word, line)));
 }
 
+/** Devanagari or Latin: a label and a message in different scripts can't be compared. */
+function scriptOf(word: string): "devanagari" | "latin" {
+  return /\p{Script=Devanagari}/u.test(word) ? "devanagari" : "latin";
+}
+
 /**
  * Whether the amount written at `at` is about the line: its clause names the
  * line, or names nothing and the nearest clause that names something (the one
@@ -186,11 +192,12 @@ function belongsToLine(
  * ₹15,000" and "15k" both state ₹15,000; neither states ₹18,000.
  *
  * With `lineNames` (the line's label, and its new label when it is being
- * renamed), an amount must also be about that line once the message names it:
- * "caterer quoted 2.4L, add a DJ too" states ₹2,40,000 for the caterer, not
- * for the DJ. A message that doesn't name the line, such as "15k" in answer to
- * the Assistant's question, or one in another script than the label, is
- * judged by the amount alone.
+ * renamed), the amount must also be about that line. Its own clause decides,
+ * or the nearest clause that names something: "caterer quoted 2.4L, add a DJ
+ * too" states ₹2,40,000 for the caterer, so it is refused on a DJ line
+ * whatever the Assistant called it ("DJ", "Entertainment"). A message that
+ * names nothing, such as "15k" in answer to the Assistant's question, or one
+ * written in another script than the label, is judged by the amount alone.
  */
 export function checkMemberStatedAmount(
   amount: number,
@@ -210,7 +217,10 @@ export function checkMemberStatedAmount(
   );
   if (lineWords.length === 0) return true;
   const clauses = clausesOf(normalized);
-  if (!clauses.some((c) => names(c.words, lineWords))) return true;
+  const named = clauses.flatMap((c) => c.words);
+  if (named.length === 0) return true;
+  const scripts = new Set(lineWords.map(scriptOf));
+  if (!named.some((word) => scripts.has(scriptOf(word)))) return true;
   return stated.some((a) => belongsToLine(clauses, a.at, lineWords));
 }
 
