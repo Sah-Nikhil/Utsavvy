@@ -400,6 +400,47 @@ describe("addEntry with a member-stated amount", () => {
   });
 });
 
+describe("a member-stated amount belongs to the line it names (review of #99, M3)", () => {
+  it("refuses the caterer's ₹2,40,000 on a new DJ line and writes nothing", async () => {
+    const s = await setUp();
+    const runId = await ask(s, "caterer quoted 2.4L, add a DJ too");
+    const before = await changeCount(s);
+    const result = await call(s, runId, "addEntry", {
+      kind: "budget",
+      label: "DJ",
+      functionKey: "sangeet",
+      amountSource: { memberStated: 240_000 },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+    expect(await entriesOf(s, s.items.budget)).toHaveLength(0);
+    expect(await changeCount(s)).toBe(before);
+  });
+
+  it("puts the same ₹2,40,000 on the Caterer line", async () => {
+    const s = await setUp();
+    const caterer = await insertCaterer(s);
+    const runId = await ask(s, "caterer quoted 2.4L, add a DJ too");
+    const result = await call(s, runId, "updateEntry", {
+      entryId: caterer,
+      expectedVersion: 1,
+      patch: { kind: "budget", memberStatedAmount: 240_000 },
+    });
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("refuses the DJ's ₹50,000 on the Caterer line", async () => {
+    const s = await setUp();
+    const caterer = await insertCaterer(s);
+    const runId = await ask(s, "DJ 50k and keep the caterer as it is");
+    const result = await call(s, runId, "updateEntry", {
+      entryId: caterer,
+      expectedVersion: 1,
+      patch: { kind: "budget", memberStatedAmount: 50_000 },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+  });
+});
+
 describe("the Proposal thresholds", () => {
   it("refuses the sixth Entry of one reply and tells the model to propose", async () => {
     const s = await setUp();

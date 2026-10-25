@@ -82,6 +82,57 @@ describe("checkMemberStatedAmount counts only money (review M3)", () => {
   });
 });
 
+describe("checkMemberStatedAmount ties an amount to the line it names (review M3, the rest)", () => {
+  it("refuses the caterer's quote on the DJ line", () => {
+    expect(
+      checkMemberStatedAmount(240_000, "caterer quoted 2.4L, add a DJ too", [
+        "DJ",
+      ]),
+    ).toBe(false);
+  });
+
+  it("accepts the same quote on the caterer's line", () => {
+    expect(
+      checkMemberStatedAmount(240_000, "caterer quoted 2.4L, add a DJ too", [
+        "Catering",
+      ]),
+    ).toBe(true);
+  });
+
+  it("gives each line its own amount when one message names two", () => {
+    const text = "DJ 50k and caterer 2.4L";
+    expect(checkMemberStatedAmount(50_000, text, ["DJ"])).toBe(true);
+    expect(checkMemberStatedAmount(240_000, text, ["DJ"])).toBe(false);
+    expect(checkMemberStatedAmount(240_000, text, ["Caterer"])).toBe(true);
+  });
+
+  it.each([
+    [15_000, "Add a mehendi artist, around ₹15,000", "Mehendi artist"],
+    [15_000, "around 15k, for the mehendi artist", "Mehendi artist"],
+    [240_000, "Caterer ko 2,40,000 kar do", "Catering"],
+    [230_000, "Make the caterer ₹2,30,000", "Caterer (Sangeet)"],
+    [15_000, "Rs. 15000 for the DJ", "DJ"],
+    [50_000, "add a DJ, quoted 50k", "DJ"],
+    [150_000, "decor 1.5 lakh rakho", "Decor"],
+    [50_000, "folk musicians and dancers 50k", "Folk musicians and dancers"],
+  ])("accepts %i for %j on the %j line", (amount, text, label) => {
+    expect(checkMemberStatedAmount(amount, text, [label])).toBe(true);
+  });
+
+  it.each([
+    // The Member answers the Assistant's "How much for the mehendi artist?"
+    [15_000, "15k", "Mehendi artist"],
+    [200_000, "keep it at 2L", "Decor"],
+    // Another script than the label's: there is nothing to compare.
+    [15_000, "मेहंदी के लिए ₹१५,००० रखो", "Mehendi artist"],
+  ])(
+    "still accepts %i for %j when the message doesn't name the %j line",
+    (amount, text, label) => {
+      expect(checkMemberStatedAmount(amount, text, [label])).toBe(true);
+    },
+  );
+});
+
 describe("exceedsProposalThresholds", () => {
   const budget = 1_200_000;
 
