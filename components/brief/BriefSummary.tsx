@@ -53,6 +53,13 @@ export function BriefSummary({
     brief.briefState === "summary" || brief.briefState === "intake";
   const editable = brief.canEdit && before;
   const rowProps = { open, setOpen, edit, editable };
+  // After the first plan an essential (city, date, Guests, budget) still
+  // edits here, but arrives as a Proposal in the Chat (S14).
+  const afterPlan = brief.briefState === "planned";
+  const essentialProps = {
+    ...rowProps,
+    editable: brief.canEdit && (before || afterPlan),
+  };
 
   return (
     <article
@@ -70,13 +77,17 @@ export function BriefSummary({
         </h3>
         {editable ? (
           <p className="text-caption text-ink-3">Tap a value to change it</p>
+        ) : afterPlan && brief.canEdit ? (
+          <p className="text-caption text-ink-3">
+            Changing an essential sends a Proposal
+          </p>
         ) : null}
       </header>
 
       <dl className="flex flex-col divide-y divide-rule">
         {brief.city ? (
           <Row
-            {...rowProps}
+            {...essentialProps}
             id="city"
             label="City"
             value={
@@ -100,7 +111,7 @@ export function BriefSummary({
           />
         ) : null}
         <Row
-          {...rowProps}
+          {...essentialProps}
           id="date"
           label="Date"
           value={brief.dateText ?? "Not decided yet"}
@@ -110,7 +121,7 @@ export function BriefSummary({
           )}
         />
         <Row
-          {...rowProps}
+          {...essentialProps}
           id="guests"
           label={
             brief.eventType === "community" ? "Guests at the busiest" : "Guests"
@@ -136,7 +147,7 @@ export function BriefSummary({
           )}
         />
         <Row
-          {...rowProps}
+          {...essentialProps}
           id="budget"
           label="Budget"
           value={brief.budget !== null ? <Money amount={brief.budget} /> : "—"}
