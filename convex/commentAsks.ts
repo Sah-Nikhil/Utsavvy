@@ -482,6 +482,7 @@ export const reply = internalMutation({
       await ctx.runMutation(internal.chat.postSystem, {
         eventId: run.eventId,
         card: { kind: "system", id: null },
+        ownTurn: true,
         text: `${ASSISTANT_NAME} answered ${asker} in a Comment on ${on}${waiting ? " (Proposal waiting)" : ""}`,
       });
       return null;
@@ -503,6 +504,11 @@ export const threadState = query({
   returns: v.union(
     v.null(),
     v.object({
+      eventId: v.id("events"),
+      /** The Event's Theme colours, for Utsavvy's orb in the thread. */
+      palette: v.array(v.string()),
+      /** Whether the caller may ask @Utsavvy (Viewers can't). */
+      canAsk: v.boolean(),
       proposals: v.array(v.id("proposals")),
       run: v.union(
         v.null(),
@@ -516,12 +522,14 @@ export const threadState = query({
   handler: async (ctx, { rootId }) => {
     const root = await ctx.db.get("comments", rootId);
     if (root === null) return null;
+    let membership: Doc<"memberships">;
     try {
-      await requireAccess(ctx, root.eventId, "canvas.view");
+      ({ membership } = await requireAccess(ctx, root.eventId, "canvas.view"));
     } catch (error) {
       if (error instanceof AccessDenied) return null;
       throw error;
     }
+    const event = await ctx.db.get("events", root.eventId);
     const ids = new Set<string>((await threadOf(ctx, root)).map((c) => c._id));
 
     const proposals = (
@@ -552,6 +560,12 @@ export const threadState = query({
         break;
       }
     }
-    return { proposals, run };
+    return {
+      eventId: root.eventId,
+      palette: event?.theme.palette ?? [],
+      canAsk: can(membership.role, "chat.post"),
+      proposals,
+      run,
+    };
   },
 });

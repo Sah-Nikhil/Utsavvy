@@ -7,6 +7,7 @@ import type { WriteEvent } from "../lib/types/history";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  env,
   internalMutation,
   mutation,
   query,
@@ -19,6 +20,7 @@ import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { once } from "./lib/idempotency";
 import { istDay } from "./lib/time";
+import { memberWrite } from "./lib/write";
 import { checkQueueRoom, enqueueRun } from "./runs";
 
 /*
@@ -230,6 +232,7 @@ async function post(
     eventId,
     card: { kind: "nudge", id: nudgeId },
     text,
+    ownTurn: true,
   });
   await ctx.db.patch("nudges", nudgeId, { messageId });
 }
@@ -530,5 +533,40 @@ export const card = query({
       askedBy,
       canAct: can(membership.role, "chat.post"),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Local browser checks only
+
+/**
+ * Gives a new Event the Budget total a Nudge needs, for e2e/nudges.spec.ts
+ * against `bun run dev`: Members set the total through the Brief, which the
+ * browser test doesn't walk. Written as the Owner's edit, so the post-write
+ * hook runs as it would. Refuses anything but a local deployment.
+ */
+export const budgetForLocalCheck = internalMutation({
+  args: { eventId: v.id("events"), budgetTotal: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { eventId, budgetTotal }) => {
+    const url = env.CONVEX_CLOUD_URL ?? "";
+    if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url))
+      throw new Error("Only for a local Convex deployment");
+    const owner = (
+      await ctx.db
+        .query("memberships")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .take(50)
+    ).find((m) => m.role === "owner" && m.status === "active");
+    if (owner === undefined) throw new Error("That Event has no Owner");
+    // Past the first Brief, so the Chat reads as a planned Event's.
+    await ctx.db.patch("events", eventId, { briefState: "planned" });
+    await memberWrite(ctx, {
+      table: "events",
+      id: eventId,
+      patch: { budgetTotal },
+      actor: { kind: "member", membershipId: owner._id },
+    });
+    return null;
   },
 });

@@ -400,6 +400,33 @@ describe("the Budget Nudge", () => {
     expect(await nudgeLines(s)).toHaveLength(1);
   });
 
+  it("starts its own turn in the Chat, so it never merges into the message before it", async () => {
+    const s = await setUp();
+    await s.t.mutation(internal.chat.postSystem, {
+      eventId: s.eventId,
+      card: { kind: "system", id: null },
+      text: "An earlier line from Utsavvy.",
+    });
+    await typeCaterer(s, 285_000);
+    await settle(s);
+    const threadId = await s.t.run(
+      async (ctx) => (await ctx.db.get("events", s.eventId))!.agentThreadId!,
+    );
+    const page = await s.t.query(
+      components.agent.messages.listMessagesByThreadId,
+      {
+        threadId,
+        order: "asc",
+        paginationOpts: { numItems: 10, cursor: null },
+      },
+    );
+    const [earlier, nudge] = page.page;
+    expect(nudge?.text).toBe(
+      "The Budget is now ₹40,000 over. Want me to suggest cuts?",
+    );
+    expect(nudge!.order).toBeGreaterThan(earlier!.order);
+  });
+
   it("counts days in IST, not UTC", async () => {
     const s = await setUp();
     // 23:50 IST on Wednesday (18:20 UTC) and 00:10 IST on Thursday (18:40
