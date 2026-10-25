@@ -58,6 +58,7 @@ import {
   itemAriaLabel,
   type ItemNodeType,
 } from "./ItemNode";
+import { AddNoteButton } from "./AddNoteButton";
 import { readableViewport } from "./initialViewport";
 import { isOffScreen } from "./reveal";
 import { SectionDialogsProvider, useSectionDialogs } from "./SectionDialogs";
@@ -736,6 +737,7 @@ function CanvasFlow({
           <FunctionFilterChips />
         </Panel>
         <Panel position="bottom-right" className="m-3! flex items-center gap-2">
+          {canEdit ? <AddNoteButton eventId={eventId} /> : null}
           {can(role, "section.custom") ? (
             <Button
               variant="tonal"
