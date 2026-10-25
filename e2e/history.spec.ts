@@ -84,16 +84,20 @@ test("lists changes with who made them, Restores a deleted Section and highlight
   await page.keyboard.press("Escape");
   await expect(sangeet).toBeVisible({ timeout: 5_000 });
 
-  // Pan the Budget out of sight first (review of #90): the row brings it back.
+  // Look far away from the Budget first (review of #90): this person's view
+  // is kept in the browser, so a saved one far off opens there on reload.
   const budget = page.locator('[data-canvas-item="budget"]');
-  const pane = page.locator(".react-flow__pane");
-  const box = (await pane.boundingBox())!;
-  for (let i = 0; i < 2; i++) {
-    await page.mouse.move(box.x + box.width - 40, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + 40, box.y + box.height / 2, { steps: 8 });
-    await page.mouse.up();
-  }
+  const eventId = new URL(page.url()).pathname.split("/").at(-1)!;
+  await page.evaluate((id) => {
+    window.localStorage.setItem(
+      `utsavvy.canvas.viewport.${id}`,
+      JSON.stringify({ x: -6000, y: -4000, zoom: 1 }),
+    );
+  }, eventId);
+  await page.reload();
+  await expect(page.locator(".react-flow__node-section")).toHaveCount(5, {
+    timeout: 20_000,
+  });
   await expect(budget).not.toBeInViewport();
 
   // Clicking a row closes the panel, selects its Item and pans to it.
