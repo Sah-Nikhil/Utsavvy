@@ -155,9 +155,12 @@ export const startNext = internalMutation({
         status: "running",
         startedAt: now,
       });
-      await ctx.scheduler.runAfter(0, internal.assistant.agent.respond, {
-        runId: run._id,
-      });
+      // @Utsavvy in a Comment answers in its thread (S17); every other run in the Chat.
+      const respond =
+        run.source === "comment"
+          ? internal.commentAsks.respond
+          : internal.assistant.agent.respond;
+      await ctx.scheduler.runAfter(0, respond, { runId: run._id });
       // The watchdog: a streaming action that crashes or is abandoned must not
       // leave the Event "replying" with its queue stuck behind it.
       await ctx.scheduler.runAfter(
