@@ -106,6 +106,30 @@ describe("checkMemberStatedAmount ties an amount to the line it names (review M3
     expect(checkMemberStatedAmount(240_000, text, ["Caterer"])).toBe(true);
   });
 
+  it.each([["Entertainment"], ["Sound and music"]])(
+    "refuses the caterer's quote on a DJ line the Assistant labelled %j",
+    (label) => {
+      // The amount's own clause names the caterer. A label the message never
+      // mentions mustn't turn the check off (second review of #116, M2).
+      expect(
+        checkMemberStatedAmount(240_000, "caterer quoted 2.4L, add a DJ too", [
+          label,
+        ]),
+      ).toBe(false);
+    },
+  );
+
+  it("refuses the Event's Budget on the DJ line", () => {
+    // "Budget 5L" says what the ₹5,00,000 is for; it doesn't borrow the DJ
+    // from the next clause (second review of #116, L1).
+    expect(
+      checkMemberStatedAmount(500_000, "Budget 5L, add a DJ", ["DJ"]),
+    ).toBe(false);
+    expect(
+      checkMemberStatedAmount(50_000, "DJ ka budget 50k rakho", ["DJ"]),
+    ).toBe(true);
+  });
+
   it.each([
     [15_000, "Add a mehendi artist, around ₹15,000", "Mehendi artist"],
     [15_000, "around 15k, for the mehendi artist", "Mehendi artist"],
