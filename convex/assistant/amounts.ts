@@ -1,5 +1,6 @@
 import type { ProposalOp } from "../../lib/types/proposals";
 import { formatINR } from "../../lib/format";
+import { ALL_FUNCTION_KEYS } from "../../lib/types/functions";
 import { NO_BUDGET_SHIFT_CAP, PROPOSAL_THRESHOLDS } from "../lib/settings";
 
 /*
@@ -162,43 +163,37 @@ function names(
 
 /**
  * Words that say what an amount is for, whatever the Event's lines are
- * called: the Vendor categories (`vendors.category` in the schema) and the
- * first word of each reference table row (`lib/pricing/table.ts`), plus
- * "tent" and "budget". Only nouns that don't double as everyday reply words:
- * "sound" ("15k sounds good") and "total" ("totally fine") are left out.
+ * called: the Vendor categories (`vendors.category` in the schema), the
+ * first word of each reference table row (`lib/pricing/table.ts`), "tent"
+ * and "budget", and the trades people name in Hinglish ("halwai ko 20k de
+ * do"). Only nouns that don't double as everyday reply words: "sound" ("15k
+ * sounds good") and "total" ("totally fine") are left out.
  */
 const LINE_SUBJECTS: readonly string[] = [
   ...["venue", "caterer", "catering", "decor", "decorator", "photographer"],
   ...["photography", "dj", "dhol", "mehendi", "baraat", "band", "pandit"],
   ...["makeup", "outfits", "invitations", "transport", "cake", "entertainer"],
   ...["idol", "pandal", "prasad", "tent", "budget"],
+  ...["halwai", "tentwala", "panditji", "mehendiwali", "dholwala", "baja"],
+  ...["bandwala", "ghodi"],
 ];
 
-/** A label's words that could name it in a message. */
-function labelWords(label: string): string[] {
-  return (label.toLowerCase().match(/[\p{L}\p{M}]+/gu) ?? []).filter(
+/**
+ * Words that never say another line is meant: a Function's name ("15k for
+ * the sangeet" can be the Photographer's fee for it) and food descriptors
+ * ("15k, veg only").
+ */
+const NOT_SUBJECTS: ReadonlySet<string> = new Set([
+  ...ALL_FUNCTION_KEYS.flatMap((key) => key.split("_")),
+  ...["veg", "non", "nonveg", "jain"],
+]);
+
+/** A label's words that could name it in a message, without its "(Sangeet)" part when `dropParts`. */
+function labelWords(label: string, dropParts = false): string[] {
+  const text = dropParts ? label.replace(/\([^)]*\)/g, " ") : label;
+  return (text.toLowerCase().match(/[\p{L}\p{M}]+/gu) ?? []).filter(
     (word) => !FILLER.has(word),
   );
-}
-
-/**
- * Bracketed words that say how a line is priced or where it applies, not what
- * it is: "(Event-wide)", "(≤150 Guests)", "(whole festival)".
- */
-const GENERIC_PARTS = new Set(["event", "wide", "guests", "whole"]);
-
-/**
- * Another line's words that could name it in a message, its bracketed part
- * included: "Sharma ji (halwai)" is named by "halwai" too. Generic bracketed
- * notes are left out.
- */
-function otherLineWords(label: string): string[] {
-  const parts = [...label.matchAll(/\(([^)]*)\)/g)].map((m) => m[1]!);
-  const outside = labelWords(label.replace(/\([^)]*\)/g, " "));
-  const inside = parts
-    .flatMap((part) => labelWords(part))
-    .filter((word) => !GENERIC_PARTS.has(word));
-  return [...outside, ...inside];
 }
 
 /**
@@ -273,12 +268,17 @@ export function checkMemberStatedAmount(
   const clauses = clausesOf(normalized);
   if (clauses.some((c) => names(c.words, lineWords)))
     return stated.some((a) => belongsToLine(clauses, a.at, lineWords));
-  // Another line's words, less any this line shares ("DJ (sangeet)" beside
-  // "DJ (wedding)").
+  // Another line's words outside its brackets, less any this line shares
+  // ("DJ (sangeet)" beside "DJ (wedding)") and less a Function or a food
+  // descriptor, which names no line.
   const otherWords = [
     ...LINE_SUBJECTS,
-    ...otherLines.flatMap((name) => otherLineWords(name)),
-  ].filter((word) => !lineWords.some((line) => sameWord(word, line)));
+    ...otherLines.flatMap((name) => labelWords(name, true)),
+  ].filter(
+    (word) =>
+      !NOT_SUBJECTS.has(word) &&
+      !lineWords.some((line) => sameWord(word, line)),
+  );
   return stated.some((a) => !forAnotherLine(clauses, a.at, otherWords));
 }
 

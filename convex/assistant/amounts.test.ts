@@ -174,9 +174,9 @@ describe("checkMemberStatedAmount ties an amount to the line it names (review M3
     );
   });
 
-  it("refuses an amount whose clause names the bracketed part of another line", () => {
-    // "halwai" is only in the other line's brackets (issue #102, orchestrator
-    // check of PR 116).
+  it("refuses an amount whose clause names a trade, such as the halwai", () => {
+    // "halwai" is a trade word, so it names another line wherever it is
+    // written (issue #102, orchestrator check of PR 116; review of #118, L1).
     const others = ["Sharma ji (halwai)", "Mithai"];
     expect(
       checkMemberStatedAmount(
@@ -198,6 +198,39 @@ describe("checkMemberStatedAmount ties an amount to the line it names (review M3
       checkMemberStatedAmount(20_000, "mithai 20k rakho", ["Mithai"], others),
     ).toBe(true);
   });
+
+  it.each([
+    [20_000, "halwai ko 20k de do", "Mithai"],
+    [50_000, "tentwala ne 50k bola", "Decor"],
+    [11_000, "panditji ko 11k dena hai", "Photographer"],
+    [15_000, "mehendiwali 15k leti hai", "Photographer"],
+    [21_000, "dholwala 21k maang raha hai", "Photographer"],
+    [30_000, "ghodi ke 30k", "Photographer"],
+  ])(
+    "refuses %i for %j on the %j line: the trade is another line's",
+    (amount, text, label) => {
+      expect(checkMemberStatedAmount(amount, text, [label], [])).toBe(false);
+    },
+  );
+
+  it.each([
+    ["15k for the sangeet", "Photography and video", ["Catering (Sangeet)"]],
+    [
+      "15k for the wedding",
+      "Photographer",
+      ["Catering, main dinner (sangeet, wedding, reception)"],
+    ],
+    ["15k, veg only", "Photographer", ["Catering (veg)"]],
+    ["15k for the sangeet", "Photographer", ["Sangeet DJ"]],
+    ["15k, non-veg too", "Photographer", ["Non-veg catering"]],
+  ])(
+    "accepts %j on the %j line: a Function or a food descriptor names no other line",
+    (text, label, others) => {
+      // Review of #118, L1: these were refused when another line's bracketed
+      // words counted.
+      expect(checkMemberStatedAmount(15_000, text, [label], others)).toBe(true);
+    },
+  );
 
   it("doesn't read a generic bracketed note as another line", () => {
     // "(Event-wide)" and "(≤150 Guests)" say how a line is priced, not what it is.
