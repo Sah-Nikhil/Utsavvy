@@ -42,11 +42,18 @@ export const post = internalMutation({
       });
     } catch (error) {
       if (!(error instanceof ConvexError)) throw error;
-      // The Brief moved on while the change was priced: say so instead.
+      const data = error.data as { message?: unknown } | null;
+      const message = typeof data?.message === "string" ? data.message : null;
+      // Say why: the plan moved on while the change was priced (try again),
+      // or the Proposal itself was refused (such as too many changes).
+      const stale =
+        message !== null && /changed since you read it/.test(message);
       await ctx.runMutation(internal.chat.postSystem, {
         eventId: args.eventId,
         card: { kind: "system", id: null },
-        text: "The Brief changed while I priced that, so I didn't propose it. Make the change again.",
+        text: stale
+          ? "The plan changed while I priced that, so I didn't propose it. Make the change again."
+          : `I couldn't propose that change: ${message ?? "it wasn't allowed."}`,
       });
     }
     return null;

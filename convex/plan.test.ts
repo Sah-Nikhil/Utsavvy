@@ -11,13 +11,16 @@ import type { FirstPlanDraft } from "../lib/types";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { estimateLines, stubEstimateDeps } from "./estimates";
+import { addDays } from "../lib/brief/dates";
 import { STUB_MODEL } from "./lib/models";
+import { istDay } from "./lib/time";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 import {
   aaravBirthdayDraft,
   applyPlan,
   diffEssentialChange,
   jaipurWeddingDraft,
+  mentionsAmount,
   planLinesOf,
   pricePlanDraft,
   puneGaneshUtsavDraft,
@@ -325,6 +328,15 @@ describe("validateDraft", () => {
     expect(check(asField).join(" ")).toMatch(/amount/i);
   });
 
+  it("tells a plain count from a rupee amount", () => {
+    expect(mentionsAmount("Light 1,001 diyas at the gate")).toBe(false);
+    expect(mentionsAmount("A 5k run for the society")).toBe(false);
+    expect(mentionsAmount("Keep ₹2,40,000 aside")).toBe(true);
+    expect(mentionsAmount("about 2,40,000 for the pandal")).toBe(true);
+    expect(mentionsAmount("Rs 500 a head")).toBe(true);
+    expect(mentionsAmount("a 1 crore wedding")).toBe(true);
+  });
+
   it("rejects an unknown category, or a known one in the wrong unit", () => {
     const unknown = jaipurDraft();
     unknown.functions[1]!.budgetEntries[0]!.category = "catering_deluxe";
@@ -598,6 +610,20 @@ describe("a plan run that can't finish", () => {
     const run = await s.t.run((ctx) => ctx.db.get("runs", runId));
     expect(run!.status).toBe("failed");
     expect(await liveEntries(s)).toEqual([]);
+  });
+});
+
+describe("a stopped plan whose action never ends", () => {
+  it("is ended by the watchdog, which hands the Brief back", async () => {
+    const s = await aaravAtSummary();
+    const runId = await startRun(s);
+    // S5's reaper ended the Stop; the action died before it noticed.
+    await s.t.run((ctx) =>
+      ctx.db.patch("runs", runId, { status: "stopped", endedAt: Date.now() }),
+    );
+    await s.t.mutation(internal.plan.watchdog, { eventId: s.eventId, runId });
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(event!.briefState).toBe("summary");
   });
 });
 
@@ -877,5 +903,104 @@ describe("changing an essential after the plan", () => {
     const kept = lines.find((e) => e._id === weddingCateringId)!;
     expect(kept.fields.quantity).toBe(300);
     expect(kept.fields.plannedAmount).toBe(390000);
+  });
+  async function acceptNext(s: S) {
+    const [proposal] = await until(
+      s,
+      () =>
+        s.t.run((ctx) =>
+          ctx.db
+            .query("proposals")
+            .withIndex("by_event_status", (q) =>
+              q.eq("eventId", s.eventId).eq("status", "open"),
+            )
+            .take(5),
+        ),
+      (rows) => rows.length > 0,
+    );
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: proposal!._id,
+      }),
+    ).toEqual({ ok: true });
+  }
+
+  const venuesDeadline = async (s: S) =>
+    (await timelineEntries(s)).find((e) => e.fields.leadKey === "book_venues")!
+      .fields;
+
+  it("moves the deadlines with each accepted date change, lateness included", async () => {
+    const { s } = await plannedJaipur();
+    const today = istDay(Date.now());
+    // A year later: the Venues are no longer late.
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "date", date: { kind: "day", value: "2027-12-15" } },
+    });
+    await acceptNext(s);
+    expect(await venuesDeadline(s)).toMatchObject({
+      date: "2026-12-13",
+      late: false,
+      note: null,
+    });
+    // And back to February: late again, pulled to this week.
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "date", date: { kind: "month", value: "2027-02" } },
+    });
+    await acceptNext(s);
+    const venues = await venuesDeadline(s);
+    expect(venues).toMatchObject({
+      date: addDays(today, 7),
+      late: true,
+      priority: "P1",
+    });
+    expect(venues.note).toMatch(/this week/);
+  });
+
+  it("re-points the Vendor checklist at a Venue line that swapped to the large row", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "guests", functionKey: null, guests: 400 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const entries = await liveEntries(s);
+    const largeVenue = entries.find(
+      (e) =>
+        e.kind === "budget" &&
+        e.functionKey === "mehendi" &&
+        e.fields.category === "venue_large",
+    )!;
+    const venueCheck = entries.find(
+      (e) =>
+        e.kind === "checklist" &&
+        e.fields.vendorCategory === "venue" &&
+        e.fields.functionKeys.includes("mehendi"),
+    );
+    expect(
+      venueCheck?.kind === "checklist" && venueCheck.fields.budgetEntryIds,
+    ).toEqual([largeVenue._id]);
+  });
+
+  it("refuses a bad value after the plan, and any essential edit while it is being made", async () => {
+    const { s } = await plannedJaipur();
+    await expect(
+      s.asMeera.mutation(api.brief.editField, {
+        eventId: s.eventId,
+        change: { field: "guests", functionKey: null, guests: 0 },
+      }),
+    ).rejects.toThrow(/whole number of Guests/);
+    await s.t.run((ctx) =>
+      ctx.db.patch("events", s.eventId, { briefState: "planning" }),
+    );
+    await expect(
+      s.asMeera.mutation(api.brief.editField, {
+        eventId: s.eventId,
+        change: { field: "guests", functionKey: null, guests: 400 },
+      }),
+    ).rejects.toThrow(/Wait for the plan to finish/);
   });
 });

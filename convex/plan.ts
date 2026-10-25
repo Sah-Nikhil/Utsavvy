@@ -12,6 +12,7 @@ import {
 import {
   assumeFunctionDetails,
   type BriefFunction,
+  cityAssumption,
 } from "../lib/brief/functions";
 import { BRIEF_LIMITS } from "../lib/brief/limits";
 import { formatINR, formatLakh } from "../lib/format";
@@ -246,7 +247,7 @@ export function toFirstPlanDraft(
 // Checking the draft
 
 const MONEY =
-  /₹|\brs\.?\s*\d|\binr\b|\brupees?\b|\d\s*(?:k|lakhs?|lacs?|l|cr|crores?)\b|\b\d{1,3}(?:,\d{2})+,\d{3}\b|\b\d{1,3},\d{3}\b/i;
+  /₹|\brs\.?\s*\d|\binr\b|\brupees?\b|\d\s*(?:lakhs?|lacs?|cr|crores?)\b|\b\d{1,2}(?:,\d{2})+,\d{3}\b/i;
 
 /** Field names that would carry an amount: the model never writes one. */
 const MONEY_KEYS = new Set([
@@ -263,7 +264,10 @@ const MONEY_KEYS = new Set([
   "budget",
 ]);
 
-/** Whether text states a rupee amount ("₹25,000", "2 lakh", "15k", "Rs 500"). */
+/**
+ * Whether text states a rupee amount: "₹25,000", "Rs 500", "2 lakh", "1 crore"
+ * or a lakh-grouped "2,40,000". A plain count ("1,001 diyas") is not one.
+ */
 export function mentionsAmount(text: string): boolean {
   return MONEY.test(text);
 }
@@ -273,6 +277,7 @@ const RUN_SHEET = { min: 6, max: 10 };
 const SUGGESTIONS = { min: 5, max: 8 };
 const MAX_TEXT = 300;
 const MAX_LINES = 60;
+const MAX_DEADLINES = 15;
 const MAX_QUANTITY = 100_000;
 const CATEGORY = /^[a-z][a-z0-9_]{1,39}$/;
 
@@ -398,7 +403,12 @@ export function validateDraft(
   if (lines > MAX_LINES)
     errors.push(`The plan has ${lines} budget lines; keep it to ${MAX_LINES}`);
 
-  // Deadlines: a lead key, so code works out the date.
+  // Deadlines: a lead key, so code works out the date. A date change moves
+  // each one, and a Proposal holds at most 20 changes.
+  if (draft.deadlines.length > MAX_DEADLINES)
+    errors.push(
+      `The plan has ${draft.deadlines.length} deadlines; keep it to ${MAX_DEADLINES}`,
+    );
   for (const d of draft.deadlines) {
     if (!isLeadKey(d.leadKey))
       errors.push(
@@ -2087,33 +2097,38 @@ export const end = internalMutation({
     // A Stop the pipeline didn't answer in time is ended by S5's reaper, so
     // the run may already be over: the Brief is still handed back, unless a
     // newer plan run has started since.
-    const latest = (
-      await ctx.db
-        .query("runs")
-        .withIndex("by_event_created", (q) => q.eq("eventId", eventId))
-        .order("desc")
-        .take(20)
-    ).find((r) => r.source === "brief");
-    const event = await ctx.db.get("events", eventId);
-    if (
-      event !== null &&
-      event.briefState === "planning" &&
-      latest?._id === runId
-    ) {
-      const wrote = await ctx.db
+    let newer = false;
+    for await (const later of ctx.db
+      .query("runs")
+      .withIndex("by_event_created", (q) =>
+        q.eq("eventId", eventId).gt("createdAt", run.createdAt),
+      )) {
+      if (later.source === "brief") {
+        newer = true;
+        break;
+      }
+    }
+    // The Budget is the first Section the plan writes to the Canvas.
+    const wrote =
+      (await ctx.db
         .query("toolCalls")
-        .withIndex("by_key", (q) => q.eq("key", stepKey(runId, "functions")))
-        .unique();
+        .withIndex("by_key", (q) => q.eq("key", stepKey(runId, "budget")))
+        .unique()) !== null;
+    const event = await ctx.db.get("events", eventId);
+    if (event !== null && event.briefState === "planning" && !newer) {
       await ctx.db.patch("events", eventId, {
-        briefState: wrote === null ? "summary" : "planned",
+        briefState: wrote ? "planned" : "summary",
       });
     }
     if (run.status !== "running" && run.status !== "stopping") return null;
     if (outcome === "failed") {
+      const next = wrote
+        ? "What's on the Canvas stays; ask me in the Chat for the rest."
+        : 'Tap "Make my plan" to try again.';
       await ctx.runMutation(internal.chat.postSystem, {
         eventId,
         card: { kind: "system", id: null },
-        text: `I couldn't finish the plan${reason ? `: ${reason}` : ""}. Tap "Make my plan" to try again.`,
+        text: `I couldn't finish the plan${reason ? `: ${reason}` : ""}. ${next}`,
       });
     }
     await ctx.runMutation(internal.runs.finish, { runId, outcome });
@@ -2270,7 +2285,13 @@ export const watchdog = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const run = await ctx.db.get("runs", args.runId);
-    if (run === null || run.status !== "running") return null;
+    const event = await ctx.db.get("events", args.eventId);
+    // Also when a reaped Stop left the Event planning with no action to end it.
+    if (
+      run === null ||
+      (run.status !== "running" && event?.briefState !== "planning")
+    )
+      return null;
     await ctx.runMutation(internal.plan.end, {
       ...args,
       outcome: "failed",
@@ -2473,14 +2494,59 @@ export type EssentialInput = {
     version: number;
     amount: number;
   } | null;
+  /** Deadlines the Assistant set that no Member has touched since. */
   deadlines: {
     id: Id<"entries">;
     version: number;
     functionKey: string | null;
     leadKey: string;
-    date: string | null;
+    fields: EntryFields<"timeline">;
   }[];
 };
+
+/** Whether a Member ever edited, moved or ticked this Entry; its history says who. */
+async function memberTouched(
+  ctx: QueryCtx,
+  docId: Id<"entries">,
+): Promise<boolean> {
+  const rows = await ctx.db
+    .query("changes")
+    .withIndex("by_doc", (q) => q.eq("docId", docId))
+    .take(50);
+  return rows.some((row) => row.actor.kind === "member");
+}
+
+/**
+ * The deadlines a date change moves, each with its new date, lateness and
+ * note. `changeEssentialOp` writes them; the summary counts them.
+ */
+export function deadlineMoves(
+  deadlines: EssentialInput["deadlines"],
+  functions: readonly PlanFunction[],
+  today: string,
+): { id: Id<"entries">; version: number; fields: EntryFields<"timeline"> }[] {
+  if (functions.length === 0) return [];
+  const start = firstDay(functions);
+  const moves = [];
+  for (const d of deadlines) {
+    if (!isLeadKey(d.leadKey)) continue;
+    const fn = functions.find((f) => f.key === d.functionKey);
+    const due = planDeadline(d.leadKey, fn ? dayOf(fn.date) : start, today);
+    if (due.date === d.fields.date && due.late === d.fields.late) continue;
+    moves.push({
+      id: d.id,
+      version: d.version,
+      fields: {
+        ...d.fields,
+        date: due.date,
+        late: due.late,
+        priority: due.priority,
+        note: due.note,
+      },
+    });
+  }
+  return moves;
+}
 
 /** Budget lines a Quote stands behind: through its Vendor link's checklist Entry. */
 async function quotedLines(
@@ -2555,15 +2621,16 @@ export async function essentialInputOf(
       entry.kind === "timeline" &&
       entry.fields.leadKey !== null &&
       entry.fields.time === null &&
-      // A deadline a Member moved, ticked or edited keeps its own date.
-      entry.version === 1
+      !entry.fields.done
     ) {
+      // A deadline a Member moved, ticked or edited keeps its own date.
+      if (await memberTouched(ctx, entry._id)) continue;
       deadlines.push({
         id: entry._id,
         version: entry.version,
         functionKey: entry.functionKey,
         leadKey: entry.fields.leadKey,
-        date: entry.fields.date,
+        fields: entry.fields,
       });
     }
   }
@@ -2925,28 +2992,6 @@ export function diffEssentialChange(
     }
   }
 
-  if (change.field === "date") {
-    const start = firstDay(functions);
-    for (const d of state.deadlines) {
-      if (!isLeadKey(d.leadKey)) continue;
-      const fn = functions.find((f) => f.key === d.functionKey);
-      const due = planDeadline(
-        d.leadKey,
-        fn ? dayOf(fn.date) : start,
-        state.today,
-      );
-      if (due.date === d.date) continue;
-      changes.push({
-        op: "updateEntry",
-        table: "entries",
-        docId: d.id,
-        expectedVersion: d.version,
-        guards: [],
-        values: { patch: { fields: { date: due.date, note: due.note } } },
-      });
-    }
-  }
-
   if (
     change.field === "budget" &&
     state.contingency !== null &&
@@ -3070,7 +3115,8 @@ export function describeEssentialChange(
       parts.push(`the Contingency becomes ${formatINR(amount)}`);
   }
   if (change.field === "date") {
-    const n = changes.filter((x) => x.op === "updateEntry").length;
+    const { functions } = followBrief(state, change);
+    const n = deadlineMoves(state.deadlines, functions, state.today).length;
     if (n > 0) parts.push(`${n} deadline${n === 1 ? "" : "s"} move`);
   }
   const recheck = changes.some(
@@ -3117,6 +3163,15 @@ export async function proposeEssentialChange(
   change: EssentialChange,
 ): Promise<void> {
   const { membership } = await requireAccess(ctx, eventId, "canvas.edit");
+  const event = await ctx.db.get("events", eventId);
+  if (event?.briefState === "planning")
+    throw new ConvexError({
+      kind: "BadAnswer",
+      message: "Wait for the plan to finish, then change it.",
+    });
+  const problem = essentialProblem(change, await functionsOf(ctx, eventId));
+  if (problem !== null)
+    throw new ConvexError({ kind: "BadAnswer", message: problem });
   await ctx.scheduler.runAfter(0, internal.plan.essentialProposal, {
     eventId,
     change,
@@ -3208,38 +3263,47 @@ function positiveWhole(n: number, max: number): boolean {
   return Number.isInteger(n) && n > 0 && n <= max;
 }
 
+/** Why an essential change can't be made, or null: the same checks before the Proposal and at Accept. */
+function essentialProblem(
+  values: EssentialChange,
+  rows: readonly Doc<"eventFunctions">[],
+): string | null {
+  if (values.field === "guests") {
+    if (!positiveWhole(values.guests, BRIEF_LIMITS.guests))
+      return "Type a whole number of Guests.";
+    if (
+      values.functionKey !== null &&
+      !rows.some((r) => r.key === values.functionKey)
+    )
+      return "That Function isn't in the Event any more.";
+  } else if (values.field === "budget") {
+    if (!positiveWhole(values.budget, BRIEF_LIMITS.budget))
+      return "Type the budget as a whole number of rupees.";
+  } else if (values.field === "date") {
+    const ok =
+      values.date.kind === "day"
+        ? isIsoDay(values.date.value)
+        : isIsoMonth(values.date.value);
+    if (!ok) return "That isn't a date.";
+  } else if (values.city.trim() === "" || values.city.length > 80) {
+    return "Type the city's name.";
+  }
+  return null;
+}
+
 /**
- * The `changeEssential` op: the Brief takes the new value and its Functions
- * follow it. The rest of the Proposal (lines, deadlines, the Contingency) is
- * in its own changes.
+ * The `changeEssential` op: the Brief takes the new value, its Functions
+ * follow it, and after a date change each deadline the Assistant set moves
+ * with its Function (date, lateness and note together, which a Proposal's
+ * `updateEntry` can't set). The rest of the Proposal (lines, the Contingency,
+ * a Venue recheck) is in its own changes.
  */
 export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
   validate: async (ctx, change) => {
     const event = await ctx.db.get("events", change.docId);
     if (event === null || event.brief === null)
       return "That Event has no Brief.";
-    const values = change.values;
-    if (values.field === "guests") {
-      if (!positiveWhole(values.guests, BRIEF_LIMITS.guests))
-        return "A Guest count is a whole number above zero.";
-      if (values.functionKey !== null) {
-        const rows = await functionsOf(ctx, event._id);
-        if (!rows.some((r) => r.key === values.functionKey))
-          return "That Function isn't in the Event any more.";
-      }
-    } else if (values.field === "budget") {
-      if (!positiveWhole(values.budget, BRIEF_LIMITS.budget))
-        return "A budget is a whole number of rupees above zero.";
-    } else if (values.field === "date") {
-      const ok =
-        values.date.kind === "day"
-          ? isIsoDay(values.date.value)
-          : isIsoMonth(values.date.value);
-      if (!ok) return "That isn't a date.";
-    } else if (values.city.trim() === "" || values.city.length > 80) {
-      return "Type the city's name.";
-    }
-    return null;
+    return essentialProblem(change.values, await functionsOf(ctx, event._id));
   },
   apply: async (ctx, change, actor) => {
     const event = (await ctx.db.get("events", change.docId))!;
@@ -3261,6 +3325,14 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
       values.field === "city"
         ? { name: values.city, tier: cityTier(values.city), centre: null }
         : event.city;
+    if (values.field === "city") {
+      // A city off the X and Y lists is treated as a smaller one, as before the plan.
+      const tierAssumption = cityAssumption(values.city);
+      next.assumptions = [
+        ...next.assumptions.filter((a) => a.field !== "city.tier"),
+        ...(tierAssumption ? [tierAssumption] : []),
+      ];
+    }
     await assistantWrite(ctx, {
       table: "events",
       id: event._id,
@@ -3285,19 +3357,110 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
       });
       touched.push(fn.id);
     }
+    const moved: Id<"entries">[] = [];
+    if (values.field === "date") {
+      const current = await essentialInputOf(ctx, event._id, today);
+      for (const move of deadlineMoves(
+        current?.deadlines ?? [],
+        next.functions,
+        today,
+      )) {
+        await assistantWrite(ctx, {
+          table: "entries",
+          id: move.id,
+          expectedVersion: move.version,
+          patch: { fields: move.fields },
+          ...acceptArgs(actor, move.id),
+        });
+        moved.push(move.id);
+      }
+    }
     if (values.field === "city") {
       await ctx.scheduler.runAfter(0, internal.brief.locateCity, {
         eventId: event._id,
         city: values.city,
       });
     }
-    // Once the whole Accept has landed, the Budget check follows the plan.
-    await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-      eventId: event._id,
-    });
-    return [event._id, ...touched];
+    // Once the whole Accept has landed, the Budget check follows the plan and
+    // the Vendor checklist follows a swapped Venue or decor line.
+    if (actor.kind === "assistant") {
+      await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
+        eventId: event._id,
+        relink: {
+          proposalId: actor.proposalId,
+          forMembershipId: actor.forMembershipId,
+          acceptedBy: actor.acceptedBy,
+        },
+      });
+    }
+    return [event._id, ...touched, ...moved];
   },
 };
+
+/**
+ * After a Venue or decor line swapped between its small and large rows, the
+ * checklist Entries that paid for the old line pay for its replacement: the
+ * live line of the same Function in the same pair of rows.
+ */
+async function relinkChecklist(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  scope: {
+    proposalId: Id<"proposals">;
+    forMembershipId: Id<"memberships">;
+    acceptedBy: Id<"memberships"> | null;
+  },
+): Promise<void> {
+  const live = async (kind: "budget" | "checklist") =>
+    (
+      await ctx.db
+        .query("entries")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", eventId).eq("kind", kind),
+        )
+        .take(MAX_PLAN_ENTRIES)
+    ).filter((e) => e.deletedAt === null);
+  const lines = await live("budget");
+  for (const entry of await live("checklist")) {
+    if (entry.kind !== "checklist") continue;
+    let changed = false;
+    const ids: Id<"entries">[] = [];
+    for (const id of entry.fields.budgetEntryIds) {
+      const line = await ctx.db.get("entries", id);
+      const pair =
+        line?.kind === "budget" && line.fields.category !== null
+          ? SIZE_SWAPS[line.fields.category]
+          : undefined;
+      if (line === null || line.deletedAt === null || pair === undefined) {
+        ids.push(id);
+        continue;
+      }
+      const replacement = lines.find(
+        (l) =>
+          l.kind === "budget" &&
+          l.functionKey === line.functionKey &&
+          (l.fields.category === pair.small ||
+            l.fields.category === pair.large) &&
+          !ids.includes(l._id),
+      );
+      ids.push(replacement?._id ?? id);
+      changed ||= replacement !== undefined;
+    }
+    if (!changed) continue;
+    await assistantWrite(ctx, {
+      table: "entries",
+      id: entry._id,
+      expectedVersion: entry.version,
+      patch: { fields: { ...entry.fields, budgetEntryIds: ids } },
+      runId: null,
+      proposalId: scope.proposalId,
+      acceptedBy: scope.acceptedBy,
+      forMembershipId: scope.forMembershipId,
+      groupLabel: null,
+      toolCallId: `relink:${entry._id}`,
+    });
+  }
+}
 
 /**
  * The Budget check over the plan's own lines, after an accepted essential
@@ -3305,9 +3468,25 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
  * and Unallocated as the Budget holds them.
  */
 export const recheckBudget = internalMutation({
-  args: { eventId: v.id("events") },
+  args: {
+    eventId: v.id("events"),
+    /** The accepted Proposal, so relinked checklist Entries are recorded as its changes. */
+    relink: v.union(
+      v.object({
+        proposalId: v.union(v.id("proposals"), v.null()),
+        forMembershipId: v.id("memberships"),
+        acceptedBy: v.union(v.id("memberships"), v.null()),
+      }),
+      v.null(),
+    ),
+  },
   returns: v.null(),
-  handler: async (ctx, { eventId }) => {
+  handler: async (ctx, { eventId, relink }) => {
+    if (relink !== null && relink.proposalId !== null)
+      await relinkChecklist(ctx, eventId, {
+        ...relink,
+        proposalId: relink.proposalId,
+      });
     const event = await ctx.db.get("events", eventId);
     if (event === null || event.budgetTotal === null) return null;
     const entries = (

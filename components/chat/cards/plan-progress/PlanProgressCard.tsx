@@ -128,7 +128,14 @@ export function PlanProgressCard({ eventId, cardId }: ChatCardProps) {
             amount={progress.budgetTotal}
             className="font-semibold text-ink"
           />{" "}
-          in Estimates and Contingency
+          {check.unallocated > 0 ? (
+            <>
+              {" "}
+              planned, <Money amount={check.unallocated} /> of it Unallocated
+            </>
+          ) : (
+            " in Estimates and Contingency"
+          )}
           {check.perHousehold !== null ? (
             <>
               , <Money amount={check.perHousehold} /> per household
