@@ -179,13 +179,28 @@ const SAME_COLOUR_DISTANCE = 40;
 /** One image adds at most this many colours and decor keywords. */
 const FROM_ONE_IMAGE = { palette: 2, decorKeywords: 2 } as const;
 
-/** Tag words that name the occasion, a Function or a colour, not a piece of decor. */
+/**
+ * Generic tag words that say where or when a photo was taken, or who is in it,
+ * rather than naming a piece of decor (review of #112, L5).
+ */
+const GENERIC_WORDS = [
+  ...["theme", "decor", "decoration", "setup", "detail", "space", "place"],
+  ...["indoor", "outdoor", "night", "day", "home", "street", "dark", "warm"],
+  ...["first", "traditional", "modern", "party", "celebration", "event"],
+  ...["ceremony", "ritual", "engagement", "couple", "bride", "groom"],
+  ...["family", "friends", "group", "crowd", "woman", "women", "man", "men"],
+  ...["kids", "hands", "feet", "mumbai", "pune", "south", "north", "sikh"],
+  ...["bengali"],
+];
+
+/** Tag words that name the occasion, a Function, a colour or nothing in particular, not a piece of decor. */
 const NOT_DECOR = new Set<string>([
   "wedding",
   "birthday",
   "ganesh",
   "community",
   "branded",
+  ...GENERIC_WORDS,
   ...ALL_FUNCTION_KEYS,
   ...NAMED_COLOURS.map(([name]) => name),
   "pastel",
