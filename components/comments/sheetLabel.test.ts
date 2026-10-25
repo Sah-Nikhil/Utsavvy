@@ -27,7 +27,7 @@ function onTheEntry(entryLabel: string | null): CommentView {
 }
 
 describe("sheetEntryLabel", () => {
-  it("follows a rename made while the sheet is open (second review of #116, nit 1)", () => {
+  it("follows a rename made while the sheet is open (second review of PR 116, nit 1)", () => {
     expect(
       sheetEntryLabel(onEntry, "Caterer", [onTheEntry("Caterer (veg)")]),
     ).toBe("Caterer (veg)");
