@@ -508,10 +508,24 @@ describe("only the Inspirations upload makes upload files (review of #107, Mediu
     expect(await inspirationsIn(s, papas)).toEqual([]);
   });
 
-  it("there is no public upload URL for storing a file outside the Inspirations upload", () => {
-    expect(
-      (api.inspirations as Record<string, unknown>).generateUploadUrl,
-    ).toBeUndefined();
+  it("no public function in convex/ takes a stored file's ID", async () => {
+    const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+    const takesFileId: string[] = [];
+    for (const [path, load] of Object.entries(modules)) {
+      if (path.startsWith("./_generated/") || path.endsWith(".config.ts"))
+        continue;
+      const exports = (await load()) as Record<string, unknown>;
+      for (const [name, fn] of Object.entries(exports)) {
+        const registered = fn as {
+          isPublic?: boolean;
+          exportArgs?: () => string;
+        } | null;
+        if (!registered?.isPublic || !registered.exportArgs) continue;
+        if (registered.exportArgs().includes('"tableName":"_storage"'))
+          takesFileId.push(`${path}:${name}`);
+      }
+    }
+    expect(takesFileId).toEqual([]);
   });
 
   it("purgeDeletedFiles keeps a file another Inspiration still uses", async () => {
