@@ -21,7 +21,8 @@ import { cn } from "@/lib/utils";
 import { CommentComposer, commentErrorText } from "./CommentComposer";
 import { useCommentList } from "./ItemComments";
 import { threadsOf, type CommentView } from "./threads";
-import { useAddComment } from "./useAddComment";
+import { AskNoticeLine } from "./AskNoticeLine";
+import { useAddComment, type PendingAsk } from "./useAddComment";
 
 /*
  * One Comment thread: its first Comment, the replies under it, and a reply
@@ -67,6 +68,7 @@ export function CommentThread({
   const state = useQuery(api.commentAsks.threadState, { rootId });
   const [replying, setReplying] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null);
 
   const thread = comments
     ? threadsOf(comments).find((t) => t.root._id === rootId)
@@ -131,6 +133,14 @@ export function CommentThread({
         </div>
       ) : null}
 
+      {pendingAsk ? (
+        <AskNoticeLine
+          pending={pendingAsk}
+          onChange={setPendingAsk}
+          className="ml-3.5 border-l border-rule pl-4"
+        />
+      ) : null}
+
       {state?.run ? (
         <p
           role="status"
@@ -176,7 +186,7 @@ export function CommentThread({
                 body,
                 rootId: root._id,
               });
-              setProblem(notice);
+              setPendingAsk(notice);
               setReplying(false);
             }}
           />

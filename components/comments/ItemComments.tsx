@@ -23,7 +23,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { CommentComposer } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
-import { useAddComment } from "./useAddComment";
+import { AskNoticeLine } from "./AskNoticeLine";
+import { useAddComment, type PendingAsk } from "./useAddComment";
 import {
   isOn,
   openCount,
@@ -167,7 +168,7 @@ function CommentsSheetBody({
 }) {
   const { comments, failed } = useCommentList(itemId);
   const add = useAddComment();
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<PendingAsk | null>(null);
 
   // Opened on an Entry: that Entry's threads. On the Item: every thread on
   // the Item and its Entries, each labelled with what it is on.
@@ -248,9 +249,11 @@ function CommentsSheetBody({
       </div>
       <div className="border-t border-rule bg-surface-raised px-5 pt-3 pb-4">
         {notice ? (
-          <p role="status" className="mb-2 text-caption text-ink-2">
-            {notice}
-          </p>
+          <AskNoticeLine
+            pending={notice}
+            onChange={setNotice}
+            className="mb-2"
+          />
         ) : null}
         <CommentComposer
           label={
