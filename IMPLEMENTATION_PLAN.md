@@ -202,7 +202,7 @@ The plan is not a tool call. It is a fixed pipeline in `convex/brief.ts` (S11) a
 
 ### 4.8 Files
 
-Uploads (images up to 10 MB, shrunk in the browser to 2048 px on the long side) and Quote attachments (image or PDF) go to Convex file storage through upload URLs. A query never returns a storage URL to someone without `requireAccess` on the Event. An uploaded Inspiration's file is claimed in `uploadClaims` in the same transaction as its Item: only a fresh (15 minutes), unclaimed file can be attached, a refused upload deletes only such a file, and only the claiming Item's purge deletes it (review of PR #107, 2026-10-24).
+Uploads (images up to 10 MB, shrunk in the browser to 2048 px on the long side) and Quote attachments (image or PDF) go to Convex file storage. A query never returns a storage URL to someone without `requireAccess` on the Event. Every stored file is created by the feature that owns it, never attached afterwards by a storage ID a client sends: no public function takes a storage ID (a convex-test checks every module). An Inspiration upload sends the shrunk photo's bytes to `inspirations.addUpload`, which checks access, the rights tick, size and type before storing anything, stores the file itself and claims it in `uploadClaims` with its Item; if saving the Item fails, it deletes the file again. Only the claiming Item's purge deletes a claimed file. Quote attachments and generated images (X3b) follow the same rule: their own function stores the file and records its owner in the same flow (second review of PR #107, 2026-10-24; fixed in #102, 2026-10-25, replacing the earlier 15-minute freshness rule for upload URLs).
 
 ### 4.9 Later stage: Discovery pipeline (X1)
 
