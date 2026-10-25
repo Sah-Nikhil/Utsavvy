@@ -2,7 +2,6 @@
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "@convex-dev/agent/react";
-import { buildTimeline } from "../components/chat/timeline";
 import type { EntryFields } from "../lib/types/canvas";
 import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -713,7 +712,7 @@ describe("act", () => {
 });
 
 describe("postSystem (contract change for S17)", () => {
-  it("gives a line without promptMessageId its own turn, so the Chat shows its card instead of merging it", async () => {
+  it("gives a line without promptMessageId its own turn, so the Chat finds its card instead of merging it", async () => {
     const s = await setUp();
     // An Utsavvy line, then a stock strip posted the way a Comment run posts
     // it (no Chat message to join).
@@ -742,11 +741,14 @@ describe("postSystem (contract change for S17)", () => {
     );
     // useUIMessages combines assistant messages that share an order.
     expect(new Set(messages.map((m) => m.order)).size).toBe(2);
-    const rows = buildTimeline(messages, details);
-    expect(
-      rows.map((row) =>
-        row.kind === "system" ? row.annotation.card?.kind : row.kind,
-      ),
-    ).toEqual(["system", "stockStrip"]);
+    // The Chat finds each message's card by the message's own ID
+    // (`buildTimeline` in components/chat/timeline.ts).
+    const cards = new Map(
+      details.annotations.map((a) => [a.messageId, a.card?.kind]),
+    );
+    expect(messages.map((m) => cards.get(m.id))).toEqual([
+      "system",
+      "stockStrip",
+    ]);
   });
 });
