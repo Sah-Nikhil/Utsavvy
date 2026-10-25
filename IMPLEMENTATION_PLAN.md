@@ -169,7 +169,7 @@ All writes go through `convex/lib/write.ts` (contract):
 
 ### 4.5 The Assistant at runtime
 
-- **One run at a time per Event.** A Member's message to the Assistant inserts a `runs` row as `queued`. `convex/runs.ts` starts the oldest queued run when none is running, through the scheduler. The sender can cancel a queued run.
+- **One run at a time per Event.** A Member's message to the Assistant inserts a `runs` row as `queued`. `convex/runs.ts` starts the oldest queued run when none is running, through the scheduler. The sender can cancel a queued run. The first plan's run (`source: "brief"`) waits in the same queue, and `startNext` starts its pipeline (`internal.plan.generate`) instead of a reply (S14, review of PR #114).
 - **Stop.** The asker can stop a run at once; any Member can after 30 seconds. Stop sets the run to `stopping`; the streaming loop checks that flag between chunks and tool steps and ends the run as `stopped`. Changes already made stay, and the next queued run starts.
 - **Context.** Each run reads the Canvas fresh through `readCanvas`. Recent Chat, including Don't-reply messages, is in context with each author's name. Pointed-at Items, Entries and passages come with the message.
 - **Outside content** (Vendor pages, pasted text, image text, image descriptions, Chat history, and the search results Estimate research reads) goes to the model wrapped in a labelled block with its source and who added it, never as instructions. The system prompt says so, and when such content contains instructions aimed at the Assistant, it ignores them and adds "That page contained instructions aimed at me; I ignored them."
