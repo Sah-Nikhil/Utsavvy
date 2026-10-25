@@ -174,12 +174,31 @@ const LINE_SUBJECTS: readonly string[] = [
   ...["idol", "pandal", "prasad", "tent", "budget"],
 ];
 
-/** A label's words that could name it in a message, without its "(Sangeet)" part. */
-function labelWords(label: string, dropParts: boolean): string[] {
-  const text = dropParts ? label.replace(/\([^)]*\)/g, " ") : label;
-  return (text.toLowerCase().match(/[\p{L}\p{M}]+/gu) ?? []).filter(
+/** A label's words that could name it in a message. */
+function labelWords(label: string): string[] {
+  return (label.toLowerCase().match(/[\p{L}\p{M}]+/gu) ?? []).filter(
     (word) => !FILLER.has(word),
   );
+}
+
+/**
+ * Bracketed words that say how a line is priced or where it applies, not what
+ * it is: "(Event-wide)", "(≤150 Guests)", "(whole festival)".
+ */
+const GENERIC_PARTS = new Set(["event", "wide", "guests", "whole"]);
+
+/**
+ * Another line's words that could name it in a message, its bracketed part
+ * included: "Sharma ji (halwai)" is named by "halwai" too. Generic bracketed
+ * notes are left out.
+ */
+function otherLineWords(label: string): string[] {
+  const parts = [...label.matchAll(/\(([^)]*)\)/g)].map((m) => m[1]!);
+  const outside = labelWords(label.replace(/\([^)]*\)/g, " "));
+  const inside = parts
+    .flatMap((part) => labelWords(part))
+    .filter((word) => !GENERIC_PARTS.has(word));
+  return [...outside, ...inside];
 }
 
 /**
@@ -249,7 +268,7 @@ export function checkMemberStatedAmount(
     (a) => Math.round(a.value) === amount,
   );
   if (stated.length === 0) return false;
-  const lineWords = lineNames.flatMap((name) => labelWords(name, false));
+  const lineWords = lineNames.flatMap((name) => labelWords(name));
   if (lineWords.length === 0) return true;
   const clauses = clausesOf(normalized);
   if (clauses.some((c) => names(c.words, lineWords)))
@@ -258,7 +277,7 @@ export function checkMemberStatedAmount(
   // "DJ (wedding)").
   const otherWords = [
     ...LINE_SUBJECTS,
-    ...otherLines.flatMap((name) => labelWords(name, true)),
+    ...otherLines.flatMap((name) => otherLineWords(name)),
   ].filter((word) => !lineWords.some((line) => sameWord(word, line)));
   return stated.some((a) => !forAnotherLine(clauses, a.at, otherWords));
 }

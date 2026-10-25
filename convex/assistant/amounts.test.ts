@@ -174,6 +174,52 @@ describe("checkMemberStatedAmount ties an amount to the line it names (review M3
     );
   });
 
+  it("refuses an amount whose clause names the bracketed part of another line", () => {
+    // "halwai" is only in the other line's brackets (issue #102, orchestrator
+    // check of PR 116).
+    const others = ["Sharma ji (halwai)", "Mithai"];
+    expect(
+      checkMemberStatedAmount(
+        20_000,
+        "halwai ko 20k de do",
+        ["Mithai"],
+        others,
+      ),
+    ).toBe(false);
+    expect(
+      checkMemberStatedAmount(
+        20_000,
+        "Sharma ji quoted 20k",
+        ["Mithai"],
+        others,
+      ),
+    ).toBe(false);
+    expect(
+      checkMemberStatedAmount(20_000, "mithai 20k rakho", ["Mithai"], others),
+    ).toBe(true);
+  });
+
+  it("doesn't read a generic bracketed note as another line", () => {
+    // "(Event-wide)" and "(≤150 Guests)" say how a line is priced, not what it is.
+    const others = ["Outfits (Event-wide)", "Venue, small (≤150 Guests)"];
+    expect(
+      checkMemberStatedAmount(
+        15_000,
+        "15k for the whole event",
+        ["Photographer"],
+        others,
+      ),
+    ).toBe(true);
+    expect(
+      checkMemberStatedAmount(
+        15_000,
+        "let's go with 15k",
+        ["Photographer"],
+        ["Sharma ji (halwai)", ...others],
+      ),
+    ).toBe(true);
+  });
+
   it.each([
     // The Member answers the Assistant's "How much for the mehendi artist?"
     [15_000, "15k", "Mehendi artist"],
