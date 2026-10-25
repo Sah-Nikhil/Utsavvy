@@ -1953,7 +1953,7 @@ describe("the report times the Assistant's own estimate too (N2)", () => {
 // citations on text blocks, `pause_turn`, a 400, a request still in flight at
 // the deadline). No real model is called.
 
-describe("the live path against Claude 5.5 response shapes (#108)", () => {
+describe("the live path against Claude 5.5 response shapes (issue 108)", () => {
   const catering: ResearchLine = {
     key: 0,
     label: "Catering, main dinner",
