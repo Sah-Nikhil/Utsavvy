@@ -996,6 +996,11 @@ export type SearchTurn = {
   /** Searches the API billed for this turn. */
   searches: number;
   paused: boolean;
+  /**
+   * The API's own stop reason, such as `max_tokens` when adaptive thinking
+   * used the output cap or `refusal`, so a turn with no notes can say why.
+   */
+  stopReason?: string;
   /** The paused assistant content, re-sent to continue the turn. */
   continuation: ModelMessage[];
   usage: ModelUsage;
@@ -1037,6 +1042,7 @@ export async function researchLine(
   const usage: ModelUsage[] = [];
   let text = "";
   let searches = 0;
+  let stopReason: string | undefined;
   const output = (
     results: ResearchOutput["results"],
     failure?: ResearchOutput["failure"],
@@ -1058,6 +1064,7 @@ export async function researchLine(
       input.maxSearches - searches,
     );
     text += result.text;
+    stopReason = result.stopReason;
     urls.push(...result.resultUrls);
     searches += result.searches;
     usage.push(result.usage);
@@ -1084,7 +1091,7 @@ export async function researchLine(
       [],
       pauseFailure ?? {
         reason: "noOutput",
-        detail: "the search wrote no notes",
+        detail: `the search wrote no notes${stopReason ? ` (stop reason: ${stopReason})` : ""}`,
       },
     );
   }
@@ -1186,6 +1193,7 @@ export function liveResearchCalls(
         searches: billedSearches(result.providerMetadata) ?? searchCalls,
         // `@ai-sdk/anthropic` reports a paused turn as "stop"; the raw reason keeps it.
         paused: result.rawFinishReason === "pause_turn",
+        stopReason: result.rawFinishReason,
         continuation: result.responseMessages,
         usage: {
           model,

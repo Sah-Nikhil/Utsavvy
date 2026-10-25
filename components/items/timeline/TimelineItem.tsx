@@ -132,10 +132,13 @@ function TimelineBody({
       {runSheets.map((sheet) => {
         const fn = names.get(sheet.functionKey);
         const index = indexOf(sheet.functionKey);
+        // A repeating programme (daily aarti) is one Function over a range.
         const day =
           fn?.date?.kind === "day"
             ? formatDay(fn.date.value, { year: false })
-            : null;
+            : fn?.date?.kind === "range"
+              ? `${formatDay(fn.date.from, { year: false })} to ${formatDay(fn.date.to, { year: false })}`
+              : null;
         return (
           <section
             key={sheet.functionKey}

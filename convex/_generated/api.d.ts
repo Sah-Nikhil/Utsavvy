@@ -46,6 +46,7 @@ import type * as notes from "../notes.js";
 import type * as nudges from "../nudges.js";
 import type * as people from "../people.js";
 import type * as plan from "../plan.js";
+import type * as planEssentials from "../planEssentials.js";
 import type * as proposals from "../proposals.js";
 import type * as quotes from "../quotes.js";
 import type * as references from "../references.js";
@@ -101,6 +102,7 @@ declare const fullApi: ApiFromModules<{
   nudges: typeof nudges;
   people: typeof people;
   plan: typeof plan;
+  planEssentials: typeof planEssentials;
   proposals: typeof proposals;
   quotes: typeof quotes;
   references: typeof references;

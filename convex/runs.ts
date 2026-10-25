@@ -89,6 +89,20 @@ export async function checkQueueRoom(
   }
 }
 
+/**
+ * A first plan that never started hands its Brief back (S14), so "Make my
+ * plan" works again.
+ */
+async function afterCancel(ctx: MutationCtx, run: Doc<"runs">): Promise<void> {
+  if (run.source !== "brief") return;
+  await ctx.scheduler.runAfter(0, internal.plan.end, {
+    eventId: run.eventId,
+    runId: run._id,
+    outcome: "failed",
+    reason: null,
+  });
+}
+
 /** Whether a membership may still have the Assistant answer it. */
 function canAsk(membership: Doc<"memberships"> | null): boolean {
   return (
@@ -149,12 +163,25 @@ export const startNext = internalMutation({
           status: "cancelled",
           endedAt: now,
         });
+        await afterCancel(ctx, run);
         continue;
       }
       await ctx.db.patch("runs", run._id, {
         status: "running",
         startedAt: now,
       });
+      if (run.source === "brief") {
+        // The first plan (S14) is a fixed pipeline, not a reply; its own
+        // watchdog also hands the Brief back if the pipeline dies.
+        const args = { eventId: run.eventId, runId: run._id };
+        await ctx.scheduler.runAfter(0, internal.plan.generate, args);
+        await ctx.scheduler.runAfter(
+          STALE_RUN_AFTER_MS,
+          internal.plan.watchdog,
+          args,
+        );
+        return run._id;
+      }
       await ctx.scheduler.runAfter(0, internal.assistant.agent.respond, {
         runId: run._id,
       });
@@ -231,6 +258,7 @@ export const cancelQueued = mutation({
       status: "cancelled",
       endedAt: Date.now(),
     });
+    await afterCancel(ctx, run);
     return null;
   },
 });
