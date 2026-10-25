@@ -72,16 +72,18 @@ import {
   type EstimateDeps,
   estimateLines,
 } from "./estimates";
-import { requireAccess } from "./lib/access";
+import { requireAccess, requireAccessFor } from "./lib/access";
 import { once } from "./lib/idempotency";
 import {
   languageModel,
+  type ModelEnv,
   modelChain,
   registerStubObject,
   withModelFallback,
 } from "./lib/models";
 import { istDay } from "./lib/time";
 import { assistantInsert, assistantWrite, memberWrite } from "./lib/write";
+import { enqueueRun } from "./runs";
 
 // S14 (The first plan) owns this file.
 
@@ -1904,6 +1906,9 @@ export async function applyPlan(
   priced: PricedPlanDraft,
   steps: readonly WriteStep[] = WRITE_STEPS,
 ): Promise<void> {
+  // The plan writes for the Member who asked: from the moment they lose
+  // access, nothing more is written (section 4.3).
+  await requireAccessFor(ctx, priced.requestedBy, eventId, "canvas.edit");
   for (const step of steps) {
     await once(ctx, stepKey(priced.runId, step), async () => {
       await applyStep(ctx, eventId, priced, step);
@@ -2052,6 +2057,9 @@ export const markStep = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, { runId, step }) => {
+    const run = await ctx.db.get("runs", runId);
+    if (run === null) return null;
+    await requireAccessFor(ctx, run.requestedBy, run.eventId, "canvas.edit");
     await once(ctx, stepKey(runId, step), async () => null);
     return null;
   },
@@ -2089,25 +2097,24 @@ export const end = internalMutation({
     runId: v.id("runs"),
     outcome: v.union(v.literal("done"), v.literal("failed")),
     reason: v.union(v.string(), v.null()),
+    /** The Member who asked lost access to the Event mid-plan. */
+    lostAccess: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, { eventId, runId, outcome, reason }) => {
+  handler: async (ctx, { eventId, runId, outcome, reason, lostAccess }) => {
     const run = await ctx.db.get("runs", runId);
     if (run === null) return null;
     // A Stop the pipeline didn't answer in time is ended by S5's reaper, so
     // the run may already be over: the Brief is still handed back, unless a
-    // newer plan run has started since.
-    let newer = false;
-    for await (const later of ctx.db
+    // newer plan run has started since. Plan runs are rare among an Event's
+    // runs; a newer one is among the next few.
+    const later = await ctx.db
       .query("runs")
       .withIndex("by_event_created", (q) =>
         q.eq("eventId", eventId).gt("createdAt", run.createdAt),
-      )) {
-      if (later.source === "brief") {
-        newer = true;
-        break;
-      }
-    }
+      )
+      .take(50);
+    const newer = later.some((r) => r.source === "brief");
     // The Budget is the first Section the plan writes to the Canvas.
     const wrote =
       (await ctx.db
@@ -2116,19 +2123,39 @@ export const end = internalMutation({
         .unique()) !== null;
     const event = await ctx.db.get("events", eventId);
     if (event !== null && event.briefState === "planning" && !newer) {
-      await ctx.db.patch("events", eventId, {
-        briefState: wrote ? "planned" : "summary",
+      await assistantWrite(ctx, {
+        table: "events",
+        id: eventId,
+        expectedVersion: event.version,
+        patch: { briefState: wrote ? "planned" : "summary" },
+        runId,
+        forMembershipId: run.requestedBy,
+        groupLabel: GROUP,
+        toolCallId: "plan:end",
       });
+      // A plan that stopped part-way gets the Budget check of what it wrote.
+      if (wrote)
+        await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
+          eventId,
+          relink: null,
+        });
     }
     if (run.status !== "running" && run.status !== "stopping") return null;
     if (outcome === "failed") {
-      const next = wrote
-        ? "What's on the Canvas stays; ask me in the Chat for the rest."
-        : 'Tap "Make my plan" to try again.';
+      let text: string;
+      if (lostAccess) {
+        const asker = await ctx.db.get("memberships", run.requestedBy);
+        text = `${asker?.displayName ?? "The Member who asked"} no longer has access to this Event, so I stopped changing it.`;
+      } else {
+        const next = wrote
+          ? "What's on the Canvas stays; ask me in the Chat for the rest."
+          : 'Tap "Make my plan" to try again.';
+        text = `I couldn't finish the plan${reason ? `: ${reason}` : ""}. ${next}`;
+      }
       await ctx.runMutation(internal.chat.postSystem, {
         eventId,
         card: { kind: "system", id: null },
-        text: `I couldn't finish the plan${reason ? `: ${reason}` : ""}. ${next}`,
+        text,
       });
     }
     await ctx.runMutation(internal.runs.finish, { runId, outcome });
@@ -2162,28 +2189,78 @@ export class DraftRefused extends Error {
 }
 
 /**
+ * How long one model may take over one draft before the next model in the
+ * chain is asked (section 4.5, "Model failure"). Two attempts on two models
+ * fit well inside an action's 10 minutes.
+ */
+export const DRAFT_TIMEOUT_MS = 120_000;
+
+/** Runs one model call, aborting it as a timeout (a fallback error) after `ms`. */
+async function withinTimeout<T>(
+  model: string,
+  ms: number,
+  call: (abortSignal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${model} drafted nothing for ${ms / 1000} s`);
+      // `isFallbackError` hands a TimeoutError to the next model.
+      error.name = "TimeoutError";
+      controller.abort(error);
+      reject(error);
+    }, ms);
+  });
+  const pending = call(controller.signal);
+  // Once timed out, nobody waits for the call; don't let it reject unhandled.
+  pending.catch(() => {});
+  try {
+    return await Promise.race([pending, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export type DraftOptions = {
+  /** The environment the chain is read from; the deployment's by default. */
+  source?: ModelEnv;
+  /** The AI SDK model for a chain entry; `languageModel` by default. */
+  modelFor?: (id: string) => ReturnType<typeof languageModel>;
+  timeoutMs?: number;
+};
+
+/**
  * The draft on the default model chain (the stub on previews), with
  * structured output, checked by `validateDraft`; a draft with problems is
- * asked for once more with the problems listed.
+ * asked for once more with the problems listed. A model that sends nothing
+ * within the timeout hands the draft to the next one.
  */
 export async function draftWithModel(
   input: PlanInput,
+  options: DraftOptions = {},
 ): Promise<{ draft: FirstPlanDraft; model: string }> {
+  const source = options.source ?? env;
+  const modelFor = options.modelFor ?? ((id) => languageModel(id, source));
+  const ms = options.timeoutMs ?? DRAFT_TIMEOUT_MS;
   let problems: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const { result, model } = await withModelFallback(
-      modelChain("assistant", env),
+      modelChain("assistant", source),
       (id) =>
-        generateText({
-          model: languageModel(id, env),
-          system: PLAN_SYSTEM,
-          prompt: planPrompt(input, problems),
-          output: Output.object({
-            name: PLAN_DRAFT_NAME,
-            schema: planDraftSchema,
+        withinTimeout(id, ms, (abortSignal) =>
+          generateText({
+            model: modelFor(id),
+            system: PLAN_SYSTEM,
+            prompt: planPrompt(input, problems),
+            output: Output.object({
+              name: PLAN_DRAFT_NAME,
+              schema: planDraftSchema,
+            }),
+            maxOutputTokens: 8000,
+            abortSignal,
           }),
-          maxOutputTokens: 8000,
-        }),
+        ),
     );
     const draft = toFirstPlanDraft(result.output, input.functions);
     problems = validateDraft(draft, {
@@ -2223,6 +2300,10 @@ export async function runPlan(
     }
     const { draft, model } = await deps.draft(input);
     await ctx.runMutation(internal.runs.setModel, { runId, model });
+    if ((await runStatus(ctx, runId)) !== "running") {
+      await finish("done", null);
+      return;
+    }
     await ctx.runMutation(internal.plan.markStep, { runId, step: "draft" });
 
     const ranges = await estimateLines(
@@ -2242,6 +2323,10 @@ export async function runPlan(
       ranges,
       deps.today ?? istDay(Date.now()),
     );
+    if ((await runStatus(ctx, runId)) !== "running") {
+      await finish("done", null);
+      return;
+    }
     await ctx.runMutation(internal.plan.markStep, { runId, step: "prices" });
 
     for (const step of WRITE_STEPS) {
@@ -2257,12 +2342,19 @@ export async function runPlan(
     console.warn(
       `The first plan failed: ${error instanceof Error ? error.message.slice(0, 300) : "unknown error"}`,
     );
-    await finish(
-      "failed",
-      error instanceof DraftRefused
-        ? "the draft didn't hold together"
-        : "something went wrong",
-    );
+    const lostAccess =
+      error instanceof ConvexError &&
+      (error.data as { kind?: unknown } | null)?.kind === "AccessDenied";
+    await ctx.runMutation(internal.plan.end, {
+      eventId,
+      runId,
+      outcome: "failed",
+      reason:
+        error instanceof DraftRefused
+          ? "the draft didn't hold together"
+          : "something went wrong",
+      lostAccess,
+    });
   }
 }
 
@@ -2271,13 +2363,10 @@ export const generate = internalAction({
   args: { eventId: v.id("events"), runId: v.id("runs") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await runPlan(ctx, args, { draft: draftWithModel });
+    await runPlan(ctx, args, { draft: (input) => draftWithModel(input) });
     return null;
   },
 });
-
-/** A plan run still going after this is gone (actions stop after 10 minutes). */
-const STALE_PLAN_AFTER_MS = 11 * 60_000;
 
 /** Ends a plan run whose action never ended it. */
 export const watchdog = internalMutation({
@@ -2347,20 +2436,6 @@ export const make = mutation({
       groupLabel: "The Brief",
       patch: { briefState: "planning" },
     });
-    const now = Date.now();
-    const runId = await ctx.db.insert("runs", {
-      eventId,
-      requestedBy: membership._id,
-      source: "brief",
-      messageId: null,
-      commentId: null,
-      status: "running",
-      stoppedBy: null,
-      model: "",
-      createdAt: now,
-      startedAt: now,
-      endedAt: null,
-    });
     // The Member's tap shows in the Chat, and the progress card answers it.
     const messageId = await postMemberLine(
       ctx,
@@ -2368,17 +2443,20 @@ export const make = mutation({
       membership._id,
       belowMinimum ? "Plan at my budget anyway" : "Make my plan",
     );
-    await ctx.db.patch("runs", runId, { messageId });
+    // One run at a time per Event (section 4.5): the plan waits in S5's queue
+    // behind a reply under way, and `startNext` starts its pipeline.
+    const runId = await enqueueRun(ctx, {
+      eventId,
+      requestedBy: membership._id,
+      source: "brief",
+      messageId,
+      commentId: null,
+    });
     await ctx.runMutation(internal.chat.postSystem, {
       eventId,
       card: { kind: "planProgress", id: runId },
       text: "",
       promptMessageId: messageId,
-    });
-    await ctx.scheduler.runAfter(0, internal.plan.generate, { eventId, runId });
-    await ctx.scheduler.runAfter(STALE_PLAN_AFTER_MS, internal.plan.watchdog, {
-      eventId,
-      runId,
     });
     return { status: "started" as const, runId };
   },
