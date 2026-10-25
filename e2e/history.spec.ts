@@ -117,6 +117,24 @@ test("lists changes with who made them, Restores a deleted Section and highlight
     contentType: "image/png",
   });
 
+  // Looking away and clicking the same row again shows it again, though the
+  // Budget is still the selected Item (second review of #116, L2). Holding
+  // Space makes the wheel pan the Canvas; nothing is focused, so Space
+  // presses no button.
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+  await page.locator(".react-flow__pane").hover({ position: { x: 40, y: 40 } });
+  await page.keyboard.down("Space");
+  await page.mouse.wheel(0, 6000);
+  await page.keyboard.up("Space");
+  await expect(budget).not.toBeInViewport({ timeout: 5_000 });
+  await page.getByRole("button", { name: "History" }).click();
+  await panel
+    .getByRole("button", {
+      name: /^Added the Budget .*show on the Canvas$/,
+    })
+    .click();
+  await expect(budget).toBeInViewport({ timeout: 5_000 });
+
   // "Add a Note" on the Canvas toolbar puts a Note in the Notes Section and
   // shows it (review of #92).
   await page.getByRole("button", { name: "Add a Note" }).click();
