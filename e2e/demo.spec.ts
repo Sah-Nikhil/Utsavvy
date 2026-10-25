@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { expectNoSeriousA11yViolations } from "./axe";
 import { expect, test } from "./fixtures";
+import { convexLocal } from "./local-convex";
 
 /**
  * The demo Event (S19a). The e2e user plays judge-member: the spec points
@@ -10,7 +10,7 @@ import { expect, test } from "./fixtures";
  *
  * It changes a Convex deployment's settings and data, so it runs only against
  * a local deployment: set E2E_DEMO_LOCAL=1 with `bun run dev` on a local
- * backend. Never point it at a cloud deployment.
+ * backend. `convexLocal` refuses any other deployment.
  */
 
 function email(): string {
@@ -49,22 +49,6 @@ async function clerkUserId(address: string): Promise<string> {
   return ((await created.json()) as { id: string }).id;
 }
 
-function convex(args: string[]): void {
-  // The Convex CLI's own script, run by Node, so no shell mangles the JSON.
-  // On Windows it can trip a libuv assertion after printing; keep its output.
-  try {
-    execFileSync(
-      process.execPath,
-      ["node_modules/convex/bin/main.js", ...args],
-      {
-        encoding: "utf8",
-      },
-    );
-  } catch (error) {
-    if ((error as { stdout?: string }).stdout === undefined) throw error;
-  }
-}
-
 test.describe("The demo Event, seeded on a local deployment", () => {
   test.skip(
     process.env.E2E_DEMO_LOCAL !== "1",
@@ -77,8 +61,8 @@ test.describe("The demo Event, seeded on a local deployment", () => {
   }, testInfo) => {
     test.setTimeout(180_000);
     const judge = await clerkUserId(email());
-    convex(["env", "set", "DEMO_JUDGE_MEMBER_ID", judge]);
-    convex(["run", "demo:reset", "{}"]);
+    convexLocal(["env", "set", "DEMO_JUDGE_MEMBER_ID", judge]);
+    convexLocal(["run", "demo:reset", "{}"]);
 
     await signIn();
     await page.goto("/events?open=demo");
@@ -98,6 +82,12 @@ test.describe("The demo Event, seeded on a local deployment", () => {
       timeout: 20_000,
     });
     await expect(page.getByText(/^Plan the sangeet properly/)).toBeVisible();
+    // A plain seeded reply has no annotation and still shows as Utsavvy's reply.
+    await expect(
+      page
+        .locator('[data-chat-row="reply"]')
+        .filter({ hasText: "I reworked the sangeet's run sheet" }),
+    ).toBeVisible();
     await expectNoSeriousA11yViolations(page);
     await page.screenshot({ path: testInfo.outputPath("demo-desktop.png") });
 

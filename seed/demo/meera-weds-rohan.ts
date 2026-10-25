@@ -10,6 +10,11 @@ import type { BriefExtraction } from "../../lib/types/brief";
  *
  * The people, Quotes and Comments are made up, which is why the demo Event
  * shows its banner (section 3, item 5).
+ *
+ * The seeded Utsavvy replies were written here, not by a model, so when a
+ * judge asks a follow-up the Assistant reads them as earlier Chat it did not
+ * write (no `finishReason`; the fail-closed rule from #117). That is
+ * deliberate: nothing pretends a model said them.
  */
 
 /** The `demoKey` the reset finds the demo Event by (section 4.4). */

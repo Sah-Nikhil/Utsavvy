@@ -6,7 +6,7 @@ import { DEMO_KEY } from "../seed/demo/meera-weds-rohan";
 import { api, components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { seedInsert } from "./demo";
+import { MAX_ROWS, seedInsert } from "./demo";
 import {
   identityFor,
   insertEvent,
@@ -52,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 function setup() {
@@ -118,7 +119,11 @@ async function chatTexts(t: T, threadId: string) {
       paginationOpts: { cursor: null, numItems: 100 },
     });
     return page
-      .map((m) => ({ role: m.message?.role, text: m.text ?? "" }))
+      .map((m) => ({
+        messageId: m._id,
+        role: m.message?.role,
+        text: m.text ?? "",
+      }))
       .reverse();
   });
 }
@@ -467,8 +472,8 @@ describe("reset is repeatable", () => {
   });
 });
 
-describe("reset runs no post-write hook and schedules nothing", () => {
-  it("calls the hook zero times, schedules nothing and leaves the Chat exactly as seeded", async () => {
+describe("reset runs no post-write hook and schedules no app work", () => {
+  it("calls the hook zero times, schedules no app function and leaves the Chat exactly as seeded", async () => {
     const t = setup();
     const event = await reset(t);
     await reset(t);
@@ -492,7 +497,19 @@ describe("reset runs no post-write hook and schedules nothing", () => {
     ]);
     expect(chat[0]!.text).toMatch(/^Plan the sangeet/);
     expect(chat[2]!.text).toContain("300 Guests");
-    expect(annotations).toHaveLength(chat.length);
+    // Member messages and the Proposal card carry an annotation; a plain
+    // reply has none, like a real model reply.
+    const annotated = new Set(annotations.map((a) => a.messageId));
+    expect(chat.map((m) => annotated.has(m.messageId))).toEqual([
+      true,
+      false,
+      true,
+      true,
+      true,
+    ]);
+    expect(
+      annotations.find((a) => a.messageId === chat[3]!.messageId)?.card,
+    ).toMatchObject({ kind: "proposal" });
 
     // The hook is wired: a Member's own edit afterwards calls it.
     const items = await rowsOf(t, "items", event._id);
@@ -503,6 +520,226 @@ describe("reset runs no post-write hook and schedules nothing", () => {
       .withIdentity(identityFor(JUDGES.member))
       .mutation(api.suggestions.dismiss, { itemId: open._id });
     expect(hook.calls).toBe(1);
+  });
+});
+
+describe("clearing stored files (uploads and Quote screenshots)", () => {
+  async function anyMembership(t: T, eventId: Id<"events">) {
+    return (await rowsOf(t, "memberships", eventId))[0]!;
+  }
+
+  /** An uploaded photo in the demo Event, as S13 stores it. */
+  async function upload(
+    t: T,
+    eventId: Id<"events">,
+    opts: { claimed: boolean; fileGone: boolean },
+  ): Promise<Id<"_storage">> {
+    const membership = await anyMembership(t, eventId);
+    const sections = await rowsOf(t, "sections", eventId);
+    const home = sections.find((s) => s.kind === "inspirations")!;
+    return await t.run(async (ctx) => {
+      const fileId = await ctx.storage.store(new Blob(["photo"]));
+      const itemId = await ctx.db.insert("items", {
+        eventId,
+        sectionId: home._id,
+        kind: "inspiration",
+        position: { x: 0, y: 2000 },
+        size: { w: 300, h: 400 },
+        functionKey: null,
+        createdBy: { kind: "member", membershipId: membership._id },
+        version: 1,
+        deletedAt: null,
+        data: {
+          source: {
+            kind: "upload",
+            fileId,
+            fromReference: null,
+            remixRightsTicked: false,
+          },
+          addedBy: membership._id,
+          memberNote: null,
+          seen: null,
+        },
+      });
+      if (opts.claimed)
+        await ctx.db.insert("uploadClaims", {
+          fileId,
+          eventId,
+          itemId,
+          membershipId: membership._id,
+          claimedAt: 0,
+        });
+      if (opts.fileGone) await ctx.storage.delete(fileId);
+      return fileId;
+    });
+  }
+
+  const stored = (t: T, fileId: Id<"_storage">) =>
+    t.run(
+      async (ctx) => (await ctx.db.system.get("_storage", fileId)) !== null,
+    );
+
+  it("deletes an uploaded photo's file when this Item claimed it", async () => {
+    const t = setup();
+    const event = await reset(t);
+    const fileId = await upload(t, event._id, {
+      claimed: true,
+      fileGone: false,
+    });
+    await reset(t);
+    expect(await stored(t, fileId)).toBe(false);
+  });
+
+  it("resets anyway when the claimed file is already gone", async () => {
+    const t = setup();
+    const event = await reset(t);
+    await upload(t, event._id, { claimed: true, fileGone: true });
+    await expect(reset(t)).resolves.toMatchObject({ _id: event._id });
+  });
+
+  it("leaves a file that no claim of this Item covers", async () => {
+    const t = setup();
+    const event = await reset(t);
+    const fileId = await upload(t, event._id, {
+      claimed: false,
+      fileGone: false,
+    });
+    await reset(t);
+    expect(await stored(t, fileId)).toBe(true);
+  });
+
+  it("deletes a Quote's stored screenshot, and skips one already gone", async () => {
+    const t = setup();
+    const event = await reset(t);
+    const membership = await anyMembership(t, event._id);
+    const items = await rowsOf(t, "items", event._id);
+    const entries = await rowsOf(t, "entries", event._id);
+    const { kept, gone } = await t.run(async (ctx) => {
+      const linkId = await ctx.db.insert("vendorLinks", {
+        eventId: event._id,
+        shortlistItemId: items[0]!._id,
+        checklistEntryId: entries.find((e) => e.kind === "checklist")!._id,
+        status: "quoted",
+        version: 1,
+      });
+      const quote = async (fileId: Id<"_storage">) =>
+        await ctx.db.insert("quotes", {
+          eventId: event._id,
+          linkId,
+          amount: 285_000,
+          unit: "total",
+          functionKeys: ["sangeet"],
+          guests: 300,
+          receivedAt: null,
+          note: null,
+          fileId,
+          source: "chatPaste",
+          createdBy: { kind: "member", membershipId: membership._id },
+          createdAt: 0,
+          version: 1,
+        });
+      const kept = await ctx.storage.store(new Blob(["screenshot"]));
+      const gone = await ctx.storage.store(new Blob(["screenshot"]));
+      await quote(kept);
+      await quote(gone);
+      await ctx.storage.delete(gone);
+      return { kept, gone };
+    });
+    await reset(t);
+    expect(await stored(t, kept)).toBe(false);
+    expect(await stored(t, gone)).toBe(false);
+    expect(await rowsOf(t, "quotes", event._id)).toEqual([]);
+  });
+});
+
+describe("reset size", () => {
+  it("refuses to reset, writing nothing, when a table holds as many rows as one reset reads", async () => {
+    const t = setup();
+    const event = await reset(t);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < MAX_ROWS; i++)
+        await ctx.db.insert("nudges", {
+          eventId: event._id,
+          trigger: "dueSoon",
+          targetId: `entry-${i}`,
+          dayIst: "2026-10-26",
+          messageId: null,
+        });
+    });
+    await expect(reset(t)).rejects.toThrow(/nudges/);
+    expect(await rowsOf(t, "nudges", event._id)).toHaveLength(MAX_ROWS);
+  });
+
+  it("logs how many rows it deleted and inserted", async () => {
+    const t = setup();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await reset(t);
+    await reset(t);
+    expect(log).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^Demo reset: deleted \d+ rows, inserted \d+ rows/),
+    );
+    const [deleted, inserted] = (log.mock.lastCall![0] as string)
+      .match(/\d+/g)!
+      .map(Number);
+    expect(deleted).toBeGreaterThan(200);
+    expect(inserted).toBeGreaterThan(200);
+  });
+});
+
+describe("judges' settings", () => {
+  it("names the judges judge-owner, judge-member and judge-viewer, whatever their Clerk name", async () => {
+    const t = setup();
+    await reset(t);
+    await t.run(async (ctx) => {
+      const user = (await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", JUDGES.member))
+        .unique())!;
+      await ctx.db.patch("users", user._id, { name: "Priya Sharma" });
+    });
+    const event = await reset(t);
+    const names = (await rowsOf(t, "memberships", event._id)).map(
+      (m) => m.displayName,
+    );
+    expect(names).toEqual(
+      expect.arrayContaining(["judge-owner", "judge-member", "judge-viewer"]),
+    );
+    expect(names).not.toContain("Priya Sharma");
+  });
+
+  it("fails loudly on a cloud deployment without DEMO_JUDGE_OWNER_ID", async () => {
+    const t = setup();
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://example-cloud-123.convex.cloud");
+    vi.stubEnv("DEMO_JUDGE_OWNER_ID", "");
+    await expect(t.mutation(internal.demo.reset, {})).rejects.toThrow(
+      /DEMO_JUDGE_OWNER_ID/,
+    );
+  });
+
+  it("warns and leaves a judge out on a local deployment", async () => {
+    const t = setup();
+    vi.stubEnv("CONVEX_CLOUD_URL", "http://127.0.0.1:3210");
+    vi.stubEnv("DEMO_JUDGE_OWNER_ID", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = await reset(t);
+    const roles = (await rowsOf(t, "memberships", event._id)).map(
+      (m) => m.role,
+    );
+    expect(roles).not.toContain("owner");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("DEMO_JUDGE_OWNER_ID"),
+    );
+  });
+
+  it("warns and leaves judge-viewer out on a cloud deployment, which still has its Owner", async () => {
+    const t = setup();
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://example-cloud-123.convex.cloud");
+    vi.stubEnv("DEMO_JUDGE_VIEWER_ID", "");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = await reset(t);
+    const people = await rowsOf(t, "memberships", event._id);
+    expect(people.map((m) => m.displayName)).not.toContain("judge-viewer");
+    expect(people.map((m) => m.role)).toContain("owner");
   });
 });
 
@@ -631,38 +868,25 @@ describe("Vendors (S9): the starter set and the shortlist", () => {
     );
   });
 
+  // After S9 merges, rewrite this test before removing `.skip`; until then it
+  // throws, so un-skipping it unchanged fails instead of passing vacuously
+  // (review of #119, M1). It must:
+  // 1. As the other Event's Member (its own identity, not `t.run`), shortlist
+  //    a starter Vendor through S9's public mutation (`api.vendors.shortlist`
+  //    or whatever S9 names it), so the other Event has a real Shortlisted
+  //    Vendor Item and `vendorLinks` row.
+  // 2. As that Member, move the Vendor's Marker through S9's public Marker
+  //    move (`api.map.moveMarker`), so the move also leaves a `changes` row
+  //    in the other Event.
+  // 3. Read the other Event's `vendorLinks`, Items and `changes`, plus every
+  //    `vendors` and `listedPrices` row, then reset twice.
+  // 4. Assert all of them are unchanged: the other Event's links, Items and
+  //    history deep-equal, the moved Marker still where the Member put it,
+  //    and no `vendors` or `listedPrices` row rewritten or added.
   it.skip("isolation: another Event's shortlist of a starter Vendor and a Marker a Member moved stay unchanged; no vendors or listedPrices row is rewritten", async () => {
-    const t = setup();
-    await reset(t);
-    const vendorsBefore = await t.run((ctx) =>
-      ctx.db.query("vendors").collect(),
+    throw new Error(
+      "Rewrite this test with S9's public shortlist and Marker move before un-skipping it (see the comment above).",
     );
-    const pricesBefore = await t.run((ctx) =>
-      ctx.db.query("listedPrices").collect(),
-    );
-    // Another Event shortlists the first starter Vendor and a Member moves its Marker.
-    const { eventId: otherId } = await t.run((ctx) =>
-      seedMembership(ctx, { clerkId: "user_other_owner", role: "owner" }),
-    );
-    const moved = vendorsBefore[0]!;
-    await t.run((ctx) =>
-      ctx.db.patch("vendors", moved._id, {
-        marker: { ...moved.marker!, lat: moved.marker!.lat + 0.01 },
-        version: moved.version + 1,
-      }),
-    );
-    const otherLinks = await rowsOf(t, "vendorLinks", otherId);
-    await reset(t);
-    const after = await t.run((ctx) => ctx.db.get("vendors", moved._id));
-    expect(after!.marker!.lat).toBe(moved.marker!.lat + 0.01);
-    expect(await rowsOf(t, "vendorLinks", otherId)).toEqual(otherLinks);
-    const vendorsAfter = await t.run((ctx) =>
-      ctx.db.query("vendors").collect(),
-    );
-    expect(vendorsAfter).toHaveLength(vendorsBefore.length);
-    expect(
-      await t.run((ctx) => ctx.db.query("listedPrices").collect()),
-    ).toEqual(pricesBefore);
   });
 
   it.skip("only inserts a starter Vendor that is missing", async () => {

@@ -83,7 +83,8 @@ import {
  *
  * Every seed row goes in through `seedInsert`: a plain `ctx.db.insert`, so a
  * reset writes no history beyond the seeded `changes` rows and runs no
- * post-write hook (section 4.4). It posts no Nudge and marks no passage.
+ * post-write hook (section 4.4). It schedules no app work, posts no Nudge and
+ * marks no passage.
  * Other Events and the shared Vendor rows are never touched.
  */
 
@@ -94,7 +95,7 @@ type EventTable = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 /** The most rows of one table the reset reads for one Event. */
-const MAX_ROWS = 8000;
+export const MAX_ROWS = 8000;
 
 const demoEventIds = new WeakMap<MutationCtx, Id<"events">>();
 
@@ -138,21 +139,52 @@ export async function seedInsert<T extends EventTable>(
 // ---------------------------------------------------------------------------
 // Clearing the demo Event
 
-/** Deletes every private row of the demo Event; the Event row itself stays. */
-async function clearEvent(ctx: MutationCtx, event: Doc<"events">) {
+/**
+ * Deletes every private row of the demo Event; the Event row itself stays.
+ * Returns how many rows it deleted. Each table is read up to `MAX_ROWS`; a
+ * table that reaches it throws, so the mutation rolls back and the reset fails
+ * loudly instead of leaving rows behind (review of #119, L2).
+ */
+async function clearEvent(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+): Promise<number> {
   const eventId = event._id;
+  let deleted = 0;
+  const bounded = <R>(table: TableNames, rows: R[]): R[] => {
+    if (rows.length >= MAX_ROWS) {
+      throw new Error(
+        `The demo Event has ${MAX_ROWS} or more ${table} rows, more than one reset clears, so nothing was reset.`,
+      );
+    }
+    return rows;
+  };
   const drop = async <T extends TableNames>(
     table: T,
     rows: readonly Doc<T>[],
   ) => {
+    bounded(table, [...rows]);
     for (const row of rows) await ctx.db.delete(table, row._id);
+    deleted += rows.length;
+  };
+  // A stored file goes only if it still exists, so a file already gone never
+  // fails the reset.
+  const deleteFile = async (fileId: Id<"_storage">) => {
+    if ((await ctx.db.system.get("_storage", fileId)) !== null) {
+      await ctx.storage.delete(fileId);
+    }
   };
 
-  // An uploaded Inspiration's file and claim go with it.
-  const items = await ctx.db
-    .query("items")
-    .withIndex("by_event", (q) => q.eq("eventId", eventId))
-    .take(MAX_ROWS);
+  // An uploaded Inspiration's file goes with it, by the purge's rule
+  // (`purgeDeletedFiles` in convex/inspirations.ts): only when this Item
+  // claimed the file, so a file another Inspiration uses stays.
+  const items = bounded(
+    "items",
+    await ctx.db
+      .query("items")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(MAX_ROWS),
+  );
   for (const item of items) {
     if (item.kind !== "inspiration" || item.data.source.kind !== "upload")
       continue;
@@ -161,20 +193,21 @@ async function clearEvent(ctx: MutationCtx, event: Doc<"events">) {
       .query("uploadClaims")
       .withIndex("by_file", (q) => q.eq("fileId", fileId))
       .take(10);
+    if (claims.some((c) => c.itemId === item._id)) await deleteFile(fileId);
     await drop(
       "uploadClaims",
       claims.filter((c) => c.eventId === eventId),
     );
-    if (claims.every((c) => c.eventId === eventId)) {
-      await ctx.storage.delete(fileId);
-    }
   }
   await drop("items", items);
 
-  const runs = await ctx.db
-    .query("runs")
-    .withIndex("by_event_status", (q) => q.eq("eventId", eventId))
-    .take(MAX_ROWS);
+  const runs = bounded(
+    "runs",
+    await ctx.db
+      .query("runs")
+      .withIndex("by_event_status", (q) => q.eq("eventId", eventId))
+      .take(MAX_ROWS),
+  );
   for (const run of runs) {
     // Idempotency keys are "runId:toolCallId".
     const keys = await ctx.db
@@ -186,6 +219,19 @@ async function clearEvent(ctx: MutationCtx, event: Doc<"events">) {
     await drop("toolCalls", keys);
   }
   await drop("runs", runs);
+
+  // A pasted Quote's screenshot goes with its Quote.
+  const quotes = bounded(
+    "quotes",
+    await ctx.db
+      .query("quotes")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(MAX_ROWS),
+  );
+  for (const quote of quotes) {
+    if (quote.fileId !== null) await deleteFile(quote.fileId);
+  }
+  await drop("quotes", quotes);
 
   await drop(
     "memberships",
@@ -258,13 +304,6 @@ async function clearEvent(ctx: MutationCtx, event: Doc<"events">) {
       .take(MAX_ROWS),
   );
   await drop(
-    "quotes",
-    await ctx.db
-      .query("quotes")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .take(MAX_ROWS),
-  );
-  await drop(
     "chatAnnotations",
     await ctx.db
       .query("chatAnnotations")
@@ -295,11 +334,14 @@ async function clearEvent(ctx: MutationCtx, event: Doc<"events">) {
       .take(MAX_ROWS),
   );
 
+  // The component pages through a long thread with its own scheduled
+  // deletions; the app schedules nothing.
   if (event.agentThreadId !== null) {
     await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
       threadId: event.agentThreadId,
     });
   }
+  return deleted;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +366,8 @@ function isSoftDelete(table: HistoryTable): boolean {
  */
 class Seeder {
   private clock: number;
+  /** Rows written through `insert`, for the reset's log line. */
+  inserted = 0;
 
   constructor(
     readonly ctx: MutationCtx,
@@ -348,6 +392,7 @@ class Seeder {
     table: T,
     row: WithoutSystemFields<DataModel[T]["document"]>,
   ): Promise<Id<T>> {
+    this.inserted++;
     return seedInsert(this.ctx, this.eventId, table, row);
   }
 
@@ -492,6 +537,22 @@ async function userFor(
   return (await ctx.db.get("users", id))!;
 }
 
+/**
+ * Whether this is a local backend: `CONVEX_CLOUD_URL` on 127.0.0.1 or
+ * localhost, or not set at all (convex-test). Any cloud deployment, dev,
+ * preview or production, is not.
+ */
+function isLocalDeployment(): boolean {
+  const url = env.CONVEX_CLOUD_URL;
+  if (!url) return true;
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "127.0.0.1" || hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
 async function seedPeople(seed: Seeder): Promise<People> {
   const { ctx } = seed;
   const byKey = new Map<string, Id<"memberships">>();
@@ -519,13 +580,23 @@ async function seedPeople(seed: Seeder): Promise<People> {
   for (const judge of DEMO_JUDGES) {
     const clerkId = env[judge.env];
     if (!clerkId) {
+      // Without judge-owner the demo Event has no Owner, which production
+      // must never quietly have; a local backend can do without.
+      if (judge.role === "owner" && !isLocalDeployment()) {
+        throw new Error(
+          `${judge.env} isn't set on this deployment, so the demo Event would have no Owner. Set it before resetting.`,
+        );
+      }
       console.warn(
         `${judge.env} isn't set, so ${judge.name} isn't in the demo Event.`,
       );
       continue;
     }
     const user = await userFor(ctx, clerkId, judge.name);
-    await join(user, judge.name, user.name || judge.name, judge.role);
+    // Always "judge-member" and so on, never the Clerk name, so the history
+    // reads as the demo script says ("Utsavvy for judge-member") and resets
+    // either side of a judge's first sign-in agree.
+    await join(user, judge.name, judge.name, judge.role);
   }
   for (const persona of DEMO_PERSONAS) {
     const user = await userFor(ctx, personaClerkId(persona.key), persona.name);
@@ -1182,6 +1253,14 @@ async function postMember(
   return messageId;
 }
 
+/**
+ * A seeded Utsavvy reply in its request's turn. A plain reply has no
+ * annotation, like a real model reply; one with a card (the Proposal) gets
+ * the annotation that shows its card. Either way the model reads it later as
+ * text it didn't write: a seeded message has no `finishReason`, so the
+ * Assistant's context marks it as not its own words (the fail-closed rule of
+ * #117), which is right for text no model generated.
+ */
 async function postReply(
   seed: Seeder,
   threadId: string,
@@ -1195,6 +1274,7 @@ async function postReply(
     message: { role: "assistant", content: text },
     promptMessageId,
   });
+  if (card === null) return;
   await seed.insert("chatAnnotations", {
     eventId: seed.eventId,
     messageId,
@@ -1538,7 +1618,7 @@ async function resetDemo(ctx: MutationCtx): Promise<void> {
   // reset on the same day writes the same Event, timestamps included.
   const now = startOfIstDay(Date.now());
   const existing = await findDemoEvent(ctx);
-  if (existing !== null) await clearEvent(ctx, existing);
+  const deleted = existing === null ? 0 : await clearEvent(ctx, existing);
 
   const threadId = await createThread(ctx, components.agent, {
     title: DEMO_EVENT.name,
@@ -1626,6 +1706,9 @@ async function resetDemo(ctx: MutationCtx): Promise<void> {
   await seedSangeetChange(seed, people, threadId, plan, items);
   await seedVendors(seed, people, items);
   await endMemberships(seed, people);
+  console.log(
+    `Demo reset: deleted ${deleted} rows, inserted ${seed.inserted} rows (Agent messages and new users not counted).`,
+  );
 }
 
 /** Resets the demo Event, daily at 03:00 IST and with `bunx convex run demo:reset`. */
