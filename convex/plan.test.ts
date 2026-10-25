@@ -8,6 +8,8 @@ import {
   puneGaneshUtsav,
 } from "../lib/brief/examples";
 import type { FirstPlanDraft } from "../lib/types";
+import { getFunctionName, type FunctionReference } from "convex/server";
+import { cityRepriceNoticeId } from "../lib/chat/notices";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { estimateLines, stubEstimateDeps } from "./estimates";
@@ -31,6 +33,7 @@ import {
   planLinesOf,
   pricePlanDraft,
   puneGaneshUtsavDraft,
+  runCityReprice,
   runEssentialProposal,
   runPlan,
   toFirstPlanDraft,
@@ -316,6 +319,48 @@ const check = (draft: FirstPlanDraft) =>
   validateDraft(draft, { eventType: "wedding", functionKeys: KEYS });
 
 /** System notices posted in the Event's Chat. */
+/**
+ * Changes the reception catering's range stored with a city Proposal, so a
+ * test can tell the stored prices from a fresh lookup.
+ */
+async function markStoredPrice(
+  s: S,
+  proposalId: Id<"proposals">,
+  text: string,
+): Promise<void> {
+  await s.t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("toolCalls")
+      .withIndex("by_key", (q) => q.eq("key", `${proposalId}:city:prices`))
+      .unique();
+    type Price = {
+      id: Id<"entries">;
+      range: { basis: { text: string } } | null;
+    };
+    const result = row!.result as { prices: Price[] };
+    const lines = await ctx.db
+      .query("entries")
+      .withIndex("by_event_kind", (q) =>
+        q.eq("eventId", s.eventId).eq("kind", "budget"),
+      )
+      .take(200);
+    const reception = lines.find(
+      (e) =>
+        e.kind === "budget" &&
+        e.functionKey === "reception" &&
+        e.fields.category === "catering_main",
+    )!;
+    const prices = result.prices.map((p) =>
+      p.id === reception._id && p.range
+        ? { ...p, range: { ...p.range, basis: { ...p.range.basis, text } } }
+        : p,
+    );
+    await ctx.db.patch("toolCalls", row!._id, {
+      result: { ...result, prices },
+    });
+  });
+}
+
 async function notices(s: S): Promise<number> {
   return (
     await s.t.run((ctx) =>
@@ -1369,5 +1414,387 @@ describe("changing an essential after the plan", () => {
       },
     );
     expect(await notices(s)).toBe(before + 1);
+  });
+
+  const openProposal = async (s: S) =>
+    (
+      await until(
+        s,
+        () =>
+          s.t.run((ctx) =>
+            ctx.db
+              .query("proposals")
+              .withIndex("by_event_status", (q) =>
+                q.eq("eventId", s.eventId).eq("status", "open"),
+              )
+              .take(5),
+          ),
+        (rows) => rows.length > 0,
+      )
+    )[0]!;
+
+  // Issue #102, review of #114 L2: the card warns before Accept, with the
+  // same minimum the Budget check shows after it.
+  it("warns on the card when a lower budget falls below the usual minimum", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 1500000 },
+    });
+    const proposal = await openProposal(s);
+    expect(proposal.summary).toMatch(
+      /the ₹15L budget would be below the usual minimum of ₹19,62,400 for Jaipur/,
+    );
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck).toMatchObject({
+      band: "belowMinimum",
+      minimum: 1962400,
+    });
+  });
+
+  it("doesn't warn when the lower budget still covers the minimum", async () => {
+    const { s } = await plannedJaipur();
+    const state = await s.t.query(internal.plan.essentialInput, {
+      eventId: s.eventId,
+      today: TODAY,
+    });
+    const budget = { field: "budget" as const, budget: 2200000 };
+    expect(
+      describeEssentialChange(
+        state!,
+        budget,
+        diffEssentialChange(state!, budget),
+      ),
+    ).not.toMatch(/usual minimum/);
+  });
+
+  it("warns on the card when a ₹20L plan moves to Mumbai, below its usual minimum", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2000000 },
+    });
+    expect((await openProposal(s)).summary).not.toMatch(/usual minimum/);
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const proposal = await openProposal(s);
+    expect(proposal.summary).toMatch(
+      /the ₹20L budget would be below the usual minimum of ₹23,70,500 for Mumbai/,
+    );
+    await acceptNext(s);
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.budgetCheck?.minimum === 2370500,
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck?.band).toBe("belowMinimum");
+  });
+
+  // Issue #102, review of #114 L5: the city Accept doesn't depend on the lines.
+  it("a city Proposal stays good when a budget line is touched before Accept", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const proposal = await openProposal(s);
+    const invitations = (await budgetEntries(s)).find(
+      (e) => e.fields.category === "invitations",
+    )!;
+    await s.asAditi.mutation(api.entries.update, {
+      entryId: invitations._id,
+      patch: { kind: "budget", quantity: 160 },
+    });
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: proposal._id,
+      }),
+    ).toEqual({ ok: true });
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.city?.tier === "X",
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { rollup } = await rollupOf(s);
+    expect(rollup.total).toBe(2500000);
+  });
+
+  it("a budget Proposal still goes out of date when a line it re-prices is touched", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2200000 },
+    });
+    const proposal = await openProposal(s);
+    const invitations = (await budgetEntries(s)).find(
+      (e) => e.fields.category === "invitations",
+    )!;
+    await s.asAditi.mutation(api.entries.update, {
+      entryId: invitations._id,
+      patch: { kind: "budget", quantity: 160 },
+    });
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: proposal._id,
+      }),
+    ).toMatchObject({ ok: false, reason: "outOfDate" });
+  });
+
+  // Review of #118, M1: the card's prices are the ones Accept writes, from one lookup.
+  it("a city change looks prices up once, and Accept writes the ones stored with the Proposal", async () => {
+    const { s } = await plannedJaipur();
+    const owner = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner"),
+    );
+    let lookups = 0;
+    await runEssentialProposal(
+      actionCtx(s.t),
+      {
+        eventId: s.eventId,
+        change: { field: "city", city: "Mumbai" },
+        requestedBy: owner!._id,
+      },
+      {
+        now: () => {
+          lookups++;
+          return Date.now();
+        },
+      },
+    );
+    expect(lookups).toBe(1);
+    const proposal = await openProposal(s);
+    // What a fresh lookup at Accept would no longer give.
+    await markStoredPrice(s, proposal._id, "Stored when the card was made");
+    await acceptNext(s);
+    const reception = async () =>
+      (await budgetEntries(s)).find(
+        (e) =>
+          e.functionKey === "reception" &&
+          e.fields.category === "catering_main",
+      )!.fields.estimate!.basis.text;
+    await until(s, reception, (text) => /Stored|X tier/.test(text));
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(await reception()).toBe("Stored when the card was made");
+  });
+});
+
+// Issue #102, review of #114 L3: a failed city re-price can be tried again
+// from its notice. Fake timers hold the scheduled steps so the test can stand
+// in for the one that fails: the write after the prices fails.
+describe("trying a failed city re-price again", () => {
+  const scheduled = (s: S) =>
+    s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+  const pendingReprices = async (s: S) =>
+    (await scheduled(s)).filter(
+      (f) => f.name.includes("repriceCity") && f.state.kind === "pending",
+    );
+  // Runs the steps due now, not the 24-hour expiry each Proposal schedules.
+  const settle = async (s: S) => {
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(10);
+      await s.t.finishInProgressScheduledFunctions();
+    }
+  };
+  const openProposals = (s: S) =>
+    s.t.run((ctx) =>
+      ctx.db
+        .query("proposals")
+        .withIndex("by_event_status", (q) =>
+          q.eq("eventId", s.eventId).eq("status", "open"),
+        )
+        .take(5),
+    );
+  /** An action context whose write of the new city's prices fails. */
+  const failingWrite = (t: T): Parameters<typeof runCityReprice>[0] => {
+    const base = actionCtx(t);
+    const target = getFunctionName(internal.plan.applyCityPrices);
+    return {
+      ...base,
+      runMutation: ((ref: FunctionReference<"mutation", "internal">, args) =>
+        getFunctionName(ref) === target
+          ? Promise.reject(new Error("the write failed"))
+          : base.runMutation(ref, args)) as typeof base.runMutation,
+    };
+  };
+  const receptionBasis = async (s: S) =>
+    (await budgetEntries(s)).find(
+      (e) =>
+        e.functionKey === "reception" && e.fields.category === "catering_main",
+    )!.fields.estimate!.basis.text;
+
+  /** A planned Jaipur wedding moved to Mumbai at the asker's request, accepted by Meera, whose re-price failed. */
+  async function failedReprice(asker: "asMeera" | "asAditi") {
+    const s = await jaipurAtSummary();
+    await planWith(s, jaipurWeddingDraft);
+    vi.useFakeTimers();
+    await s[asker].mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    await settle(s);
+    const [proposal] = await openProposals(s);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposal!._id,
+    });
+    const [step] = await pendingReprices(s);
+    const args = step!.args[0] as Parameters<typeof runCityReprice>[1];
+    await s.t.run((ctx) => ctx.scheduler.cancel(step!._id));
+    await settle(s);
+    await runCityReprice(failingWrite(s.t), args);
+    return { s, proposalId: proposal!._id };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("posts a notice with Try again for the Proposal, which re-prices once and only for Members", async () => {
+    const { s, proposalId } = await failedReprice("asMeera");
+    const notice = (
+      await s.t.run((ctx) =>
+        ctx.db
+          .query("chatAnnotations")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(100),
+      )
+    ).findLast((a) => a.card?.kind === "system");
+    expect(notice!.card).toEqual({
+      kind: "system",
+      id: cityRepriceNoticeId(proposalId),
+    });
+    expect(await receptionBasis(s)).toMatch(/Y tier/);
+    const status = (as: typeof s.asAditi) =>
+      as.query(api.plan.cityRepriceStatus, {
+        eventId: s.eventId,
+        proposalId,
+      });
+    expect(await status(s.asAditi)).toEqual({
+      city: "Mumbai",
+      state: "failed",
+      canRetry: true,
+    });
+    expect(await status(s.asPapa)).toMatchObject({ canRetry: false });
+
+    // A Viewer can't; a Member can, and a double tap schedules one step.
+    await expect(
+      s.asPapa.mutation(api.plan.retryCityReprice, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await s.asAditi.mutation(api.plan.retryCityReprice, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toEqual({ ok: true });
+    await s.asAditi.mutation(api.plan.retryCityReprice, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    expect(await pendingReprices(s)).toHaveLength(1);
+    expect(await status(s.asAditi)).toMatchObject({ state: "retrying" });
+    await settle(s);
+    expect(await receptionBasis(s)).toBe(
+      "Utsavvy reference table, X tier, Oct 2026",
+    );
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(budgetRollup(await budgetEntries(s), event!.budgetTotal).total).toBe(
+      2500000,
+    );
+
+    // Once it has landed there is nothing to try again.
+    expect(
+      await s.asAditi.mutation(api.plan.retryCityReprice, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toMatchObject({ ok: false });
+    expect(await pendingReprices(s)).toHaveLength(0);
+    expect(await status(s.asAditi)).toMatchObject({ state: "landed" });
+  });
+
+  // Review of #118, M1: Try again applies the prices the card was made from.
+  it("Try again applies the prices stored with the Proposal, without a new lookup", async () => {
+    const { s, proposalId } = await failedReprice("asMeera");
+    await markStoredPrice(s, proposalId, "Stored when the card was made");
+    await s.asMeera.mutation(api.plan.retryCityReprice, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await settle(s);
+    expect(await receptionBasis(s)).toBe("Stored when the card was made");
+  });
+
+  // Review of #118, L2: the same rule as Accept: the asker must still be able to ask.
+  it("refuses Try again once the Member who asked has left", async () => {
+    const { s, proposalId } = await failedReprice("asAditi");
+    await s.t.run((ctx) =>
+      ctx.db.patch("memberships", s.member, { status: "removed" }),
+    );
+    const result = await s.asMeera.mutation(api.plan.retryCityReprice, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok === false && result.message).toMatch(/asked for this/);
+    expect(await pendingReprices(s)).toHaveLength(0);
+    expect(
+      await s.asMeera.query(api.plan.cityRepriceStatus, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toMatchObject({ state: "failed", canRetry: false });
+    expect(await receptionBasis(s)).toMatch(/Y tier/);
+  });
+
+  it("refuses a Proposal that isn't an accepted city change", async () => {
+    const s = await jaipurAtSummary();
+    await planWith(s, jaipurWeddingDraft);
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const [proposal] = await until(
+      s,
+      () => openProposals(s),
+      (rows) => rows.length > 0,
+    );
+    expect(
+      await s.asMeera.mutation(api.plan.retryCityReprice, {
+        eventId: s.eventId,
+        proposalId: proposal!._id,
+      }),
+    ).toMatchObject({ ok: false });
+    expect(await pendingReprices(s)).toHaveLength(0);
+  });
+
+  // Review of #118, nit: a notice ID that isn't a Proposal gives no status, not an error.
+  it("gives no status for an ID that isn't one of the Event's Proposals", async () => {
+    const s = await setUp("wedding");
+    expect(
+      await s.asMeera.query(api.plan.cityRepriceStatus, {
+        eventId: s.eventId,
+        proposalId: "nudge:not-a-proposal",
+      }),
+    ).toBeNull();
   });
 });
