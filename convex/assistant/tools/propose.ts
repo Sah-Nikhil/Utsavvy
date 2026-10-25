@@ -966,8 +966,13 @@ export async function resolveChanges(
 ): Promise<ProposedChange[]> {
   const eventId = g.event._id;
   const text = await requestText(ctx, g.run);
-  const stated = (amount: number, what: string) => {
-    if (!checkMemberStatedAmount(amount, text))
+  /** `lineNames`: the line the amount goes on, so "caterer quoted 2.4L, add a DJ too" can't price the DJ. */
+  const stated = (
+    amount: number,
+    what: string,
+    lineNames: readonly string[] = [],
+  ) => {
+    if (!checkMemberStatedAmount(amount, text, lineNames))
       refuse(
         "amountNotStated",
         `${g.membership.displayName} didn't write ${formatINR(amount)} in their message, so it can't be ${what}. Use another amount source, or ask them.`,
@@ -1021,6 +1026,7 @@ export async function resolveChanges(
             fields.plannedAmount = stated(
               amount.memberStated,
               "this line's amount",
+              [entry.fields.label, ...(patch.label ? [patch.label] : [])],
             );
           } else if (amount && "estimateLow" in amount) {
             const estimate = entry.fields.estimate;
@@ -1125,7 +1131,7 @@ export async function resolveChanges(
           const memberStated =
             entry.memberStated === null
               ? null
-              : stated(entry.memberStated, "this line's amount");
+              : stated(entry.memberStated, "this line's amount", [entry.label]);
           fields = {
             label: cleanLabel(entry.label, "line"),
             category:
