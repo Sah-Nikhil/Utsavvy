@@ -39,6 +39,9 @@ const UNIT_AFTER =
 const PER_UNIT_AFTER =
   /^\s*(?:\/(?!-)|per\b|a\s+(?:plate|head|person|guest|day|night)\b|each\b|प्रति)/i;
 
+/** One amount a message states, and where it was written. */
+type StatedAmount = { value: number; at: number };
+
 /**
  * Every rupee amount a message states as an amount: a number with money
  * around it ("₹15,000", "Rs.15000/-", "15000 rupees"), a number with a
@@ -47,9 +50,8 @@ const PER_UNIT_AFTER =
  * a phone number) is not an amount, and neither is a per-unit price ("₹1,200 a
  * plate"), which must not become a line's total.
  */
-function amountsIn(text: string): number[] {
-  const normalized = asciiDigits(text);
-  const amounts: number[] = [];
+function amountsIn(normalized: string): StatedAmount[] {
+  const amounts: StatedAmount[] = [];
   const number = /(\d[\d,]*(?:\.\d+)?)/g;
   for (const match of normalized.matchAll(number)) {
     const written = match[1]!;
@@ -76,9 +78,105 @@ function amountsIn(text: string): number[] {
       MONEY_AFTER.test(after) ||
       (GROUPED.test(written) && !UNIT_AFTER.test(after));
     if (!money || PER_UNIT_AFTER.test(after)) continue;
-    amounts.push(value * factor);
+    amounts.push({ value: value * factor, at: match.index });
   }
   return amounts;
+}
+
+// ---------------------------------------------------------------------------
+// Which line an amount belongs to (review of #99, M3)
+
+/**
+ * Words that say nothing about which line an amount is for: articles, verbs
+ * of asking and setting, money words and the Hinglish glue around them. A
+ * clause made only of these ("around ₹15,000", "quoted 50k") belongs to the
+ * clause before it.
+ */
+const FILLER = new Set([
+  ...["a", "an", "the", "it", "its", "this", "that", "to", "of", "for", "on"],
+  ...["in", "at", "as", "is", "be", "was", "will", "with", "from", "by", "my"],
+  ...["our", "me", "us", "we", "i", "you", "too", "also", "then", "now"],
+  ...["add", "make", "set", "keep", "put", "change", "update", "mark", "fix"],
+  ...["give", "gave", "quote", "quoted", "quotes", "says", "said", "asked"],
+  ...["asking", "wants", "charges", "charge", "charging", "costs", "cost"],
+  ...["costing", "pay", "paying", "told", "came", "comes", "around", "about"],
+  ...["approx", "approximately", "roughly", "nearly", "max", "maximum"],
+  ...["upto", "up", "only", "just", "total", "budget", "amount", "price"],
+  ...["rs", "inr", "rupee", "rupees", "k", "l", "lakh", "lakhs", "lac"],
+  ...["lacs", "crore", "crores", "cr", "thousand", "hazar", "hazaar", "rakho"],
+  ...["rakh", "kar", "karo", "do", "de", "dena", "ka", "ki", "ke", "ko", "se"],
+  ...["liye", "hai", "hain", "tak", "mein", "ok", "okay", "please", "pls"],
+  ...["kindly", "line", "entry", "new", "one", "another"],
+]);
+
+/** Where one clause ends: a punctuation mark not inside a number, or a joining word. */
+const CLAUSE_BREAK = /[,.;:!?\n]|\s(?:and|aur|but|also|plus|then|&)(?=\s)/gi;
+
+type Clause = { start: number; end: number; words: string[] };
+
+/** A message cut into clauses, each with its words that could name a line. */
+function clausesOf(text: string): Clause[] {
+  const clauses: Clause[] = [];
+  let start = 0;
+  const close = (end: number) => {
+    const words = (
+      text
+        .slice(start, end)
+        .toLowerCase()
+        .match(/[\p{L}\p{M}]+/gu) ?? []
+    ).filter((word) => !FILLER.has(word));
+    clauses.push({ start, end, words });
+  };
+  for (const match of text.matchAll(CLAUSE_BREAK)) {
+    const at = match.index;
+    // "2,40,000" and "2.4L" are one number, not two clauses.
+    if (
+      /^[,.]$/.test(match[0]) &&
+      /\d/.test(text[at - 1] ?? "") &&
+      /\d/.test(text[at + 1] ?? "")
+    )
+      continue;
+    close(at);
+    start = at + match[0].length;
+  }
+  close(text.length);
+  return clauses;
+}
+
+/** "caterer" names the "Catering" line, "dj" the "DJ" line, "musicians" the "Folk musician" line. */
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  let shared = 0;
+  while (shared < a.length && shared < b.length && a[shared] === b[shared])
+    shared++;
+  return shared >= 4 && shared >= Math.min(5, a.length, b.length);
+}
+
+function names(
+  words: readonly string[],
+  lineWords: readonly string[],
+): boolean {
+  return words.some((word) => lineWords.some((line) => sameWord(word, line)));
+}
+
+/**
+ * Whether the amount written at `at` is about the line: its clause names the
+ * line, or names nothing and the nearest clause that names something (the one
+ * before it, else the one after) names the line.
+ */
+function belongsToLine(
+  clauses: readonly Clause[],
+  at: number,
+  lineWords: readonly string[],
+): boolean {
+  const index = clauses.findIndex((c) => at >= c.start && at < c.end);
+  const own = clauses[index];
+  if (own === undefined) return false;
+  if (own.words.length > 0) return names(own.words, lineWords);
+  const subject =
+    clauses.slice(0, index).findLast((c) => c.words.length > 0) ??
+    clauses.slice(index + 1).find((c) => c.words.length > 0);
+  return subject !== undefined && names(subject.words, lineWords);
 }
 
 /**
@@ -86,13 +184,34 @@ function amountsIn(text: string): number[] {
  * (section 6, "No tool, ever": an amount comes only from the estimate cascade
  * or the requesting Member's own words). "Add a mehendi artist, around
  * ₹15,000" and "15k" both state ₹15,000; neither states ₹18,000.
+ *
+ * With `lineNames` (the line's label, and its new label when it is being
+ * renamed), an amount must also be about that line once the message names it:
+ * "caterer quoted 2.4L, add a DJ too" states ₹2,40,000 for the caterer, not
+ * for the DJ. A message that doesn't name the line, such as "15k" in answer to
+ * the Assistant's question, or one in another script than the label, is
+ * judged by the amount alone.
  */
 export function checkMemberStatedAmount(
   amount: number,
   messageText: string,
+  lineNames: readonly string[] = [],
 ): boolean {
   if (!Number.isInteger(amount) || amount <= 0) return false;
-  return amountsIn(messageText).some((stated) => Math.round(stated) === amount);
+  const normalized = asciiDigits(messageText);
+  const stated = amountsIn(normalized).filter(
+    (a) => Math.round(a.value) === amount,
+  );
+  if (stated.length === 0) return false;
+  const lineWords = lineNames.flatMap((name) =>
+    (name.toLowerCase().match(/[\p{L}\p{M}]+/gu) ?? []).filter(
+      (word) => !FILLER.has(word),
+    ),
+  );
+  if (lineWords.length === 0) return true;
+  const clauses = clausesOf(normalized);
+  if (!clauses.some((c) => names(c.words, lineWords))) return true;
+  return stated.some((a) => belongsToLine(clauses, a.at, lineWords));
 }
 
 // ---------------------------------------------------------------------------

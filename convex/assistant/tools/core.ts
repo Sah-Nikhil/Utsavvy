@@ -937,7 +937,9 @@ export const addEntryForRun = internalMutation({
       if (entry.kind === "budget") {
         if (entry.memberStated !== null) {
           const text = await requestText(ctx, g.run);
-          if (!checkMemberStatedAmount(entry.memberStated, text)) {
+          if (
+            !checkMemberStatedAmount(entry.memberStated, text, [entry.label])
+          ) {
             return refusal(
               "amountNotStated",
               `${g.membership.displayName} didn't write ${formatINR(entry.memberStated)} in their message. Use an estimate source instead, or ask them for the amount.`,
@@ -1253,7 +1255,10 @@ async function planEntryUpdate(
     }
     if (patch.memberStatedAmount !== undefined) {
       const amount = patch.memberStatedAmount;
-      if (!checkMemberStatedAmount(amount, await requestText(ctx, g.run))) {
+      const text = await requestText(ctx, g.run);
+      // The line's name as the Member knows it, and its new one if renamed.
+      const lineNames = [entry.fields.label, next.label];
+      if (!checkMemberStatedAmount(amount, text, lineNames)) {
         return refusal(
           "amountNotStated",
           `${g.membership.displayName} didn't write ${formatINR(amount)} in their message. Ask them for the amount.`,
