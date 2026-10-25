@@ -1,6 +1,6 @@
 import type { ProposalOp } from "../../lib/types/proposals";
 import { formatINR } from "../../lib/format";
-import { PROPOSAL_THRESHOLDS } from "../lib/settings";
+import { NO_BUDGET_SHIFT_CAP, PROPOSAL_THRESHOLDS } from "../lib/settings";
 
 /*
  * The two checks that keep the Assistant's direct writes small and honest
@@ -225,14 +225,6 @@ export type ThresholdChange = {
   /** How many rupees it moves: the absolute change in a budget line's amount. */
   amountShift: number;
 };
-
-/**
- * Without a Budget total there is no 10% to measure, so one reply may move at
- * most this much directly (review of #99, L1). Not in `convex/lib/settings.ts`
- * yet, since that file is the orchestrator's; move it there with the next
- * contract change.
- */
-export const NO_BUDGET_SHIFT_CAP = 50_000;
 
 /** Ops a Member always decides on: nothing about them is small enough to apply directly. */
 const ALWAYS_PROPOSED: Partial<Record<ProposalOp, string>> = {
