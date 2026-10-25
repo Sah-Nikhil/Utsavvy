@@ -59,6 +59,7 @@ import {
   type ItemNodeType,
 } from "./ItemNode";
 import { readableViewport } from "./initialViewport";
+import { isOffScreen } from "./reveal";
 import { SectionDialogsProvider, useSectionDialogs } from "./SectionDialogs";
 import {
   SECTION_DRAG_HANDLE,
@@ -636,6 +637,36 @@ function CanvasFlow({
       )?.box ?? null,
     [sections],
   );
+  // Showing an Item from elsewhere (a history row, a Chat reference, a new
+  // Note) pans to it when it is wholly out of sight. An Item someone clicks
+  // on the Canvas is already in view, so a click never moves the view.
+  const revealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedItemId === null) {
+      revealed.current = null;
+      return;
+    }
+    if (revealed.current === selectedItemId) return;
+    const node = flow.getInternalNode(selectedItemId);
+    const element = canvasRef.current;
+    // A Note just added may not be a node yet; try again when it is.
+    if (!node || !element) return;
+    revealed.current = selectedItemId;
+    const { width, height } = element.getBoundingClientRect();
+    const box = {
+      ...node.internals.positionAbsolute,
+      w: node.width ?? FALLBACK_ITEM_SIZE.w,
+      h: node.height ?? FALLBACK_ITEM_SIZE.h,
+    };
+    if (!isOffScreen(box, flow.getViewport(), { width, height })) return;
+    void flow.fitView({
+      nodes: [{ id: selectedItemId }],
+      padding: 0.4,
+      maxZoom: 1,
+      duration: prefersReducedMotion() ? 0 : 450,
+    });
+  }, [selectedItemId, nodes, flow]);
+
   const onInit = useCallback(() => {
     if (savedViewport !== null) return;
     const box = firstBox;
