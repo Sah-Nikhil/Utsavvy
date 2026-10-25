@@ -260,12 +260,10 @@ async function uploadPhoto(s: Setup, who: Name) {
   await s.t.run((ctx) =>
     ctx.db.patch("events", s.eventId, { uploadRightsOn: true }),
   );
-  const fileId = await s.t.run((ctx) =>
-    ctx.storage.store(new Blob([JPEG], { type: "image/jpeg" })),
-  );
   return await s.as(who).action(api.inspirations.addUpload, {
     eventId: s.eventId,
-    fileId,
+    // The bytes as the browser sends them.
+    file: JPEG.slice().buffer as ArrayBuffer,
     rightsTicked: false,
     palette: [],
   });

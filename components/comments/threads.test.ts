@@ -22,6 +22,7 @@ function comment(
     byYou: false,
     canEdit: false,
     canResolve: false,
+    entryLabel: null,
     ...over,
   };
 }

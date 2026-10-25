@@ -402,7 +402,11 @@ function BudgetRow({
           )}
           {tag("label", label, "label")}
         </div>
-        <EntryCommentCount entryId={entry._id} className="shrink-0" />
+        <EntryCommentCount
+          entryId={entry._id}
+          entryLabel={label}
+          className="shrink-0"
+        />
         <ViewerAvatars viewers={viewers} className="shrink-0" />
         {editing === "amount" ? (
           <InlineEdit

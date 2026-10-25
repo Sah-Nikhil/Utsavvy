@@ -6,6 +6,7 @@ import {
   mentionsAssistant,
 } from "../components/comments/text";
 import { can } from "../lib/access/permissions";
+import { entryLabel } from "../lib/canvas/entryLabel";
 import {
   selectionTargetValidator,
   type SelectionTarget,
@@ -98,13 +99,6 @@ export const ask = mutation({
 // ---------------------------------------------------------------------------
 // What the thread is on, and who wrote what
 
-const CHECKLIST_NAMES: Record<string, string> = {
-  venue: "Venue",
-  caterer: "Caterer",
-  decorator: "Decorator",
-  photographer: "Photographer",
-};
-
 const ITEM_NAMES: Record<Doc<"items">["kind"], string> = {
   budget: "the Budget",
   timeline: "the Timeline",
@@ -122,15 +116,9 @@ async function targetName(
   target: Doc<"comments">["target"],
 ): Promise<string> {
   if (target.kind !== "item" && target.entryId !== null) {
+    // Named as the Canvas and the Comments sheet name it.
     const entry = await ctx.db.get("entries", target.entryId);
-    if (entry?.kind === "budget") return entry.fields.label;
-    if (entry?.kind === "timeline") return entry.fields.title;
-    if (entry?.kind === "checklist")
-      return (
-        entry.fields.freeLabel ??
-        CHECKLIST_NAMES[entry.fields.vendorCategory ?? ""] ??
-        "a Vendor checklist row"
-      );
+    if (entry !== null) return entryLabel(entry);
   }
   const item = await ctx.db.get("items", target.itemId);
   if (item === null) return "an Item";

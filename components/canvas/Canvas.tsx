@@ -27,7 +27,11 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { useSelection, useSetSelection } from "@/components/shell/selection";
+import {
+  useRevealRequest,
+  useSelection,
+  useSetSelection,
+} from "@/components/shell/selection";
 import { Avatar, AvatarStack } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -58,7 +62,9 @@ import {
   itemAriaLabel,
   type ItemNodeType,
 } from "./ItemNode";
+import { AddNoteButton } from "./AddNoteButton";
 import { readableViewport } from "./initialViewport";
+import { isOffScreen } from "./reveal";
 import { SectionDialogsProvider, useSectionDialogs } from "./SectionDialogs";
 import {
   SECTION_DRAG_HANDLE,
@@ -636,6 +642,34 @@ function CanvasFlow({
       )?.box ?? null,
     [sections],
   );
+  // Showing an Item from elsewhere (a history row, a new Note) pans to it when
+  // it is out of sight or shows only a sliver, each time it is asked for. An
+  // Item someone clicks on the Canvas asks for nothing, so it stays put.
+  const reveal = useRevealRequest();
+  // A request made before this Canvas mounted (in the list view) is old news.
+  const revealed = useRef(reveal?.seq ?? 0);
+  useEffect(() => {
+    if (reveal === null || revealed.current === reveal.seq) return;
+    const node = flow.getInternalNode(reveal.itemId);
+    const element = canvasRef.current;
+    // A Note just added may not be a node yet; try again when it is.
+    if (!node || !element) return;
+    revealed.current = reveal.seq;
+    const { width, height } = element.getBoundingClientRect();
+    const box = {
+      ...node.internals.positionAbsolute,
+      w: node.width ?? FALLBACK_ITEM_SIZE.w,
+      h: node.height ?? FALLBACK_ITEM_SIZE.h,
+    };
+    if (!isOffScreen(box, flow.getViewport(), { width, height })) return;
+    void flow.fitView({
+      nodes: [{ id: reveal.itemId }],
+      padding: 0.4,
+      maxZoom: 1,
+      duration: prefersReducedMotion() ? 0 : 450,
+    });
+  }, [reveal, nodes, flow]);
+
   const onInit = useCallback(() => {
     if (savedViewport !== null) return;
     const box = firstBox;
@@ -705,6 +739,7 @@ function CanvasFlow({
           <FunctionFilterChips />
         </Panel>
         <Panel position="bottom-right" className="m-3! flex items-center gap-2">
+          {canEdit ? <AddNoteButton eventId={eventId} /> : null}
           {can(role, "section.custom") ? (
             <Button
               variant="tonal"

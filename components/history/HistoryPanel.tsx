@@ -16,6 +16,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { HistoryProblem, HistoryRow } from "@/convex/history";
 import { cn } from "@/lib/utils";
 import { UndoAllButton } from "./UndoAllButton";
+import { arrange, type Block } from "./arrange";
 
 // S6 (edit history and Restore) owns this folder.
 
@@ -45,13 +46,6 @@ export function HistoryPanel({ eventId }: HistoryPanelProps) {
   return <History eventId={me.eventId} />;
 }
 
-/** A run of rows shown together: one Member change, or one Assistant group. */
-type Block =
-  | { kind: "single"; row: HistoryRow }
-  | { kind: "group"; key: string; title: string; rows: HistoryRow[] };
-
-type Day = { label: string; blocks: Block[] };
-
 const PROBLEMS: Record<HistoryProblem, string> = {
   notFound: "That change isn't in the history any more.",
   notRestorable: "That change can't be restored.",
@@ -76,53 +70,11 @@ function restoreProblem(error: unknown): string {
   return "Restore didn't work. Try again.";
 }
 
-function dayLabel(at: number, now: Date): string {
-  const day = new Date(at);
-  const startOf = (d: Date) =>
-    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diff = Math.round((startOf(now) - startOf(day)) / 86_400_000);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Yesterday";
-  return day.toLocaleDateString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    ...(day.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
-  });
-}
-
 function timeLabel(at: number): string {
   return new Date(at).toLocaleTimeString("en-IN", {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-/** Rows by day, with consecutive rows of one run or Proposal folded into a group. */
-function arrange(rows: HistoryRow[], now: Date): Day[] {
-  const days: Day[] = [];
-  for (const row of rows) {
-    const label = dayLabel(row.at, now);
-    let day = days.at(-1);
-    if (day?.label !== label) {
-      day = { label, blocks: [] };
-      days.push(day);
-    }
-    const last = day.blocks.at(-1);
-    if (row.groupKey === null || row.groupTitle === null) {
-      day.blocks.push({ kind: "single", row });
-    } else if (last?.kind === "group" && last.key === row.groupKey) {
-      last.rows.push(row);
-    } else {
-      day.blocks.push({
-        kind: "group",
-        key: row.groupKey,
-        title: row.groupTitle,
-        rows: [row],
-      });
-    }
-  }
-  return days;
 }
 
 function History({ eventId }: { eventId: Id<"events"> }) {

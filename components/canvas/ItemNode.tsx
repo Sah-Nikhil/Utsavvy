@@ -21,6 +21,7 @@ import {
   type CanvasItemState,
 } from "./CanvasItemContext";
 import { entryTargetFrom, passageTargetFrom, sameTarget } from "./domSelection";
+import { useViewerPan } from "./viewerPan";
 
 /*
  * An Item on the Canvas: a React Flow node holding the Item kind's own
@@ -58,6 +59,7 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
   const { item, state, arrived, canMove } = data;
   const setSelection = useSetSelection();
   const contentRef = useRef<HTMLDivElement>(null);
+  const pan = useViewerPan(!canMove);
   const Body = itemComponentFor(item.kind) as ComponentType<{
     item: Doc<"items">;
   }>;
@@ -81,7 +83,11 @@ function ItemNodeView({ data }: NodeProps<ItemNodeType>) {
       ref={contentRef}
       data-item-id={item._id}
       data-selected={state.selected ? "" : undefined}
-      onMouseUp={(event) => selectFrom(event.target)}
+      onPointerDown={pan.onPointerDown}
+      onMouseUp={(event) => {
+        // The release that ends a Viewer's pan isn't a click.
+        if (!pan.wasPan()) selectFrom(event.target);
+      }}
       onKeyUp={(event) => {
         if (event.key === "Shift" || event.key.startsWith("Arrow"))
           selectFrom(event.target);
