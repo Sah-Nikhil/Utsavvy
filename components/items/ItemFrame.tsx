@@ -1,5 +1,8 @@
+"use client";
+
 import { MessageSquare } from "lucide-react";
 import type { ReactNode } from "react";
+import { useItemComments } from "@/components/comments/ItemComments";
 import {
   FunctionMarker,
   type FunctionIndex,
@@ -28,7 +31,11 @@ export type ItemFrameProps = {
   provenance?: ReactNode;
   /** Item actions (icon Buttons or a Menu). Shown on hover or focus where hover exists. */
   actions?: ReactNode;
-  /** Number of Comments; 0 shows a quiet "Comment" affordance, undefined hides it. */
+  /**
+   * Number of Comments; 0 shows a quiet "Comment" affordance, undefined hides
+   * it. Left out, the frame shows the count of the `<ItemComments>` around it
+   * (S8; the Canvas's Item node provides one) and opens its threads.
+   */
   commentCount?: number;
   onCommentsClick?: () => void;
   /** Avatars of Members looking at this Item right now (e.g. <AvatarStack>). */
@@ -65,10 +72,16 @@ export function ItemFrame({
   children,
 }: ItemFrameProps) {
   const Heading = `h${headingLevel}` as const;
+  const itemComments = useItemComments();
 
+  const count = commentCount ?? itemComments?.itemCount;
+  const onCountClick =
+    commentCount === undefined && itemComments
+      ? () => itemComments.open()
+      : onCommentsClick;
   const comments =
-    commentCount === undefined ? null : (
-      <CommentCount count={commentCount} onClick={onCommentsClick} />
+    count === undefined ? null : (
+      <CommentCount count={count} onClick={onCountClick} />
     );
 
   const frame = (

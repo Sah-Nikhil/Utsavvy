@@ -1,7 +1,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { Sparkles } from "lucide-react";
+import { Settings2, Sparkles } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import {
   applyOrnaments,
@@ -11,8 +11,8 @@ import {
 
 /*
  * Clerk's account menu with Utsavvy's personal display settings added as
- * custom actions. Used in SiteChrome and the workspace header. The Ornaments
- * state is read from <html>, where app/layout.tsx's inline script sets it before
+ * custom actions, and a link to the person's own settings (/settings). Used in
+ * SiteChrome and the workspace header. The Ornaments state is read from <html>, where app/layout.tsx's inline script sets it before
  * first paint, so the label is right from the first open.
  */
 
@@ -40,6 +40,11 @@ export function AccountButton() {
             applyOrnaments(document.documentElement, !on);
             writeOrnaments(() => window.localStorage, !on);
           }}
+        />
+        <UserButton.Link
+          label="Your settings"
+          labelIcon={<Settings2 aria-hidden className="size-4" />}
+          href="/settings"
         />
       </UserButton.MenuItems>
     </UserButton>

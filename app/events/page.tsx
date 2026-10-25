@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { NewEventDialog } from "@/components/people/NewEventDialog";
+import { YourEvents } from "@/components/people/YourEvents";
 import { SignedInAs } from "@/components/providers/SignedInAs";
 import { SiteChrome } from "@/components/shell/SiteChrome";
-import { MountPlaceholder } from "@/components/shell/MountPlaceholder";
-import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Your Events" };
 
@@ -22,9 +23,12 @@ export default function EventsPage() {
             </p>
             <SignedInAs />
           </div>
-          <Button disabled>New Event</Button>
+          <NewEventDialog />
         </div>
-        <MountPlaceholder title="Your Events list and New Event" slice="S1" />
+        {/* useSearchParams needs a Suspense boundary for the static build. */}
+        <Suspense>
+          <YourEvents />
+        </Suspense>
       </div>
     </SiteChrome>
   );

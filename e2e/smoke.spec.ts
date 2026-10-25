@@ -21,6 +21,22 @@ test.describe("smoke", () => {
     expect(embed.headers()["content-security-policy"]).toContain(
       "https://assets.pinterest.com",
     );
+    // /embed/pinterest keeps an opaque origin even when opened directly; one
+    // policy only, so the sandbox replaces rather than adds to the /embed one.
+    const pinterestPolicies = embed
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "content-security-policy");
+    expect(pinterestPolicies).toHaveLength(1);
+    expect(pinterestPolicies[0]!.value).toMatch(
+      /; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox$/,
+    );
+    const instagram = await request.get("/embed/instagram");
+    expect(instagram.headers()["content-security-policy"]).toContain(
+      "https://www.instagram.com",
+    );
+    expect(instagram.headers()["content-security-policy"]).not.toContain(
+      "sandbox",
+    );
   });
 
   test("the landing renders in the three fonts", async ({
@@ -45,6 +61,36 @@ test.describe("smoke", () => {
     expect(families.text).toMatch(/Anek Devanagari/i);
     await expectNoSeriousA11yViolations(page);
     expect(cspViolations).toEqual([]);
+  });
+
+  test("a signed-out visit to /embed/* gets the page without Clerk's handshake", async ({
+    page,
+  }) => {
+    // Clerk's handshake is a navigation through *.clerk.accounts.dev.
+    const clerkRequests: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.isNavigationRequest() &&
+        /\.clerk\.accounts\.dev$/.test(new URL(request.url()).hostname)
+      )
+        clerkRequests.push(request.url());
+    });
+    const path = `/embed/pinterest?url=${encodeURIComponent("https://pin.it/AbC123")}`;
+    const response = await page.goto(path);
+    // X2's references spec checks the page itself (it arrives with #56); this
+    // checks only that the proxy lets the request straight through.
+    // Every hop stays on our origin. (On a preview, Vercel's protection bypass
+    // may redirect once to the same URL to set its cookie.)
+    const hops: string[] = [];
+    for (
+      let request = response?.request() ?? null;
+      request !== null;
+      request = request.redirectedFrom()
+    )
+      hops.push(new URL(request.url()).origin);
+    expect(new Set(hops)).toEqual(new Set([new URL(page.url()).origin]));
+    expect(new URL(page.url()).pathname).toBe("/embed/pinterest");
+    expect(clerkRequests).toEqual([]);
   });
 
   for (const path of [
@@ -97,6 +143,8 @@ test.describe("smoke", () => {
     ]) {
       await expect(page.getByRole("button", { name: label })).toBeVisible();
     }
+    // No Event behind this ID, so the header shows no title and no dev placeholder.
+    await expect(page.getByRole("banner")).not.toContainText(/arrive with S\d/);
     await page.getByRole("button", { name: "People" }).click();
     await expect(page.locator('[data-mount="people-panel"]')).toBeVisible();
     await page.keyboard.press("Escape");

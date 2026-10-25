@@ -2,6 +2,11 @@
 
 import type { ComponentType } from "react";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { BriefChipsCard } from "./brief/BriefChipsCard";
+import { BriefSummaryCard } from "./brief/BriefSummaryCard";
+import { PlanProgressCard } from "./plan-progress/PlanProgressCard";
+import { ProposalChatCard } from "./proposal/ProposalChatCard";
+import { StockStrip } from "./stock-strip/StockStrip";
 
 /** The card kinds a Chat message can carry (`chatAnnotations.card.kind`). */
 export type ChatCardKind = NonNullable<Doc<"chatAnnotations">["card"]>["kind"];
@@ -29,13 +34,13 @@ function placeholder(label: string, slice: string): ChatCardComponent {
 
 /** Card kind to component (shared registry). */
 export const CHAT_CARDS: Record<ChatCardKind, ChatCardComponent> = {
-  proposal: placeholder("Proposal card", "S10"),
-  stockStrip: placeholder("Stock photo strip", "S13"),
+  proposal: ProposalChatCard,
+  stockStrip: StockStrip,
   vendorCards: placeholder("Vendor cards", "S9"),
   nudge: placeholder("Nudge", "S17"),
-  briefChips: placeholder("Brief questions", "S11"),
-  briefSummary: placeholder("Brief summary", "S11"),
-  planProgress: placeholder("Plan progress", "S14"),
+  briefChips: BriefChipsCard,
+  briefSummary: BriefSummaryCard,
+  planProgress: PlanProgressCard,
   citations: placeholder("Citations", "S7"),
   system: placeholder("System line", "S5"),
 };

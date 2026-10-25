@@ -17,7 +17,7 @@ export function Switch({ label, className, ...props }: SwitchProps) {
   const control = (
     <SwitchPrimitive.Root
       className={cn(
-        "group relative inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-rule-strong bg-surface-sunk",
+        "group relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-rule-strong bg-surface-high",
         "transition-[background-color,border-color] duration-(--dur-feedback) ease-standard",
         "data-checked:border-action data-checked:bg-action",
         "data-disabled:cursor-not-allowed data-disabled:opacity-40",
@@ -27,10 +27,12 @@ export function Switch({ label, className, ...props }: SwitchProps) {
     >
       <SwitchPrimitive.Thumb
         className={cn(
-          "block size-3.5 translate-x-1 rounded-full bg-rule-strong",
-          "transition-[translate,width,height,background-color] duration-(--dur-feedback) ease-standard",
-          "not-data-checked:group-hover:bg-ink-2 group-active:size-4",
-          "data-checked:size-4.5 data-checked:translate-x-[18px] data-checked:bg-on-action",
+          // MD3 switch: a small handle when off, a large one when on, and the
+          // handle grows while pressed.
+          "block size-3.5 translate-x-1.5 rounded-full bg-rule-strong",
+          "transition-[translate,width,height,background-color] duration-(--dur-shape) ease-emphasized",
+          "not-data-checked:group-hover:bg-ink-2 not-data-checked:group-active:size-5 not-data-checked:group-active:translate-x-0.5",
+          "data-checked:size-5 data-checked:translate-x-[22px] data-checked:bg-on-action",
         )}
       />
     </SwitchPrimitive.Root>

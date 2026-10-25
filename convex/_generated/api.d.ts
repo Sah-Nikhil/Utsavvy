@@ -46,6 +46,7 @@ import type * as notes from "../notes.js";
 import type * as nudges from "../nudges.js";
 import type * as people from "../people.js";
 import type * as plan from "../plan.js";
+import type * as planEssentials from "../planEssentials.js";
 import type * as proposals from "../proposals.js";
 import type * as quotes from "../quotes.js";
 import type * as references from "../references.js";
@@ -53,6 +54,7 @@ import type * as runs from "../runs.js";
 import type * as suggestions from "../suggestions.js";
 import type * as users from "../users.js";
 import type * as vendors from "../vendors.js";
+import type * as vibePick from "../vibePick.js";
 import type * as viewPrefs from "../viewPrefs.js";
 
 import type {
@@ -100,6 +102,7 @@ declare const fullApi: ApiFromModules<{
   nudges: typeof nudges;
   people: typeof people;
   plan: typeof plan;
+  planEssentials: typeof planEssentials;
   proposals: typeof proposals;
   quotes: typeof quotes;
   references: typeof references;
@@ -107,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   suggestions: typeof suggestions;
   users: typeof users;
   vendors: typeof vendors;
+  vibePick: typeof vibePick;
   viewPrefs: typeof viewPrefs;
 }>;
 

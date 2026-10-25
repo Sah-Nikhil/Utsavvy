@@ -1,0 +1,251 @@
+import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
+import { expectNoSeriousA11yViolations } from "./axe";
+import { expect, test, type Page } from "./fixtures";
+
+// S5 smoke test (issue #38): a Member sends a message and two browsers see the
+// same streamed reply. The deployment under test answers with the stub model
+// (`DEFAULT_MODEL=stub-utsavvy` on its Convex deployment), so no credits are
+// spent; STUB_REPLY in convex/lib/models.ts is the text it streams.
+const STUB_REPLY_FULL = "point at what I changed.";
+
+/** first-brief.md's worked examples, whose canned extractions the stub returns. */
+const JAIPUR =
+  "My sister's wedding in Jaipur in February 2027, around 300 people, budget 25 lakh.";
+const GANESH =
+  "Ganeshotsav in our society in Pune, 240 flats, we collected ₹1,000 per flat.";
+
+/** A second test user on the e2e user's domain, made through Clerk's Backend API. */
+function memberEmail(): string {
+  if (process.env.E2E_CLERK_MEMBER_EMAIL) {
+    return process.env.E2E_CLERK_MEMBER_EMAIL;
+  }
+  const domain = process.env.E2E_CLERK_USER_EMAIL?.split("@")[1];
+  if (!domain) throw new Error("Set E2E_CLERK_USER_EMAIL to sign in.");
+  return `e2e-aditi+clerk_test@${domain}`;
+}
+
+async function ensureClerkUser(email: string, firstName: string) {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret) throw new Error("Set CLERK_SECRET_KEY to create test users.");
+  const headers = {
+    Authorization: `Bearer ${secret}`,
+    "Content-Type": "application/json",
+  };
+  const found = await fetch(
+    `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(email)}`,
+    { headers },
+  );
+  if (!found.ok) throw new Error(`Clerk user lookup failed: ${found.status}`);
+  if (((await found.json()) as unknown[]).length > 0) return;
+  const created = await fetch("https://api.clerk.com/v1/users", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      email_address: [email],
+      first_name: firstName,
+      last_name: "E2E",
+      skip_password_requirement: true,
+    }),
+  });
+  if (!created.ok) {
+    throw new Error(
+      `Creating the Clerk test user failed: ${created.status} ${await created.text()}`,
+    );
+  }
+}
+
+function chat(page: Page) {
+  return page.locator("[data-chat]");
+}
+
+test.describe("chat", () => {
+  test.skip(
+    process.env.E2E_TARGET === "production",
+    "Production never runs the stub model, so its canned replies can't be checked there; PR previews run this test.",
+  );
+
+  test("a Member's message gets a streamed reply that a second Member sees too", async ({
+    page,
+    browser,
+    signIn,
+    cspViolations,
+  }, testInfo) => {
+    test.setTimeout(150_000);
+    const member = memberEmail();
+    await ensureClerkUser(process.env.E2E_CLERK_USER_EMAIL!, "Rohan");
+    await ensureClerkUser(member, "Aditi");
+
+    // Rohan creates an Event and copies its Member link.
+    await signIn();
+    await page.goto("/events");
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByRole("button", { name: "New Event" }).click();
+    const dialog = page.getByRole("dialog", { name: "New Event" });
+    await dialog.getByLabel("Event name").fill(`E2E chat ${Date.now()}`);
+    await dialog.getByRole("button", { name: "Create Event" }).click();
+    await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
+    const workspaceUrl = page.url();
+    await page.getByRole("button", { name: "People" }).click();
+    const memberLink = page.getByRole("textbox", {
+      name: "Member link address",
+    });
+    await expect(memberLink).toHaveValue(/\/join\/[0-9a-f]{48}$/);
+    const joinUrl = await memberLink.inputValue();
+    await page.keyboard.press("Escape");
+
+    // Aditi joins in her own browser.
+    const aditiContext = await browser.newContext({
+      baseURL: testInfo.project.use.baseURL,
+      extraHTTPHeaders: testInfo.project.use.extraHTTPHeaders,
+    });
+    const aditi = await aditiContext.newPage();
+    await setupClerkTestingToken({ page: aditi });
+    await aditi.goto("/");
+    await clerk.signIn({ page: aditi, emailAddress: member });
+    await aditi.goto(new URL(joinUrl).pathname);
+    await expect(aditi).toHaveURL(workspaceUrl, { timeout: 20_000 });
+    // A new Event opens with the first Brief's line (S11).
+    await expect(
+      chat(aditi)
+        .getByRole("list", { name: "Chat messages" })
+        .getByText("Tell me about what you're planning"),
+    ).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // The Event has no Brief yet, so Rohan's first message in the Chat box is
+    // the Brief: its first chip question follows, and no reply starts.
+    const composer = chat(page).getByRole("textbox", { name: "Message" });
+    await composer.fill(JAIPUR);
+    await chat(page).getByRole("button", { name: "Send" }).click();
+    await expect(composer).toHaveValue("");
+    await expect(chat(page).locator("[data-brief-question]")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(chat(page).locator("[data-replying]")).toHaveCount(0);
+
+    // With the Brief given, Rohan asks; both see the reply stream in.
+    await composer.fill("Plan the sangeet");
+    await chat(page).getByRole("button", { name: "Send" }).click();
+    await expect(composer).toHaveValue("");
+
+    for (const viewer of [page, aditi]) {
+      await expect(
+        chat(viewer)
+          .locator('[data-chat-row="member"]')
+          .filter({ hasText: "Plan the sangeet" }),
+      ).toBeVisible();
+    }
+    await expect(chat(aditi).locator("[data-replying]")).toContainText(
+      /Utsavvy is replying to \S+/,
+      { timeout: 20_000 },
+    );
+    // Aditi reloads mid-reply and picks the same stream up where it is: the
+    // reply is partial before the reload and still streaming after it.
+    const aditiReply = chat(aditi).locator('[data-chat-row="reply"]').first();
+    await expect(aditiReply).toContainText("Namaste", { timeout: 20_000 });
+    await expect(aditiReply).toHaveAttribute("data-status", "streaming");
+    await expect(aditiReply).not.toContainText(STUB_REPLY_FULL);
+    await aditi.reload();
+    await expect(
+      chat(aditi).locator('[data-chat-row="reply"][data-status="streaming"]'),
+    ).toContainText("Namaste", { timeout: 20_000 });
+    for (const viewer of [page, aditi]) {
+      await expect(
+        chat(viewer).locator('[data-chat-row="reply"]').first(),
+      ).toContainText(STUB_REPLY_FULL, { timeout: 30_000 });
+    }
+    // The reply finishes, is announced politely, and the header names the model.
+    await expect(chat(page).locator("[data-replying]")).toHaveCount(0, {
+      timeout: 30_000,
+    });
+    await expect(chat(page).locator("[data-chat-announcer]")).toContainText(
+      "Utsavvy replied:",
+    );
+    await expect(chat(page).locator("[data-chat-model]")).toContainText(
+      "stub-utsavvy",
+    );
+
+    // A Don't-reply message starts no run, and the toggle resets.
+    const dontReply = chat(page).getByRole("switch", { name: "Don't reply" });
+    await dontReply.click();
+    await expect(dontReply).toBeChecked();
+    await composer.fill("Mom says absolutely no DJ");
+    await chat(page).getByRole("button", { name: "Send" }).click();
+    await expect(dontReply).not.toBeChecked();
+    await expect(
+      chat(aditi).getByText("Utsavvy read it and stayed quiet."),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(chat(page).locator("[data-replying]")).toHaveCount(0);
+
+    // With a Canvas selection attached the message always asks Utsavvy, so
+    // Don't reply is off and disabled, and the composer says why (L12).
+    await page
+      .locator('[data-canvas-item="budget"]')
+      .click({ position: { x: 12, y: 12 } });
+    await expect(chat(page).getByText("Asking about an Item")).toBeVisible();
+    await expect(dontReply).toBeDisabled();
+    await expect(dontReply).not.toBeChecked();
+    await expect(chat(page).locator("[data-dont-reply-note]")).toHaveText(
+      "Utsavvy answers messages that point at the Canvas.",
+    );
+    await chat(page)
+      .getByRole("button", { name: "Don't attach the selection" })
+      .click();
+    await expect(dontReply).toBeEnabled();
+    await expect(chat(page).locator("[data-dont-reply-note]")).toHaveCount(0);
+
+    await expectNoSeriousA11yViolations(page);
+    await aditiContext.close();
+    expect(cspViolations).toEqual([]);
+  });
+
+  test("a first Brief typed into the Chat box reaches the Brief summary", async ({
+    page,
+    signIn,
+    cspViolations,
+  }) => {
+    test.setTimeout(120_000);
+    await ensureClerkUser(process.env.E2E_CLERK_USER_EMAIL!, "Rohan");
+    await signIn();
+    await page.goto("/events");
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByRole("button", { name: "New Event" }).click();
+    const dialog = page.getByRole("dialog", { name: "New Event" });
+    await dialog.getByLabel("Event name").fill(`E2E Chat Brief ${Date.now()}`);
+    await dialog.getByRole("radio", { name: /Community/ }).click();
+    await dialog.getByRole("button", { name: "Create Event" }).click();
+    await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
+
+    // The Brief goes into the main Chat box, not the opening card's box.
+    const composer = chat(page).getByRole("textbox", { name: "Message" });
+    await composer.fill(GANESH);
+    await chat(page).getByRole("button", { name: "Send" }).click();
+    await expect(composer).toHaveValue("");
+
+    const festival = chat(page).getByRole("button", {
+      name: "Yes, 4 to 14 Sep 2027",
+    });
+    await expect(festival).toBeVisible({ timeout: 30_000 });
+    await festival.click();
+    const group = chat(page).locator('[data-brief-question="guests"]');
+    await expect(group).toBeVisible({ timeout: 30_000 });
+    await group.getByRole("button", { name: "Type my own" }).click();
+    await group.getByLabel("Type a number").fill("400");
+    await page.keyboard.press("Enter");
+
+    const summary = chat(page).locator("[data-brief-summary]");
+    await expect(summary).toBeVisible({ timeout: 30_000 });
+    await expect(summary.locator("[data-budget-flag]")).toContainText(
+      "₹36,000 short",
+      { timeout: 60_000 },
+    );
+    // The Brief started no Assistant reply.
+    await expect(chat(page).locator('[data-chat-row="reply"]')).toHaveCount(0);
+    expect(cspViolations).toEqual([]);
+  });
+});

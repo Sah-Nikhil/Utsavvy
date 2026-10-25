@@ -443,7 +443,7 @@ Parent: Slices. Blocked by: S1, S3, S5.
 
 ### Interfaces
 - Uses: `assistantWrite`, `assistantInsert`, `requireAccess`, `estimateLines`, `lineRange` and `stubEstimateDeps` (S3), `highlights`, the tool registry, the contract's `EntryFields` and `CommentTarget` validators. `addEntry` and `addComment` write through `assistantInsert` with those validators; they don't call S4's `api.entries.add` or S8's `api.comments.add`, which are built in the same wave. Role checks, history and the Comment passage rule all live in the contract (`requireAccess`, the write helpers and their post-write hooks), so the tools and the Member mutations follow the same rules.
-- Provides: the tools `readCanvas`, `readChat`, `addEntry` (its amount source is `{ estimate: { category or freeLabel, quantity, unit } }`, priced on the server by `estimateLines`, or `{ memberStated: amount }`; IMPLEMENTATION_PLAN.md section 6), `updateEntry`, `addItem`, `updateItem`, `moveItem`, `createSection`, `addComment`, `pointAt` and the `webSearch` provider tool, registered in the tool registry; `wrapOutside(content, { source, addedBy })`; `checkMemberStatedAmount(amount, messageText) => boolean`; `exceedsProposalThresholds(changes, budgetTotal) => string | null`; the eval harness (`runCase({ seed, messages, expect })`).
+- Provides: the tools `readCanvas`, `readChat`, `addEntry` (its amount source is `{ estimate: { category or freeLabel, quantity, unit } }`, priced on the server by `estimateLines`, or `{ memberStated: amount }`; IMPLEMENTATION_PLAN.md section 6), `updateEntry`, `addItem`, `updateItem`, `moveItem`, `createSection`, `addComment`, `pointAt`, registered in the tool registry; `wrapOutside(content, { source, addedBy })` for Vendor pages, pasted text, image text and descriptions; `checkMemberStatedAmount(amount, messageText) => boolean`; `exceedsProposalThresholds(changes, budgetTotal) => string | null`; the eval harness (`runCase({ seed, messages, expect })`).
 
 ### Test seams
 - `checkMemberStatedAmount`: ₹15,000 is accepted for "Add a mehendi artist, around ₹15,000" and for "15k"; ₹18,000 is refused for the same message.
@@ -451,7 +451,7 @@ Parent: Slices. Blocked by: S1, S3, S5.
 - `exceedsProposalThresholds`: a deletion, a Budget total change, a shift of more than 10% of the total and a change touching 6 Entries all return a reason; adding one ₹15,000 Entry returns null.
 - A tool write with a stale version re-reads and retries once; if the Member's new value contradicts the request, the tool result tells the model to ask ("Aditi just changed the Caterer line to ₹2,40,000. Still want ₹2,10,000?").
 - Repeating a tool call with the same `runId:toolCallId` writes nothing new.
-- `webSearch` is not offered when the run's model is not Claude.
+- S5 (PR #86, decided 2026-10-23 after its review) already provides Chat web search: the `webSearch` provider tool on Claude only, at most 3 searches per reply, its source links under the reply, and the wrapping of earlier Chat messages as labelled outside content in `convex/assistant/agent.ts`. S7 doesn't add a second search tool. It builds the citations card and "Save as Note" on S5's sources (in `components/chat/cards/citations/`), and may move S5's Chat-history wrapping onto `wrapOutside` if the behaviour and tests stay the same.
 - The asker is removed mid-reply (IMPLEMENTATION_PLAN.md section 4.3): the reply's text finishes streaming and ends with "Rohan no longer has access to this Event, so I stopped changing it."; every tool call after the removal, `readCanvas` and `readChat` included, is refused with `AccessDenied` and writes nothing; their queued run is `cancelled` and never starts.
 
 ### Acceptance criteria
@@ -809,7 +809,7 @@ After the essentials, a Member can tap 3 to 5 images to seed the Theme, or skip;
 Parent: Slices. Blocked by: S11, S13, D1.
 
 ### Owned paths
-`components/brief/vibe-pick/`, `lib/brief/vibeSets.ts`, `e2e/vibe-pick.spec.ts`.
+`components/brief/vibe-pick/`, `lib/brief/vibeSets.ts`, `e2e/vibe-pick.spec.ts`, and `convex/vibePick.ts` with its test (added in PR #112: the pick needed its own mutation, which reuses S13's `addFromLibrary` and `mergeTheme` rules).
 
 ### Interfaces
 - Uses: `seed/vibe-sets.json` (its `vibePick` records), `api.inspirations.addFromLibrary`, `mergeTheme`, S11's vibe-pick mount point.

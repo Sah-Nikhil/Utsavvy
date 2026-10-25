@@ -3,7 +3,13 @@
 import type { ComponentType } from "react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import type { ItemKind } from "@/lib/types/canvas";
+import { BudgetItem } from "./budget/BudgetItem";
+import { ChecklistItem } from "./checklist/ChecklistItem";
+import { InspirationItem } from "./inspiration/InspirationItem";
 import { ItemFrame } from "./ItemFrame";
+import { NoteItem } from "./note/NoteItem";
+import { SuggestionItem } from "./suggestion/SuggestionItem";
+import { TimelineItem } from "./timeline/TimelineItem";
 
 /** Every Item component gets its own row, narrowed to its kind. */
 export type ItemComponentProps<K extends ItemKind = ItemKind> = {
@@ -45,14 +51,14 @@ function placeholder<K extends ItemKind>(
  * for the component in `components/items/<kind>/`.
  */
 export const ITEM_COMPONENTS: { [K in ItemKind]: ItemComponent<K> } = {
-  budget: placeholder("budget", "S4"),
-  timeline: placeholder("timeline", "S4"),
-  checklist: placeholder("checklist", "S4"),
+  budget: BudgetItem,
+  timeline: TimelineItem,
+  checklist: ChecklistItem,
   shortlistedVendor: placeholder("shortlistedVendor", "S9"),
   googlePlace: placeholder("googlePlace", "S20"),
-  inspiration: placeholder("inspiration", "S13"),
-  suggestion: placeholder("suggestion", "S4"),
-  note: placeholder("note", "S4"),
+  inspiration: InspirationItem,
+  suggestion: SuggestionItem,
+  note: NoteItem,
 };
 
 export function itemComponentFor<K extends ItemKind>(
