@@ -388,12 +388,14 @@ export const proposeForRun = internalMutation({
               throw new AccessDenied("wrongEvent", "canvas.edit");
           }
           const changes = await resolveChanges(ctx, g, args.changes);
+          const fromComment =
+            g.run.source === "comment" && g.run.commentId !== null;
           const proposalId = await createProposal(ctx, {
             eventId: args.eventId,
             runId: args.runId,
             requestedBy: g.membership._id,
             origin:
-              g.run.source === "comment" && g.run.commentId !== null
+              fromComment && g.run.commentId !== null
                 ? { kind: "comment", commentId: g.run.commentId }
                 : { kind: "chat" },
             summary: args.summary,
@@ -405,7 +407,8 @@ export const proposeForRun = internalMutation({
             ok: true,
             proposalId,
             changes: await describeProposal(ctx, proposal),
-            note: "The Proposal card is in the Chat. Nothing has changed yet: say in one line what it would change and that a Member needs to Accept it.",
+            // S17: a Proposal asked for in a Comment thread shows its card there.
+            note: `The Proposal card is in ${fromComment ? "this Comment thread" : "the Chat"}. Nothing has changed yet: say in one line what it would change and that a Member needs to Accept it.`,
           };
         } catch (error) {
           if (error instanceof Refusal)

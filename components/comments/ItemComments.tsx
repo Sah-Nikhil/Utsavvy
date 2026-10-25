@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueries } from "convex/react";
+import { useQueries } from "convex/react";
 import { MessageSquare } from "lucide-react";
 import {
   createContext,
@@ -23,7 +23,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { CommentComposer } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
+import { AskNoticeLine } from "./AskNoticeLine";
 import { sheetEntryLabel } from "./sheetLabel";
+import { useAddComment, type PendingAsk } from "./useAddComment";
 import {
   isOn,
   openCount,
@@ -169,7 +171,8 @@ function CommentsSheetBody({
   on: CommentViewTarget;
 }) {
   const { comments, failed } = useCommentList(itemId);
-  const add = useMutation(api.comments.add);
+  const add = useAddComment();
+  const [notice, setNotice] = useState<PendingAsk | null>(null);
 
   // Opened on an Entry: that Entry's threads. On the Item: every thread on
   // the Item and its Entries, each labelled with what it is on.
@@ -249,14 +252,21 @@ function CommentsSheetBody({
         )}
       </div>
       <div className="border-t border-rule bg-surface-raised px-5 pt-3 pb-4">
+        {notice ? (
+          <AskNoticeLine
+            pending={notice}
+            onChange={setNotice}
+            className="mb-2"
+          />
+        ) : null}
         <CommentComposer
           label={
             on.kind === "entry" ? "Comment on this Entry" : "Add a Comment"
           }
-          placeholder="Everyone in the Event sees it"
+          placeholder="Everyone in the Event sees it. Mention @Utsavvy to ask it"
           submitLabel="Comment"
           onSubmit={async (body) => {
-            await add({ target: on, body, rootId: null });
+            setNotice(await add({ target: on, body, rootId: null }));
           }}
         />
       </div>

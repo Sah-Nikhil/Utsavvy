@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { BriefChipsCard } from "./brief/BriefChipsCard";
 import { BriefSummaryCard } from "./brief/BriefSummaryCard";
+import { NudgeCard } from "./nudge/NudgeCard";
 import { PlanProgressCard } from "./plan-progress/PlanProgressCard";
 import { ProposalChatCard } from "./proposal/ProposalChatCard";
 import { StockStrip } from "./stock-strip/StockStrip";
@@ -37,7 +38,7 @@ export const CHAT_CARDS: Record<ChatCardKind, ChatCardComponent> = {
   proposal: ProposalChatCard,
   stockStrip: StockStrip,
   vendorCards: placeholder("Vendor cards", "S9"),
-  nudge: placeholder("Nudge", "S17"),
+  nudge: NudgeCard,
   briefChips: BriefChipsCard,
   briefSummary: BriefSummaryCard,
   planProgress: PlanProgressCard,

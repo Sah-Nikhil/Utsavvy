@@ -217,8 +217,12 @@ describe("addFromLibrary", () => {
         },
       },
     });
-    // Nothing describes a library photo: no helper job is scheduled.
-    expect(await scheduled(s)).toEqual([]);
+    // Nothing describes a library photo: no helper job is scheduled. (The
+    // Nudge check S17's post-write hook schedules for a new Inspiration
+    // makes no model call.)
+    expect(
+      (await scheduled(s)).filter((job) => job.name !== "nudges:check"),
+    ).toEqual([]);
   });
 
   it("refuses an unknown pexelsId and writes nothing", async () => {

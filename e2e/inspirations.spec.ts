@@ -143,8 +143,11 @@ test.describe("inspirations", () => {
     await expect(card.getByText("Added to the Theme.")).toBeVisible({
       timeout: 10_000,
     });
+    // The line is its own Chat row (S17), so the live announcer reads it too.
     await expect(
-      page.getByText(/Utsavvy updated the Theme for .+: \+ /),
+      page
+        .getByRole("list", { name: "Chat messages" })
+        .getByText(/Utsavvy updated the Theme for .+: \+ /),
     ).toBeVisible({ timeout: 10_000 });
 
     await expectNoSeriousA11yViolations(page);
