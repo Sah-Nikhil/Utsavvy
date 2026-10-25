@@ -236,6 +236,32 @@ const NOT_ASKED = refusal(
   "No Member asked for this change. Suggest it in your reply, or use propose.",
 );
 
+/** How many Budget lines `otherBudgetLines` reads, deleted ones included. */
+const MAX_LINE_ROWS = 500;
+
+/**
+ * The labels of the Event's other live Budget lines, so a stated amount
+ * can't land on one line when the message gives it to another
+ * (`checkMemberStatedAmount`'s `otherLines`).
+ */
+export async function otherBudgetLines(
+  ctx: Ctx,
+  eventId: Id<"events">,
+  except: Id<"entries"> | null,
+): Promise<string[]> {
+  const item = await planItemOf(ctx, eventId, "budget");
+  if (item === null) return [];
+  const rows = await ctx.db
+    .query("entries")
+    .withIndex("by_item", (q) => q.eq("itemId", item._id))
+    .take(MAX_LINE_ROWS);
+  return rows.flatMap((row) =>
+    row.deletedAt === null && row.kind === "budget" && row._id !== except
+      ? [row.fields.label]
+      : [],
+  );
+}
+
 /** The text of the message this run answers: the Chat message, or the Comment that asked. */
 async function requestText(ctx: Ctx, run: Doc<"runs">): Promise<string> {
   if (run.source === "comment" && run.commentId !== null) {
@@ -947,8 +973,14 @@ export const addEntryForRun = internalMutation({
       if (entry.kind === "budget") {
         if (entry.memberStated !== null) {
           const text = await requestText(ctx, g.run);
+          const others = await otherBudgetLines(ctx, ref.eventId, null);
           if (
-            !checkMemberStatedAmount(entry.memberStated, text, [entry.label])
+            !checkMemberStatedAmount(
+              entry.memberStated,
+              text,
+              [entry.label],
+              others,
+            )
           ) {
             return refusal(
               "amountNotStated",
@@ -1268,7 +1300,8 @@ async function planEntryUpdate(
       const text = await requestText(ctx, g.run);
       // The line's name as the Member knows it, and its new one if renamed.
       const lineNames = [entry.fields.label, next.label];
-      if (!checkMemberStatedAmount(amount, text, lineNames)) {
+      const others = await otherBudgetLines(ctx, entry.eventId, entry._id);
+      if (!checkMemberStatedAmount(amount, text, lineNames, others)) {
         return refusal(
           "amountNotStated",
           `${g.membership.displayName} didn't write ${formatINR(amount)} in their message. Ask them for the amount.`,

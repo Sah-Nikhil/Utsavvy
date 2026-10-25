@@ -57,6 +57,7 @@ import {
   cleanDate,
   cleanOptionalNote,
   cleanTime,
+  otherBudgetLines,
   priceLine,
   type ToolResult,
 } from "./core";
@@ -967,12 +968,17 @@ export async function resolveChanges(
   const eventId = g.event._id;
   const text = await requestText(ctx, g.run);
   /** `lineNames`: the line the amount goes on, so "caterer quoted 2.4L, add a DJ too" can't price the DJ. */
-  const stated = (
+  const stated = async (
     amount: number,
     what: string,
     lineNames: readonly string[] = [],
+    except: Id<"entries"> | null = null,
   ) => {
-    if (!checkMemberStatedAmount(amount, text, lineNames))
+    const others =
+      lineNames.length === 0
+        ? []
+        : await otherBudgetLines(ctx, eventId, except);
+    if (!checkMemberStatedAmount(amount, text, lineNames, others))
       refuse(
         "amountNotStated",
         `${g.membership.displayName} didn't write ${formatINR(amount)} in their message, so it can't be ${what}. Use another amount source, or ask them.`,
@@ -1023,10 +1029,11 @@ export async function resolveChanges(
             );
           const before = entryAmount(entry.fields);
           if (amount && "memberStated" in amount) {
-            fields.plannedAmount = stated(
+            fields.plannedAmount = await stated(
               amount.memberStated,
               "this line's amount",
               [entry.fields.label, ...(patch.label ? [patch.label] : [])],
+              entry._id,
             );
           } else if (amount && "estimateLow" in amount) {
             const estimate = entry.fields.estimate;
@@ -1131,7 +1138,9 @@ export async function resolveChanges(
           const memberStated =
             entry.memberStated === null
               ? null
-              : stated(entry.memberStated, "this line's amount", [entry.label]);
+              : await stated(entry.memberStated, "this line's amount", [
+                  entry.label,
+                ]);
           fields = {
             label: cleanLabel(entry.label, "line"),
             category:
@@ -1351,7 +1360,7 @@ export async function resolveChanges(
           expectedVersion: g.event.version,
           guards: [],
           values: {
-            budgetTotal: stated(spec.memberStated, "the Budget total"),
+            budgetTotal: await stated(spec.memberStated, "the Budget total"),
           },
         };
         break;
