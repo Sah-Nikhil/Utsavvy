@@ -24,29 +24,40 @@ function dayLabel(at: number, now: Date): string {
   });
 }
 
-/** Rows by day, with consecutive rows of one run or Proposal folded into a group. */
+/**
+ * Rows by day, with the rows of one run or Proposal folded into one group per
+ * day. A Member's edit made while the run was still going sits after the
+ * run's group instead of splitting it into two headers, each with the run's
+ * full count (review of #90).
+ */
 export function arrange(rows: HistoryRow[], now: Date): Day[] {
   const days: Day[] = [];
+  let groups = new Map<string, Extract<Block, { kind: "group" }>>();
   for (const row of rows) {
     const label = dayLabel(row.at, now);
     let day = days.at(-1);
     if (day?.label !== label) {
       day = { label, blocks: [] };
       days.push(day);
+      groups = new Map();
     }
-    const last = day.blocks.at(-1);
     if (row.groupKey === null || row.groupTitle === null) {
       day.blocks.push({ kind: "single", row });
-    } else if (last?.kind === "group" && last.key === row.groupKey) {
-      last.rows.push(row);
-    } else {
-      day.blocks.push({
-        kind: "group",
-        key: row.groupKey,
-        title: row.groupTitle,
-        rows: [row],
-      });
+      continue;
     }
+    const group = groups.get(row.groupKey);
+    if (group) {
+      group.rows.push(row);
+      continue;
+    }
+    const block = {
+      kind: "group" as const,
+      key: row.groupKey,
+      title: row.groupTitle,
+      rows: [row],
+    };
+    groups.set(row.groupKey, block);
+    day.blocks.push(block);
   }
   return days;
 }
