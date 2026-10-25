@@ -22,6 +22,7 @@ import {
   type ModelUsage,
   type ResearchCalls,
   type ResearchInput,
+  type ResearchLine,
   type ResearchOutput,
   type ResearchReport,
   RESEARCH_PAUSE_CAP,
@@ -1942,5 +1943,313 @@ describe("the report times the Assistant's own estimate too (N2)", () => {
       }),
     );
     expect(reports[0]!.knowledgeMs).toBeGreaterThanOrEqual(30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #108: the live path against canned responses in the shapes Claude Sonnet 5.5
+// and Claude Haiku 5.5 send today (adaptive thinking on by default, empty
+// `thinking` blocks under the default `display: "omitted"`, web search
+// citations on text blocks, `pause_turn`, a 400, a request still in flight at
+// the deadline). No real model is called.
+
+describe("the live path against Claude 5.5 response shapes (issue 108)", () => {
+  const catering: ResearchLine = {
+    key: 0,
+    label: "Catering, main dinner",
+    category: "catering_main",
+    unit: "per_plate",
+    listedPrices: [],
+  };
+  const lineInput = (maxSearches = 2): ResearchInput => ({
+    eventType: "wedding",
+    city: "Jaipur",
+    lines: [catering],
+    maxSearches,
+    abortSignal: new AbortController().signal,
+  });
+
+  function reply(
+    content: unknown[],
+    stopReason: string,
+    usage: Record<string, unknown> = {},
+    model = "claude-sonnet-5-5",
+  ) {
+    return {
+      id: `msg_${Math.random().toString(36).slice(2)}`,
+      type: "message",
+      role: "assistant",
+      model,
+      content,
+      stop_reason: stopReason,
+      stop_sequence: null,
+      stop_details: null,
+      usage: { input_tokens: 100, output_tokens: 20, ...usage },
+    };
+  }
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  const emptyThinking = (signature: string) => ({
+    type: "thinking",
+    thinking: "",
+    signature,
+  });
+  const searchUse = {
+    type: "server_tool_use",
+    id: "srvtoolu_1",
+    name: "web_search",
+    input: { query: "wedding catering per plate Jaipur" },
+  };
+  const searchResult = {
+    type: "web_search_tool_result",
+    tool_use_id: "srvtoolu_1",
+    content: [
+      {
+        type: "web_search_result",
+        url: "https://caterer-a.in/menu",
+        title: "Menu and prices",
+        page_age: "2 weeks ago",
+        encrypted_content: "enc_page_1",
+      },
+    ],
+  };
+  const extraction = reply(
+    [
+      emptyThinking("sig_extract"),
+      {
+        type: "text",
+        text: JSON.stringify({
+          estimates: [
+            {
+              key: 0,
+              unitLow: 1100,
+              unitHigh: 1900,
+              sourceUrls: ["https://caterer-a.in/menu"],
+              reasoning: "One Jaipur caterer's own menu.",
+            },
+          ],
+        }),
+      },
+    ],
+    "end_turn",
+    {},
+    "claude-haiku-5-5",
+  );
+
+  function useClaudeOnly() {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "");
+    vi.stubEnv("HELPER_MODEL", undefined);
+    vi.stubEnv("DEFAULT_MODEL", undefined);
+  }
+
+  it("says why a search turn wrote no notes: the stop reason, such as max_tokens or refusal", async () => {
+    useClaudeOnly();
+    for (const stop of ["max_tokens", "refusal"]) {
+      const fetch = vi.fn(async () =>
+        json(reply([emptyThinking("sig_1")], stop, { output_tokens: 2000 })),
+      ) as unknown as typeof globalThis.fetch;
+      const output = await researchLine(
+        lineInput(),
+        liveResearchCalls("claude-sonnet-5-5", "test-key", { fetch }),
+      );
+      expect(output.results).toEqual([]);
+      expect(output.failure?.reason).toBe("noOutput");
+      expect(output.failure?.detail).toContain(stop);
+    }
+  });
+
+  it("reads cited notes after a paused turn, re-sends the paused turn unchanged, and never asks for structured output with web search", async () => {
+    useClaudeOnly();
+    const bodies: Record<string, unknown>[] = [];
+    const searchReplies = [
+      reply(
+        [emptyThinking("sig_paused"), searchUse, searchResult],
+        "pause_turn",
+        { server_tool_use: { web_search_requests: 1 } },
+      ),
+      reply(
+        [
+          emptyThinking("sig_final"),
+          { type: "text", text: "Prices found: " },
+          {
+            type: "text",
+            text: "Caterer A lists ₹1,100 to ₹1,900 per plate (https://caterer-a.in/menu).",
+            citations: [
+              {
+                type: "web_search_result_location",
+                url: "https://caterer-a.in/menu",
+                title: "Menu and prices",
+                encrypted_index: "enc_index_1",
+                cited_text: "Veg plate ₹1,100, premium plate ₹1,900",
+              },
+            ],
+          },
+        ],
+        "end_turn",
+        { server_tool_use: { web_search_requests: 0 } },
+      ),
+    ];
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      return json(body.tools ? searchReplies.shift()! : extraction);
+    }) as unknown as typeof globalThis.fetch;
+
+    const output = await researchLine(
+      lineInput(),
+      liveResearchCalls("claude-sonnet-5-5", "test-key", { fetch }),
+    );
+
+    expect(bodies).toHaveLength(3);
+    // Citations are always on with web search and can't be combined with
+    // `output_config.format` (a 400), so neither search request asks for it.
+    for (const body of bodies.slice(0, 2)) {
+      const config = body.output_config as Record<string, unknown> | undefined;
+      expect(config?.format).toBeUndefined();
+    }
+    // The continuation appends the paused turn as it came back: the thinking
+    // block with its signature, then the search blocks, in order and with the
+    // encrypted page content, so preserved thinking sees no edited history.
+    const messages = bodies[1]!.messages as {
+      role: string;
+      content: Record<string, unknown>[];
+    }[];
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    const resent = messages[1]!.content;
+    expect(resent.map((b) => b.type)).toEqual([
+      "thinking",
+      "server_tool_use",
+      "web_search_tool_result",
+    ]);
+    expect(resent[0]).toMatchObject({ thinking: "", signature: "sig_paused" });
+    expect(resent[1]).toMatchObject({ id: "srvtoolu_1", name: "web_search" });
+    expect(JSON.stringify(resent[2])).toContain("enc_page_1");
+    // The extraction gets the notes from every text block, cited or not.
+    expect(JSON.stringify(bodies[2]!.messages)).toContain(
+      "Prices found: Caterer A lists ₹1,100 to ₹1,900 per plate",
+    );
+    expect(output.failure).toBeUndefined();
+    expect(output).toMatchObject({
+      searchResultUrls: ["https://caterer-a.in/menu"],
+      searchesUsed: 1,
+      results: [{ key: 0, unitLow: 1100, unitHigh: 1900 }],
+    });
+  });
+
+  /** `estimateLines` with the real research calls on a canned `fetch`. */
+  function liveDeps(
+    fetch: typeof globalThis.fetch,
+    overrides: Partial<EstimateDeps> = {},
+  ) {
+    return deps({
+      research: (input, meter) =>
+        researchLine(
+          input,
+          liveResearchCalls("claude-sonnet-5-5", "test-key", { fetch }),
+          meter,
+        ),
+      ...overrides,
+    });
+  }
+
+  it("reports a 400 from the API with its status, prices the line from the table and caches nothing", async () => {
+    useClaudeOnly();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { t, ctx, eventId } = await setup();
+    const fetch = vi.fn(async () =>
+      json(
+        {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message: "Citations are not supported with output_config.format.",
+          },
+        },
+        400,
+      ),
+    ) as unknown as typeof globalThis.fetch;
+    const { reports, onResearch } = reporter();
+    const [result] = await estimateLines(
+      ctx,
+      args(eventId, [cateringLine]),
+      liveDeps(fetch, { onResearch }),
+    );
+    expect(result?.basis.kind).toBe("referenceTable");
+    expect(reports[0]!.failures).toEqual([
+      expect.objectContaining({
+        reason: "error",
+        detail: expect.stringMatching(/^HTTP 400: .*Citations/),
+      }),
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/fell through.*error \(HTTP 400/),
+    );
+    // A 400 isn't retried.
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await cacheRows(t)).toEqual([]);
+  });
+
+  it("aborts the request still in flight at the deadline and keeps the line that finished", async () => {
+    useClaudeOnly();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx, eventId } = await setup();
+    let abortedRequests = 0;
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (JSON.stringify(body).includes("Catering")) {
+        return json(
+          body.tools
+            ? reply(
+                [
+                  searchUse,
+                  searchResult,
+                  {
+                    type: "text",
+                    text: "Caterer A lists ₹1,100 to ₹1,900 per plate.",
+                  },
+                ],
+                "end_turn",
+                { server_tool_use: { web_search_requests: 1 } },
+              )
+            : extraction,
+        );
+      }
+      // The venue's search never answers until the deadline aborts it.
+      return await new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          abortedRequests++;
+          reject(init.signal!.reason);
+        });
+      });
+    }) as unknown as typeof globalThis.fetch;
+    const { reports, onResearch } = reporter();
+    const started = Date.now();
+    const [cateringResult, venue] = await estimateLines(
+      ctx,
+      args(eventId, [
+        cateringLine,
+        { category: "venue_large", quantity: 1, unit: "per_function" },
+      ]),
+      liveDeps(fetch, {
+        onResearch,
+        limits: { ...stubEstimateDeps.limits, researchTimeLimitMs: 300 },
+      }),
+    );
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(cateringResult?.basis.kind).toBe("researched");
+    expect(venue?.basis.kind).toBe("referenceTable");
+    expect(reports[0]!.failures).toEqual([
+      expect.objectContaining({
+        reason: "timeout",
+        label: "Venue, large (>150 Guests)",
+      }),
+    ]);
+    expect(reports[0]!.inFlightAtDeadline).toBe(1);
+    // The deadline's abort reaches the network request, so it stops billing.
+    await vi.waitFor(() => expect(abortedRequests).toBe(1));
   });
 });

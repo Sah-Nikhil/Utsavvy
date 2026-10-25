@@ -24,6 +24,13 @@ import type { CityTier, EventType } from "../lib/types";
  * set with `bunx convex env set`; `vitest.eval.config.ts` refuses a live run
  * when `.env.local` holds one. Never in CI. Live prices vary, so a case checks
  * that the line came back researched, with sources, rather than exact numbers.
+ *
+ * Reading the table it prints: `basis` is what each case's line came back as,
+ * `searches`, `seconds` and `dollars` are what the case spent, and
+ * `fellThrough` says why a line went to the table (`error` with the HTTP
+ * status, `timeout`, `pauseCap`, `noOutput` with the stop reason, or
+ * `rejected` with the plausibility band). A `seconds` near 20 means the
+ * research deadline, not the model, set the time.
  */
 
 const LIVE = process.env.EVAL_LIVE === "1";
@@ -62,13 +69,14 @@ function models(usage: ModelUsage[]): string {
   return [...new Set(usage.map((u) => u.model))].join(", ");
 }
 
-const reports: { name: string; report: ResearchReport }[] = [];
+const reports: { name: string; report: ResearchReport; basis?: string }[] = [];
 
 afterAll(() => {
   if (reports.length === 0) return;
   console.table(
-    reports.map(({ name, report }) => ({
+    reports.map(({ name, report, basis }) => ({
       case: name,
+      basis: basis ?? "none",
       models: models([...report.usage, ...report.knowledgeUsage]),
       searches: report.searchesUsed,
       seconds: ((report.ms + report.knowledgeMs) / 1000).toFixed(1),
@@ -113,6 +121,8 @@ async function run(
     },
     { ...deps, onResearch: (report) => reports.push({ name, report }) },
   );
+  const entry = reports.findLast((r) => r.name === name);
+  if (entry) entry.basis = result?.basis.kind ?? "none";
   return result ?? null;
 }
 
