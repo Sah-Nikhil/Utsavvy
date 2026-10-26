@@ -8,6 +8,7 @@ import { NudgeCard } from "./nudge/NudgeCard";
 import { PlanProgressCard } from "./plan-progress/PlanProgressCard";
 import { ProposalChatCard } from "./proposal/ProposalChatCard";
 import { StockStrip } from "./stock-strip/StockStrip";
+import { VendorCardsCard } from "./vendor-cards/VendorCardsCard";
 
 /** The card kinds a Chat message can carry (`chatAnnotations.card.kind`). */
 export type ChatCardKind = NonNullable<Doc<"chatAnnotations">["card"]>["kind"];
@@ -37,7 +38,7 @@ function placeholder(label: string, slice: string): ChatCardComponent {
 export const CHAT_CARDS: Record<ChatCardKind, ChatCardComponent> = {
   proposal: ProposalChatCard,
   stockStrip: StockStrip,
-  vendorCards: placeholder("Vendor cards", "S9"),
+  vendorCards: VendorCardsCard,
   nudge: NudgeCard,
   briefChips: BriefChipsCard,
   briefSummary: BriefSummaryCard,
