@@ -1,0 +1,1075 @@
+[
+  {
+    "domain": "umaidhaveli.com",
+    "name": "Umaid Haveli",
+    "category": "venue",
+    "website": "https://www.umaidhaveli.com/",
+    "address": {
+      "line": "CP-5, RIICO Kukas",
+      "locality": "Kukas",
+      "city": "Jaipur"
+    },
+    "phone": "+91 98296 14748",
+    "email": "umaidhaveli@gmail.com",
+    "capacity": {
+      "max": 500
+    },
+    "summary": "Heritage-style hotel in Kukas with a lawn for about 500 guests next to its restaurant.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.umaidhaveli.com/wedding-garden-jaipur.htm",
+        "sentence": "UMAID HAVELI A Heritage Styled Hotel & Resort",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://www.umaidhaveli.com/wedding-garden-jaipur.htm",
+        "sentence": "Address UMAID HAVELI A Heritage Styled Hotel & Resort CP-5, RIICO KUKAS, Jaipur 302038 (Rajasthan) India",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://www.umaidhaveli.com/wedding-garden-jaipur.htm",
+        "sentence": "For Enquiry & Booking kindly call us at +91 9829614748 / 9829614748",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://www.umaidhaveli.com/wedding-garden-jaipur.htm",
+        "sentence": "Reservation Numbers +91 9829614748, 9314503423 umaidhaveli@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "capacity",
+        "kind": "ownSite",
+        "url": "https://www.umaidhaveli.com/wedding-garden-jaipur.htm",
+        "sentence": "We have a 1800 square yard lush green carpet grass well maintained wedding lawn which can easily accommodate upto 500 PAX at any given time.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 27.0420794,
+      "lng": 75.8942628,
+      "confidence": 0.25,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "roodmahal.com",
+    "name": "Rood Mahal",
+    "category": "venue",
+    "website": "https://www.roodmahal.com/",
+    "address": {
+      "line": "Suraj Vihar, 200 Feet Bypass Kalwar Road",
+      "locality": "Jhotwara",
+      "city": "Jaipur"
+    },
+    "phone": "+91 77429 83214",
+    "email": "info@roodmahal.com",
+    "capacity": {
+      "max": 2000
+    },
+    "summary": "Marriage garden in Jhotwara with a large lawn and banquet hall; outside caterers and decorators allowed.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.roodmahal.com/",
+        "sentence": "Rood Mahal is a beautiful marriage garden in Jaipur with a larger wedding lawn and elegantly designed banquet hall.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://www.roodmahal.com/",
+        "sentence": "Locate Us Rood Mahal Suraj Vihar, 200 Feet Bypass Kalwar Road, Jhotwara, JAIPUR 302012 RJ",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://www.roodmahal.com/",
+        "sentence": "+91-7742983214 info@roodmahal.com SERVICES Wedding Rood Mahal is the ideal venue to host your dream wedding day.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://www.roodmahal.com/",
+        "sentence": "+91-7742983214 info@roodmahal.com SERVICES Wedding Rood Mahal is the ideal venue to host your dream wedding day.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "capacity",
+        "kind": "ownSite",
+        "url": "https://www.roodmahal.com/",
+        "sentence": "It is the best wedding venue in Jaipur with a capacity to serve 2000 guests’ appearances.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.904789,
+      "lng": 75.756797,
+      "confidence": 0.5,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "harikabagh.com",
+    "name": "Harika Bagh",
+    "category": "venue",
+    "website": "https://harikabagh.com/",
+    "address": {
+      "line": "Ravindra Nagar – A",
+      "locality": "Jagatpura",
+      "city": "Jaipur"
+    },
+    "phone": "+91 99505 44376",
+    "email": "bookings@harikabagh.com",
+    "capacity": {
+      "max": 2000
+    },
+    "summary": "Wedding resort in Jagatpura with two banquet halls, two gardens, rooms and in-house catering.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://harikabagh.com/",
+        "sentence": "Harika Bagh is a thoughtfully designed wedding resort and banquet destination in Jagatpura, Jaipur.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://harikabagh.com/",
+        "sentence": "Address: Ravindra Nagar – A, Jagatpura, Jaipur, Rajasthan 302033",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://harikabagh.com/",
+        "sentence": "Contact us +91 99505 44376 bookings@harikabagh.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://harikabagh.com/",
+        "sentence": "Contact us +91 99505 44376 bookings@harikabagh.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "capacity",
+        "kind": "ownSite",
+        "url": "https://harikabagh.com/",
+        "sentence": "Capacity: Up to 2000+ Guests",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.937551,
+      "lng": 75.796102,
+      "confidence": 0.041208791208791215,
+      "matchType": "full_match",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "bspjaipur.com",
+    "name": "Bhanwar Singh Palace",
+    "category": "venue",
+    "website": "https://bspjaipur.com/",
+    "address": {
+      "line": "Opposite Solitaire Park, NH-8, Ajmer Highway",
+      "locality": "Bagru",
+      "city": "Jaipur"
+    },
+    "phone": "0141 295 5123",
+    "email": "booking@bspjaipur.com",
+    "capacity": {
+      "max": 2000
+    },
+    "summary": "Palace-style hotel on the Ajmer highway at Bagru with three banquet halls and several lawns; outside catering allowed.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://bspjaipur.com/wedding.html",
+        "sentence": "Bhanwar Singh Palace Jaipur provides the right ingredients for your fairy tale wedding",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://bspjaipur.com/wedding.html",
+        "sentence": "Our Location Opposite Solitaire Park, NH-8, Ajmer Highway, 5 Km after toll, Bagru, Jaipur, Rajasthan 303007",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://bspjaipur.com/wedding.html",
+        "sentence": "For Reservation & Enquiry: 01412955123",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://bspjaipur.com/wedding.html",
+        "sentence": "Contact resv@bspjaipur.com booking@bspjaipur.com 01412955123 / 8905989513 / 8905989508",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "capacity",
+        "kind": "ownSite",
+        "url": "https://bspjaipur.com/wedding.html",
+        "sentence": "Char Bagh – The Central Courtyard of 40000 sq. ft. with capacity for approx 2000 persons outdoor.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.814036,
+      "lng": 75.550672,
+      "confidence": 0.5,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "virasatjaipur.com",
+    "name": "Parampara Banquet Hall (Virasat)",
+    "category": "venue",
+    "website": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+    "address": {
+      "line": "Delhi Road, near Sai Baba Temple",
+      "locality": "Kukas",
+      "city": "Jaipur"
+    },
+    "phone": "+91 73749 99951",
+    "email": "info@virasatjaipur.com",
+    "capacity": {
+      "min": 200,
+      "max": 400
+    },
+    "summary": "Air-conditioned banquet hall at Virasat Heritage Restaurant in Kukas, with pure vegetarian catering by the same team.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+        "sentence": "Parampara Banquet Hall is the crown jewel of Virasat Heritage: a grand, AC banquet hall in Jaipur with crystal chandeliers, customizable décor themes and a dedicated event coordinator for weddings, receptions, engagements and corporate events.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+        "sentence": "Address Delhi Road, near Sai Baba Temple, Kukas, Jaipur, Rajasthan 302028",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+        "sentence": "Enquiries Enquiry form · +91 73749 99951",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+        "sentence": "info@virasatjaipur.com 11:00 AM – 11:00 PM (All days)",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "capacity",
+        "kind": "ownSite",
+        "url": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+        "sentence": "The hall hosts 200 to 400 guests.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [
+      {
+        "sourceUrl": "https://virasatjaipur.com/venues/parampara-banquet-hall",
+        "sentence": "200 – 400 guests · Morning, afternoon & evening slots · ₹1,200 – ₹3,500 per plate · 100% pure vegetarian catering",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 1200,
+          "max": 3500
+        },
+        "unit": "per_plate",
+        "qualifier": "approx",
+        "diet": "veg",
+        "guestRange": {
+          "min": 200,
+          "max": 400
+        },
+        "inclusionsNote": "pure vegetarian; depends on package and menu",
+        "text": "₹1,200–₹3,500 per plate (approx.)"
+      }
+    ],
+    "marker": {
+      "lat": 27.03126,
+      "lng": 75.89072,
+      "confidence": 0.5,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "sapphireinnjaipur.com",
+    "name": "Sapphire Inn",
+    "category": "venue",
+    "website": "https://www.sapphireinnjaipur.com/",
+    "address": {
+      "line": "20/115, Kaveri Path, near New Sanganer Road",
+      "locality": "Mansarovar",
+      "city": "Jaipur"
+    },
+    "phone": "+91 74250 17115",
+    "capacity": {
+      "max": 700
+    },
+    "summary": "Mansarovar hotel with two AC banquet halls, a party lawn and a rooftop garden for about 700 guests in all.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.sapphireinnjaipur.com/banquet-halls-in-Jaipur-birthday.php",
+        "sentence": "Sapphire Inn: Best Party Banquet Halls in Jaipur",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://www.sapphireinnjaipur.com/banquet-halls-in-Jaipur-birthday.php",
+        "sentence": "Sapphire Inn Address 20/115, Kaveri Path, near New Sanganer Road, Mansarovar Jaipur",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://www.sapphireinnjaipur.com/banquet-halls-in-Jaipur-birthday.php",
+        "sentence": "+917425017115, 0141-3582692, 2394935 Toggle navigation",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "capacity",
+        "kind": "ownSite",
+        "url": "https://www.sapphireinnjaipur.com/banquet-halls-in-Jaipur-birthday.php",
+        "sentence": "Sapphire Inn Banquets with an overall capacity of about 700 guests is the solution to all your banqueting needs.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.87383,
+      "lng": 75.776757,
+      "confidence": 0.45,
+      "matchType": "full_match",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "mlcaterers.com",
+    "name": "M L Caterers",
+    "category": "caterer",
+    "website": "https://www.mlcaterers.com/",
+    "address": {
+      "line": "112, Brijpuri, 7 No. Stand, Airport Road",
+      "locality": "Jagatpura",
+      "city": "Jaipur"
+    },
+    "phone": "+91 95874 70777",
+    "email": "mlcaterers.777@gmail.com",
+    "summary": "Long-running Jaipur caterer with three fixed per-plate wedding buffet packages, mostly vegetarian.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.mlcaterers.com/",
+        "sentence": "M L Caterers is affiliated to Federation of All India Caterers, India, is a food catering services provider in Jaipur.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://www.mlcaterers.com/",
+        "sentence": "Contact Us 112, Brijpuri, 7 No. Stand, Airport Road, jagatpura, Jaipur, Rajasthan (302017)",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://www.mlcaterers.com/",
+        "sentence": "mlcaterers.777@gmail.com 919587470777",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://www.mlcaterers.com/",
+        "sentence": "mlcaterers.777@gmail.com 919587470777",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [
+      {
+        "sourceUrl": "https://www.mlcaterers.com/services/wedding-catering-service",
+        "sentence": "Silver Package Classic Rajasthani & North Indian feast curated for intimate wedding celebrations. ₹ 850/- per plate",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 850,
+          "max": 850
+        },
+        "unit": "per_plate",
+        "qualifier": "exact",
+        "diet": "veg",
+        "inclusionsNote": "Silver package: welcome drinks, 4 veg starters, 8 mains, 3 desserts",
+        "text": "₹850 per plate (Silver package)"
+      },
+      {
+        "sourceUrl": "https://www.mlcaterers.com/services/wedding-catering-service",
+        "sentence": "Gold Package Our most popular royal buffet blending authentic local delicacies with global favorites. ₹ 1,350/- per plate",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 1350,
+          "max": 1350
+        },
+        "unit": "per_plate",
+        "qualifier": "exact",
+        "diet": "veg",
+        "inclusionsNote": "Gold package: live starters and chaat counter, 12 mains, 5 desserts",
+        "text": "₹1,350 per plate (Gold package)"
+      },
+      {
+        "sourceUrl": "https://www.mlcaterers.com/services/wedding-catering-service",
+        "sentence": "Platinum Royal The ultimate luxury banquet experience with gourmet live stations & VIP butler service. ₹ 1,950/- per plate",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 1950,
+          "max": 1950
+        },
+        "unit": "per_plate",
+        "qualifier": "exact",
+        "diet": "veg",
+        "inclusionsNote": "Platinum package: live gourmet stations, 16 mains, butler service",
+        "text": "₹1,950 per plate (Platinum package)"
+      }
+    ],
+    "marker": {
+      "lat": 26.829207,
+      "lng": 75.804898,
+      "confidence": 0,
+      "matchType": "full_match",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "vinayakfoodsncatering.in",
+    "name": "Vinayak Foods & Catering",
+    "category": "caterer",
+    "website": "https://www.vinayakfoodsncatering.in/",
+    "areaServed": "Jaipur and Patna",
+    "summary": "Caterer for weddings and family functions in Jaipur and Patna with live counters and budget per-plate menus.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.vinayakfoodsncatering.in/",
+        "sentence": "Vinayak Foods & Catering | Best Catering Services in Jaipur and Patna",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "areaServed",
+        "kind": "ownSite",
+        "url": "https://www.vinayakfoodsncatering.in/",
+        "sentence": "Best Catering Services in Jaipur and Patna",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [
+      {
+        "sourceUrl": "https://www.vinayakfoodsncatering.in/",
+        "sentence": "Menu and Packages Starting just ₹250/plate",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 250,
+          "max": 250
+        },
+        "unit": "per_plate",
+        "qualifier": "starting",
+        "diet": "either",
+        "inclusionsNote": "depends on menu and scale",
+        "text": "from ₹250 per plate (starting price)"
+      },
+      {
+        "sourceUrl": "https://www.vinayakfoodsncatering.in/",
+        "sentence": "We offer menus starting from roughly ₹250–₹500 per plate for vegetarian (Delhi/Jaipur rates).",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 250,
+          "max": 500
+        },
+        "unit": "per_plate",
+        "qualifier": "approx",
+        "diet": "veg",
+        "inclusionsNote": "vegetarian menus; exact rate depends on menu and event scale",
+        "text": "about ₹250–₹500 per plate, vegetarian"
+      }
+    ]
+  },
+  {
+    "domain": "gdcaterer.com",
+    "name": "G.D. Caterer",
+    "category": "caterer",
+    "website": "https://www.gdcaterer.com/",
+    "address": {
+      "line": "84, Bhagwan Chauraha",
+      "locality": "Brahampuri",
+      "city": "Jaipur"
+    },
+    "phone": "+91 98296 50473",
+    "email": "gdcaterer@gmail.com",
+    "summary": "Pure vegetarian caterer in Brahampuri for weddings, cocktails, corporate and family parties.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.gdcaterer.com/",
+        "sentence": "G.D. Caterer: Top Wedding Catering Services",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://www.gdcaterer.com/",
+        "sentence": "CONTACT US 84, Bhagwan Chauraha, Brahampuri, Jaipur 302002.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://www.gdcaterer.com/",
+        "sentence": "Phone: +91-9829650473 +91-9829068809 gdcaterer@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://www.gdcaterer.com/",
+        "sentence": "Phone: +91-9829650473 +91-9829068809 gdcaterer@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.869004,
+      "lng": 75.835319,
+      "confidence": 0.25,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "ganeshdalbati.com",
+    "name": "Ganesh Dal Bati Churma",
+    "category": "caterer",
+    "website": "https://ganeshdalbati.com/rajasthan/jaipur-services/",
+    "phone": "+91 86199 95120",
+    "areaServed": "Jaipur and across Rajasthan",
+    "summary": "Marwari pure-veg caterer known for dal baati churma in cow ghee and live sigri counters.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://ganeshdalbati.com/rajasthan/jaipur-services/",
+        "sentence": "Ganesh Dal Bati Churma Luxury Catering Services in Jaipur",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://ganeshdalbati.com/rajasthan/jaipur-services/",
+        "sentence": "Hotline: +91 86199 95120",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "areaServed",
+        "kind": "ownSite",
+        "url": "https://ganeshdalbati.com/rajasthan/jaipur-services/",
+        "sentence": "Jaipur’s premier authentic Marwari caterer specializing in 100% pure country cow ghee banquets, wood-fired sigri live counters, and palace wedding feasts across Rajasthan.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": []
+  },
+  {
+    "domain": "jmdeventsandflowers.com",
+    "name": "JMD Events And Flowers",
+    "category": "decorator",
+    "website": "https://jmdeventsandflowers.com/",
+    "address": {
+      "line": "A-137, RFC Colony, VIT Road",
+      "locality": "Jagatpura",
+      "city": "Jaipur"
+    },
+    "phone": "+91 99507 42034",
+    "email": "info@jmdeventsandflowers.com",
+    "summary": "Jagatpura flower decorator for weddings, haldi, mehendi, sangeet and ring ceremonies.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://jmdeventsandflowers.com/",
+        "sentence": "JMD Events And Flowers – Flower Decoration In Jaipur",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://jmdeventsandflowers.com/",
+        "sentence": "Office: A-137, RFC Colony, VIT Road In Front Of 7 Night Hotel Jagatpura Jaipur, Rajasthan 302025",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://jmdeventsandflowers.com/",
+        "sentence": "Tel: +91 9950742034 Email: Info@jmdeventsandflowers.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://jmdeventsandflowers.com/",
+        "sentence": "Tel: +91 9950742034 Email: Info@jmdeventsandflowers.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.902629,
+      "lng": 75.795536,
+      "confidence": 0.25,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "manhaevent.com",
+    "name": "Manha Event Decoration",
+    "category": "decorator",
+    "website": "https://manhaevent.com/",
+    "address": {
+      "line": "258, Amritpuri",
+      "locality": "Transport Nagar",
+      "city": "Jaipur"
+    },
+    "phone": "+91 99824 51750",
+    "areaServed": "All of Jaipur",
+    "summary": "Wedding decorator for mandap, stage, haldi, mehendi, sangeet and bridal entries; quotes on WhatsApp.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://manhaevent.com/",
+        "sentence": "Manha Event Decoration, based in Transport Nagar, Jaipur, designs Haldi, Mehendi, Sangeet, Mandap and bridal entry decoration across Jaipur and Rajasthan.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://manhaevent.com/",
+        "sentence": "Address 258, Amritpuri, Transport Nagar, Jaipur, Rajasthan 302003",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://manhaevent.com/",
+        "sentence": "Phone / WhatsApp +91 99824 51750",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "areaServed",
+        "kind": "ownSite",
+        "url": "https://manhaevent.com/",
+        "sentence": "We serve all major localities across Jaipur",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.904414,
+      "lng": 75.844173,
+      "confidence": 0.45,
+      "matchType": "full_match",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "theprinceevents.com",
+    "name": "The Prince Group of Events",
+    "category": "decorator",
+    "website": "https://www.theprinceevents.com/wedding-decorator",
+    "address": {
+      "line": "Plot no. 77, Dhaka Nagar",
+      "locality": "Maa Anjani Nagar",
+      "city": "Jaipur"
+    },
+    "phone": "+91 98298 10738",
+    "email": "theprincegroupofevents@gmail.com",
+    "summary": "Wedding planner with its own decor production for mandaps, stages, flowers and lighting.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://www.theprinceevents.com/wedding-decorator",
+        "sentence": "Contact Prince Group of Events today to book our luxury wedding decoration services in Jaipur and across India.",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://www.theprinceevents.com/wedding-decorator",
+        "sentence": "Plot no. 77, Dhaka Nagar, Maa Anjani Nagar, Jaipur, Rajasthan 302012",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://www.theprinceevents.com/wedding-decorator",
+        "sentence": "Contact Us +91 9829810738 theprincegroupofevents@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://www.theprinceevents.com/wedding-decorator",
+        "sentence": "Contact Us +91 9829810738 theprincegroupofevents@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.904789,
+      "lng": 75.756797,
+      "confidence": 0.5283018867924528,
+      "matchType": "full_match",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "candidlifephotography.in",
+    "name": "Candid Life Photography",
+    "category": "photographer",
+    "website": "https://candidlifephotography.in/",
+    "address": {
+      "line": "A-17, Shanti Nagar Road, Sultan Nagar",
+      "locality": "Gurjar Ki Thadi",
+      "city": "Jaipur"
+    },
+    "phone": "+91 94145 79502",
+    "summary": "Jaipur wedding and pre-wedding photography studio shooting since 2007, candid and traditional.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://candidlifephotography.in/",
+        "sentence": "Wedding Photographers in Jaipur – Candid Life Photography",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://candidlifephotography.in/",
+        "sentence": "A-17, Shanti Nagar Road Sultan Nagar, Shanthi Nagar, Gurjar Ki Thadi, Jaipur, Rajasthan 302019",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://candidlifephotography.in/",
+        "sentence": "Connect with Us +91 9414579502",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [
+      {
+        "sourceUrl": "https://candidlifephotography.in/pre-wedding-shoot-in-jaipur/",
+        "sentence": "1 Day Shoot (Only Photography) 15,000 ₹ Duration: 10 Hours",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 15000,
+          "max": 15000
+        },
+        "unit": "per_day",
+        "qualifier": "exact",
+        "inclusionsNote": "pre-wedding shoot, photography only, 10 hours",
+        "text": "₹15,000 per day (pre-wedding shoot, photos only)"
+      },
+      {
+        "sourceUrl": "https://candidlifephotography.in/pre-wedding-shoot-in-jaipur/",
+        "sentence": "1 Day Shoot(Photo+Video) 35,000 ₹ Duration: 10 Hours",
+        "seenAt": "2026-10-21",
+        "comparable": true,
+        "amount": {
+          "min": 35000,
+          "max": 35000
+        },
+        "unit": "per_day",
+        "qualifier": "exact",
+        "inclusionsNote": "pre-wedding shoot, photo and video, 10 hours",
+        "text": "₹35,000 per day (pre-wedding shoot, photo + video)"
+      }
+    ],
+    "marker": {
+      "lat": 26.8901726,
+      "lng": 75.7467207,
+      "confidence": 0.25,
+      "matchType": "match_by_city_or_disrict",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "vireshstudio.com",
+    "name": "Viresh Studio",
+    "category": "photographer",
+    "website": "https://vireshstudio.com/",
+    "address": {
+      "line": "Opposite Laxman Dongari Government School, outside Gangapol Gate",
+      "locality": "Gangapol",
+      "city": "Jaipur"
+    },
+    "phone": "+91 83850 35321",
+    "email": "vireshstudiojaipur@gmail.com",
+    "summary": "Wedding and pre-wedding photography studio near Gangapol Gate that also travels for destination weddings.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://vireshstudio.com/",
+        "sentence": "At Viresh Studio, we travel across India for destination weddings",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://vireshstudio.com/",
+        "sentence": "Contact Opposite Laxman Dongari Government School Out Side Gangapol Gate, near Khole Ke Hanuman Ji Temple, Jaipur, Rajasthan 302002",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://vireshstudio.com/",
+        "sentence": "(+91) 838 - 503 - 5321 vireshstudiojaipur@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "email",
+        "kind": "ownSite",
+        "url": "https://vireshstudio.com/",
+        "sentence": "(+91) 838 - 503 - 5321 vireshstudiojaipur@gmail.com",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.8415041,
+      "lng": 75.8013771,
+      "confidence": 0.125,
+      "matchType": "full_match",
+      "approximate": true,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  },
+  {
+    "domain": "weddingvelvet.com",
+    "name": "Wedding Velvet",
+    "category": "photographer",
+    "website": "https://weddingvelvet.com/",
+    "address": {
+      "line": "640-B, Rajapark",
+      "locality": "Raja Park",
+      "city": "Jaipur"
+    },
+    "phone": "+91 82333 32987",
+    "summary": "Raja Park studio for wedding photography and cinematography.",
+    "provenance": [
+      {
+        "field": "name",
+        "kind": "ownSite",
+        "url": "https://weddingvelvet.com/",
+        "sentence": "Wedding photographers in Jaipur - wedding velvet",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "address",
+        "kind": "ownSite",
+        "url": "https://weddingvelvet.com/",
+        "sentence": "Studio: 640-B, Rajapark, Jaipur-302004",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      },
+      {
+        "field": "phone",
+        "kind": "ownSite",
+        "url": "https://weddingvelvet.com/",
+        "sentence": "Phone: +91-8233332987 +91-98280-20903",
+        "seenAt": "2026-10-21",
+        "confirmedBy": null
+      }
+    ],
+    "factsSeenAt": "2026-10-21",
+    "source": "starterSet",
+    "listedPrices": [],
+    "marker": {
+      "lat": 26.8864225,
+      "lng": 75.796612,
+      "confidence": 1,
+      "matchType": "full_match",
+      "approximate": false,
+      "provider": "geoapify",
+      "attribution": "© OpenStreetMap contributors, Geoapify"
+    }
+  }
+]
