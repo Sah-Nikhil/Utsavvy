@@ -54,8 +54,16 @@ type Ctx = QueryCtx | MutationCtx;
 const MAX_VENDORS = 200;
 /** Current Listed prices one card shows at most. */
 const MAX_PRICES_PER_VENDOR = 50;
-/** Listed price rows (history included) read for one Vendor at most. */
-const MAX_PRICE_ROWS = 2000;
+/**
+ * Listed price rows (history included) read for one Vendor at most. In v1
+ * only `loadStarterSet` writes Listed prices, so a Vendor's history is a
+ * handful of rows, and 200 per Vendor keeps a reload of the 16 starter
+ * Vendors far under Convex's 32,000-document read limit. A longer history
+ * makes a reload fail loudly and a card say its prices were cut short.
+ * X1 (Discovery) adds price refreshes and must replace this bounded scan
+ * with an indexed identity key (page and sentence) on `listedPrices`.
+ */
+export const MAX_PRICE_ROWS = 200;
 const MAX_SHORTLISTED = 200;
 const MAX_LINKS_PER_ITEM = 50;
 const MAX_ENTRY_ROWS = 2000;
@@ -134,11 +142,14 @@ export async function loadStarterSetRows(
       continue;
     }
     existing += 1;
-    const have = new Set<string>();
-    await eachPriceRow(ctx, found._id, "asc", (row) => {
-      have.add(priceKey(row));
-      return true;
-    });
+    const { rows, complete } = await priceRows(ctx, found._id, "asc");
+    // A partial read could miss a seed price and add it twice: stop instead,
+    // and the whole reload rolls back.
+    if (!complete)
+      throw new Error(
+        `The Listed price history of ${entry.domain} is longer than ${MAX_PRICE_ROWS} rows, so the starter set can't check it for missing prices. Nothing was loaded.`,
+      );
+    const have = new Set(rows.map(priceKey));
     for (const price of listedPrices) {
       if (have.has(priceKey(price))) continue;
       await ctx.db.insert("listedPrices", {
@@ -167,40 +178,40 @@ export const loadStarterSet = internalMutation({
 // Reading shared Vendors
 
 /**
- * Visits a Vendor's Listed price rows, history included, streaming them in
- * index order until `visit` returns false or MAX_PRICE_ROWS rows have been
- * read, so no fixed page size can hide a row however long the history grows.
+ * A Vendor's Listed price rows, history included, in index order, at most
+ * MAX_PRICE_ROWS of them; `complete` is false when there were more.
  */
-async function eachPriceRow(
+async function priceRows(
   ctx: Ctx,
   vendorId: Id<"vendors">,
   order: "asc" | "desc",
-  visit: (row: Doc<"listedPrices">) => boolean,
-): Promise<void> {
-  let read = 0;
-  for await (const row of ctx.db
+): Promise<{ rows: Doc<"listedPrices">[]; complete: boolean }> {
+  const rows = await ctx.db
     .query("listedPrices")
     .withIndex("by_vendor", (q) => q.eq("vendorId", vendorId))
-    .order(order)) {
-    if (!visit(row) || ++read >= MAX_PRICE_ROWS) return;
-  }
+    .order(order)
+    .take(MAX_PRICE_ROWS + 1);
+  return rows.length > MAX_PRICE_ROWS
+    ? { rows: rows.slice(0, MAX_PRICE_ROWS), complete: false }
+    : { rows, complete: true };
 }
 
 /**
  * The current Listed prices of a Vendor, oldest first (a refresh adds rows;
- * superseded ones are history). Read newest first, so a long history of
- * superseded rows never hides the current ones.
+ * superseded ones are history), read newest first so superseded rows behind
+ * them don't crowd them out. `truncated` says the history was longer than
+ * MAX_PRICE_ROWS, so some current prices may be missing.
  */
 async function currentPrices(
   ctx: Ctx,
   vendorId: Id<"vendors">,
-): Promise<Doc<"listedPrices">[]> {
-  const current: Doc<"listedPrices">[] = [];
-  await eachPriceRow(ctx, vendorId, "desc", (row) => {
-    if (row.supersededAt === null) current.push(row);
-    return current.length < MAX_PRICES_PER_VENDOR;
-  });
-  return current.reverse();
+): Promise<{ prices: Doc<"listedPrices">[]; truncated: boolean }> {
+  const { rows, complete } = await priceRows(ctx, vendorId, "desc");
+  const prices = rows
+    .filter((row) => row.supersededAt === null)
+    .slice(0, MAX_PRICES_PER_VENDOR)
+    .reverse();
+  return { prices, truncated: !complete };
 }
 
 /**
@@ -259,6 +270,8 @@ export type VendorView = {
   listedPrices: ListedPriceView[];
   /** Shown only when no Listed price is comparable (vendors.md, "Estimates on Vendor cards"). */
   estimate: LineEstimate | null;
+  /** The price history was too long to read whole, so some Listed prices may be missing. */
+  pricesTruncated: boolean;
 };
 
 export type LinkView = {
@@ -291,7 +304,7 @@ async function vendorView(
   vendor: Doc<"vendors">,
   pricing: Pricing | null,
 ): Promise<VendorView> {
-  const prices = await currentPrices(ctx, vendor._id);
+  const { prices, truncated } = await currentPrices(ctx, vendor._id);
   const listedPrices: ListedPriceView[] = prices.map((price) => ({
     _id: price._id,
     sourceUrl: price.sourceUrl,
@@ -322,7 +335,7 @@ async function vendorView(
       pricing.asOf ?? Number.POSITIVE_INFINITY,
     );
   }
-  return { vendor, listedPrices, estimate };
+  return { vendor, listedPrices, estimate, pricesTruncated: truncated };
 }
 
 async function guestsOf(

@@ -179,7 +179,7 @@ export function VendorCard({
   actions,
   className,
 }: VendorCardProps) {
-  const { vendor, listedPrices, estimate } = view;
+  const { vendor, listedPrices, estimate, pricesTruncated } = view;
   const categoryLabel = isVendorCategory(vendor.category)
     ? CATEGORY_LABELS[vendor.category]
     : vendor.category;
@@ -289,13 +289,19 @@ export function VendorCard({
         </Section>
       ) : null}
 
-      {listedPrices.length > 0 ? (
+      {listedPrices.length > 0 || pricesTruncated ? (
         <Section label="Listed prices">
           <ul className="grid gap-2">
             {listedPrices.map((price) => (
               <ListedPriceRow key={price._id} price={price} />
             ))}
           </ul>
+          {pricesTruncated ? (
+            <p className="text-caption text-warn">
+              This Vendor's price history is too long to read whole, so some
+              Listed prices may be missing.
+            </p>
+          ) : null}
         </Section>
       ) : null}
 
