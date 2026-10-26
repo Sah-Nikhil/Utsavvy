@@ -9,15 +9,15 @@ import { buildMapStyle, MAP_TOKENS, type MapColours } from "./style";
 // Distinct made-up values, one per token, so a colour that isn't one of them
 // (or is the wrong one) shows up.
 const COLOURS: MapColours = {
-  land: "#000001",
-  water: "#000002",
-  park: "#000003",
-  road: "#000004",
-  roadMajor: "#000005",
-  building: "#000006",
-  label: "#000007",
-  labelHalo: "#000008",
-  boundary: "#000009",
+  land: "token-1",
+  water: "token-2",
+  park: "token-3",
+  road: "token-4",
+  roadMajor: "token-5",
+  building: "token-6",
+  label: "token-7",
+  labelHalo: "token-8",
+  boundary: "token-9",
 };
 const ALLOWED = new Set(Object.values(COLOURS));
 

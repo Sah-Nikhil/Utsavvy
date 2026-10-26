@@ -8,7 +8,10 @@ import {
 import { can } from "../lib/access/permissions";
 import type { MemberActor } from "../lib/types/actors";
 import type { Doc, Id } from "./_generated/dataModel";
+import starterSet from "../seed/jaipur-vendors.json";
 import {
+  env,
+  internalMutation,
   mutation,
   query,
   type MutationCtx,
@@ -17,8 +20,13 @@ import {
 import { planItemOf } from "./entries";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
-import { memberWrite } from "./lib/write";
-import { MAX_PRICE_ROWS, vendorsIn } from "./vendors";
+import { memberInsert, memberWrite } from "./lib/write";
+import {
+  loadStarterSetRows,
+  MAX_PRICE_ROWS,
+  shortlistIn,
+  vendorsIn,
+} from "./vendors";
 
 /*
  * S15: the Vendor map (docs/design/vendors.md, "Markers and the map";
@@ -311,5 +319,91 @@ export const moveMarker = mutation({
       },
       actor,
     });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Browser check
+
+function refuseOutsideLocal() {
+  const url = env.CONVEX_CLOUD_URL ?? "";
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    throw new Error("Only for a local Convex deployment");
+  }
+}
+
+/** The Shortlisted Vendors the browser check puts on the map, with their statuses. */
+const CHECK_SHORTLIST: { domain: string; status: LinkStatus }[] = [
+  { domain: "roodmahal.com", status: "quoted" },
+  { domain: "umaidhaveli.com", status: "considering" },
+  { domain: "mlcaterers.com", status: "booked" },
+  { domain: "weddingvelvet.com", status: "contacted" },
+];
+
+/**
+ * Puts an Event made by `canvas:seedLocalCheck` (and filled by
+ * `entries:seedPlanForLocalCheck`) in Jaipur with a 300-Guest sangeet, loads
+ * the starter set, puts its starter Markers back where the seed has them and
+ * shortlists four Vendors with different statuses. For e2e/map.spec.ts
+ * against `bun run dev`; refuses anything but a local deployment.
+ */
+export const seedForLocalCheck = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.null(),
+  handler: async (ctx, { eventId }) => {
+    refuseOutsideLocal();
+    const owner = (
+      await ctx.db
+        .query("memberships")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .take(50)
+    ).find((m) => m.role === "owner");
+    if (!owner) throw new Error("That Event has no Owner");
+    const actor: MemberActor = { kind: "member", membershipId: owner._id };
+
+    await loadStarterSetRows(ctx);
+    // An earlier run may have dragged a Marker into place: start from the seed.
+    for (const seed of starterSet) {
+      const vendor = await ctx.db
+        .query("vendors")
+        .withIndex("by_domain", (q) => q.eq("domain", seed.domain))
+        .first();
+      if (vendor !== null && "marker" in seed && seed.marker)
+        await ctx.db.patch("vendors", vendor._id, { marker: seed.marker });
+    }
+
+    await ctx.db.patch("events", eventId, {
+      city: {
+        name: "Jaipur",
+        tier: "Y",
+        centre: { lat: 26.9124, lng: 75.7873 },
+      },
+    });
+    const functions = await ctx.db
+      .query("eventFunctions")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(MAX_FUNCTIONS);
+    const sangeet = functions.find((fn) => fn.key === "sangeet");
+    if (sangeet)
+      await ctx.db.patch("eventFunctions", sangeet._id, { guests: 300 });
+
+    for (const { domain, status } of CHECK_SHORTLIST) {
+      const vendor = await ctx.db
+        .query("vendors")
+        .withIndex("by_domain", (q) => q.eq("domain", domain))
+        .first();
+      if (vendor === null) throw new Error(`No starter Vendor ${domain}`);
+      const { linkId } = await shortlistIn(ctx, {
+        eventId,
+        vendorId: vendor._id,
+        checklistEntryId: null,
+        functionKey: "sangeet",
+        actor,
+        insert: async (table, value) =>
+          (await memberInsert(ctx, { table, value, actor })).id,
+      });
+      await ctx.db.patch("vendorLinks", linkId, { status });
+    }
+    return null;
   },
 });
