@@ -90,44 +90,76 @@ type StarterVendor = Omit<
   >[];
 };
 
+/** A Listed price's identity across reloads: the page it was read on and its exact sentence. */
+const priceKey = (price: { sourceUrl: string; sentence: string }) =>
+  `${price.sourceUrl}
+${price.sentence}`;
+
 /**
  * Makes sure every starter Vendor exists (IMPLEMENTATION_PLAN.md section 9.2):
  * inserts a missing one, by domain, with its Listed prices, and never rewrites
- * an existing row, so a Marker a Member moved from any Event stays moved.
- * A plain function, so the demo reset can call it inside its own mutation.
+ * an existing row, so a Marker a Member moved from any Event stays moved. For
+ * an existing Vendor it adds any seed Listed price it lacks (matched by page
+ * and sentence, superseded rows included, so a refreshed price never comes
+ * back as current). A plain function, so the demo reset can call it inside
+ * its own mutation.
  */
 export async function loadStarterSetRows(
   ctx: MutationCtx,
-): Promise<{ inserted: number; existing: number }> {
+): Promise<{ inserted: number; existing: number; pricesAdded: number }> {
   let inserted = 0;
   let existing = 0;
+  let pricesAdded = 0;
   for (const entry of starterSet as unknown as StarterVendor[]) {
+    const { listedPrices, ...vendor } = entry;
     const found = await ctx.db
       .query("vendors")
       .withIndex("by_domain", (q) => q.eq("domain", entry.domain))
       .first();
-    if (found !== null) {
-      existing += 1;
+    if (found === null) {
+      const vendorId = await ctx.db.insert("vendors", {
+        ...vendor,
+        version: 1,
+      });
+      for (const price of listedPrices)
+        await ctx.db.insert("listedPrices", {
+          ...price,
+          vendorId,
+          supersededAt: null,
+        });
+      inserted += 1;
       continue;
     }
-    const { listedPrices, ...vendor } = entry;
-    const vendorId = await ctx.db.insert("vendors", { ...vendor, version: 1 });
+    existing += 1;
+    const have = new Set(
+      (
+        await ctx.db
+          .query("listedPrices")
+          .withIndex("by_vendor", (q) => q.eq("vendorId", found._id))
+          .take(MAX_PRICES_PER_VENDOR)
+      ).map(priceKey),
+    );
     for (const price of listedPrices) {
+      if (have.has(priceKey(price))) continue;
       await ctx.db.insert("listedPrices", {
         ...price,
-        vendorId,
+        vendorId: found._id,
         supersededAt: null,
       });
+      pricesAdded += 1;
     }
-    inserted += 1;
   }
-  return { inserted, existing };
+  return { inserted, existing, pricesAdded };
 }
 
 /** `bunx convex run vendors:loadStarterSet` loads the starter set once; the demo reset calls it too. */
 export const loadStarterSet = internalMutation({
   args: {},
-  returns: v.object({ inserted: v.number(), existing: v.number() }),
+  returns: v.object({
+    inserted: v.number(),
+    existing: v.number(),
+    pricesAdded: v.number(),
+  }),
   handler: async (ctx) => await loadStarterSetRows(ctx),
 });
 
