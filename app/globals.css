@@ -86,6 +86,14 @@
 
   --animate-orb-drift: orb-drift 7s linear infinite;
   --animate-point-ring: point-ring 1.4s var(--ease-emphasized) 0.15s 3;
+  /*
+   * Selecting a Vendor Marker (components/map/MarkerStamp.tsx): the rangoli
+   * petals bloom out and pool back into the stamp, which swells a little as
+   * they land; the ring then comes in (a transition on the ring). About 600 ms
+   * in all; with reduced motion the petals are hidden and the ring appears.
+   */
+  --animate-stamp-petals: stamp-petals 600ms var(--ease-emphasized) both;
+  --animate-stamp-pool: stamp-pool 600ms var(--ease-standard) both;
 }
 
 @theme inline {
@@ -555,6 +563,34 @@
   100% {
     opacity: 0;
     box-shadow: 0 0 0 10px var(--point);
+  }
+}
+
+@keyframes stamp-petals {
+  0% {
+    opacity: 0;
+    transform: scale(0.45) rotate(-35deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.1) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.15) rotate(20deg);
+  }
+}
+
+@keyframes stamp-pool {
+  0%,
+  55% {
+    transform: scale(1);
+  }
+  75% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 

@@ -13,14 +13,21 @@ import {
  * default, in the look Sah-Nikhil picked on 27 Oct: a hand-stamped motif
  * (option B) in the status colour, each status in its own shape, with the
  * category's line drawing inside. An approximate Marker is the same stamp,
- * hollow. The selected one opens rangoli petals and a dotted ring around it
- * (option A).
+ * hollow.
+ *
+ * Selecting it (on the map, by keyboard or from the list) plays option A's
+ * rangoli frame as Sah-Nikhil asked on 27 Oct: the petals bloom out and pool
+ * back into the stamp, then a ring comes around it, dotted when the Marker is
+ * approximate and solid when it's exact. The ring stays while selected and
+ * fades out when deselected. All CSS (keyframes and a transition in
+ * app/globals.css), restarted by data-selected. With reduced motion or
+ * Ornaments off there are no petals and the ring comes in at once.
  *
  * The block-print touches are ornaments: the slightly misregistered second
- * impression, the uneven ink, the dotted inner line of an approximate stamp,
- * the petals and the dotted ring. With the Ornaments setting off they go and
- * the shape, its colour and a plain selection ring stay. The stamp sits on
- * the Vendor's point (anchored at its centre).
+ * impression, the uneven ink, the dotted inner line of an approximate stamp
+ * and the petals. With the Ornaments setting off they go and the shape, its
+ * colour and the selection ring stay. The stamp sits on the Vendor's point
+ * (anchored at its centre).
  */
 
 /** The category drawings, simplified from CategoryIllustration to read at 14 px. */
@@ -61,12 +68,6 @@ const CATEGORY_GLYPHS: Record<string, ReactNode> = {
 
 /** Eight rangoli petals around the 32 px box's centre. */
 const PETALS = Array.from({ length: 8 }, (_, i) => i * 45);
-/** Twelve kolam dots on a ring just outside the stamp. */
-const DOTS = Array.from({ length: 12 }, (_, i) => {
-  const t = (i * Math.PI) / 6;
-  return [16 + 18.6 * Math.cos(t), 16 + 18.6 * Math.sin(t)] as const;
-});
-
 const ORNAMENT = "ornaments-off:hidden";
 
 export function MarkerStamp({
@@ -92,8 +93,9 @@ export function MarkerStamp({
     <span
       data-marker-tone={tone}
       data-approximate={approximate || undefined}
+      data-selected={selected || undefined}
       className={cn(
-        "relative grid place-items-center",
+        "group/mark relative grid place-items-center",
         TONE_CLASS[tone],
         className,
       )}
@@ -108,54 +110,53 @@ export function MarkerStamp({
           selected && "scale-115",
         )}
       >
-        {selected ? (
-          <>
-            <g
-              data-ornament="petals"
-              className={cn(
-                ORNAMENT,
-                "origin-[16px_16px] animate-in duration-700 ease-emphasized fade-in zoom-in-50 spin-in-[-30deg]",
-              )}
-            >
-              {PETALS.map((angle) => (
-                <path
-                  key={angle}
-                  d="M16 -3Q21 -9 16 -16Q11 -9 16 -3Z"
-                  transform={`rotate(${angle} 16 16)`}
-                  fill="currentColor"
-                  fillOpacity={0.12}
-                  stroke="currentColor"
-                  strokeWidth={1}
-                  strokeOpacity={0.7}
-                />
-              ))}
-            </g>
-            <g data-ornament="dot-ring" className={ORNAMENT}>
-              {DOTS.map(([cx, cy]) => (
-                <circle
-                  key={`${cx.toFixed(2)},${cy.toFixed(2)}`}
-                  cx={cx.toFixed(2)}
-                  cy={cy.toFixed(2)}
-                  r={1.05}
-                  fill="currentColor"
-                  fillOpacity={0.75}
-                />
-              ))}
-            </g>
-            <circle
-              data-plain-ring
-              cx="16"
-              cy="16"
-              r="19"
-              fill="none"
+        {/* Petals: invisible at rest, bloom and pool when selected. */}
+        <g
+          data-ornament="petals"
+          className={cn(
+            ORNAMENT,
+            "opacity-0 [transform-box:fill-box] origin-center motion-reduce:hidden",
+            "group-data-selected/mark:animate-stamp-petals",
+          )}
+        >
+          {PETALS.map((angle) => (
+            <path
+              key={angle}
+              d="M16 -3Q21 -9 16 -16Q11 -9 16 -3Z"
+              transform={`rotate(${angle} 16 16)`}
+              fill="currentColor"
+              fillOpacity={0.14}
               stroke="currentColor"
-              strokeWidth={1.75}
-              className="hidden ornaments-off:inline"
+              strokeWidth={1}
+              strokeOpacity={0.75}
             />
-          </>
-        ) : null}
+          ))}
+        </g>
+        {/* The ring: dotted for an approximate Marker, solid for an exact one. */}
+        <circle
+          data-selection-ring={approximate ? "dotted" : "solid"}
+          cx="16"
+          cy="16"
+          r="19"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={approximate ? 2.4 : 1.75}
+          strokeLinecap="round"
+          strokeDasharray={approximate ? "0.01 4.2" : undefined}
+          className={cn(
+            "[transform-box:fill-box] origin-center",
+            // Leaving: fades and widens quickly.
+            "scale-[1.3] opacity-0 transition-[opacity,scale] duration-(--dur-exit) ease-emphasized-accelerate",
+            // Arriving: after the petals have pooled into the stamp.
+            "group-data-selected/mark:scale-100 group-data-selected/mark:opacity-100 group-data-selected/mark:delay-[340ms] group-data-selected/mark:duration-(--dur-arrival) group-data-selected/mark:ease-emphasized",
+            "motion-reduce:delay-0! ornaments-off:delay-0!",
+          )}
+        />
         {/* The uneven, hand-pressed ink (the filter is defined once, in MapCanvas). */}
-        <g className="[filter:url(#map-ink)] ornaments-off:[filter:none]">
+        <g
+          data-stamp-body
+          className="[transform-box:fill-box] origin-center [filter:url(#map-ink)] group-data-selected/mark:animate-stamp-pool ornaments-off:[filter:none]"
+        >
           <path
             data-ornament="misregistration"
             d={shape}

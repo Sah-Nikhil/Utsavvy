@@ -112,8 +112,8 @@ describe("MarkerStamp", () => {
     expect(tagWith(idle, "data-selection-ring")).toContain(
       'data-selection-ring="dotted"',
     );
-    expect(idle).not.toContain("data-selected");
-    expect(stamp({ selected: true })).toContain("data-selected");
+    expect(idle).not.toMatch(/ data-selected="/);
+    expect(stamp({ selected: true })).toMatch(/ data-selected="true"/);
   });
 
   it("blooms the petals and pools them into the Marker on selection, with the ring after them", () => {
