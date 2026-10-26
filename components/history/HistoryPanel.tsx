@@ -60,6 +60,8 @@ const PROBLEMS: Record<HistoryProblem, string> = {
     "The Canvas already has 30 custom Sections. Delete one, then restore this.",
   sectionNotEmpty:
     "That Section still holds Items, so it stays. Move or delete them first.",
+  markerMovedSince:
+    "That Marker has been moved since, perhaps from another Event, so it stays where it is now.",
 };
 
 function restoreProblem(error: unknown): string {
