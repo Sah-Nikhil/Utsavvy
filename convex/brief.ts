@@ -35,7 +35,14 @@ import {
   nextQuestion,
   OPENING_LINE,
 } from "../lib/brief/questions";
-import { planLines, pricePlan } from "../lib/pricing";
+import { type LineEstimate, planLines, pricePlan } from "../lib/pricing";
+import {
+  type BudgetFix,
+  budgetCheckFixes,
+  type FixDraft,
+  fixLineKeys,
+  skippableFunctions,
+} from "../lib/pricing/budgetCheckFixes";
 import { cityTier } from "../lib/pricing/table";
 import {
   type Assumption,
@@ -67,6 +74,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
+  cachedOrTableEstimate,
   type EstimateCtx,
   type EstimateDeps,
   estimateLines,
@@ -934,6 +942,8 @@ const briefChangeValidator = v.union(
   }),
   v.object({ field: v.literal("styleWords"), styleWords: v.array(v.string()) }),
   v.object({ field: v.literal("assumptionConfirmed"), assumption: v.string() }),
+  // A previewed Budget check fix (X12): skip one Function before the plan.
+  v.object({ field: v.literal("dropFunction"), functionKey: v.string() }),
 );
 
 /** A whole number from 1 up to the Brief's limit for it (BRIEF_LIMITS, M2). */
@@ -1014,6 +1024,12 @@ export const editField = mutation({
         kind: "AfterThePlan",
         message: "Change the Function on the Timeline instead.",
       });
+    }
+    if (change.field === "dropFunction") {
+      await dropFunction(ctx, event, rows, change.functionKey);
+      await syncFunctions(ctx, eventId, actor);
+      await startBudgetCheck(ctx, eventId);
+      return null;
     }
 
     const extraction = { ...event.brief.extraction };
@@ -1137,8 +1153,160 @@ export const editField = mutation({
   },
 });
 
+/**
+ * Skips one Function, the fewer-Functions fix (X12). Only before the plan:
+ * afterwards the Functions are the Canvas's. The Event's own Function (the
+ * wedding itself, a birthday party), a Ganesh utsav's rituals and the last
+ * Function are never skipped.
+ *
+ * `eventFunctions` has no soft delete, so the row goes; its Assumptions go
+ * with the `syncFunctions` that follows, which records the Brief's change in
+ * the Event's history.
+ */
+async function dropFunction(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  rows: Doc<"eventFunctions">[],
+  functionKey: string,
+): Promise<void> {
+  if (event.briefState !== "summary") {
+    throw new ConvexError({
+      kind: "AfterThePlan",
+      message:
+        event.briefState === "intake"
+          ? "Finish the Brief first."
+          : "Change the Functions on the Timeline instead.",
+    });
+  }
+  const row = rows.find((r) => r.key === functionKey);
+  if (!row) throw new ConvexError({ kind: "NotFound", what: "function" });
+  const draft = fixDraftOf(event, rows, istDay(Date.now()));
+  if (
+    draft === null ||
+    !skippableFunctions(draft).some((fn) => fn.key === functionKey)
+  ) {
+    throw new ConvexError({
+      kind: "BadAnswer",
+      message: `The ${row.name.toLowerCase()} stays in the plan.`,
+    });
+  }
+  await ctx.db.delete("eventFunctions", row._id);
+}
+
 // ---------------------------------------------------------------------------
 // The Budget check
+
+/** The children at a child's party, from the Assumption `syncFunctions` reads. */
+function childrenOf(brief: Brief): number | null {
+  const match = brief.assumptions
+    .find((a) => a.field === "children")
+    ?.value.match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+/**
+ * The Brief as `budgetCheckFixes` reads it: what `syncFunctions` passes to
+ * `assumeFunctionDetails`, and the Functions the Budget check prices.
+ */
+function fixDraftOf(
+  event: Doc<"events">,
+  rows: Doc<"eventFunctions">[],
+  today: string,
+): FixDraft | null {
+  const brief = event.brief;
+  if (brief === null) return null;
+  const { extraction } = brief;
+  return {
+    details: {
+      eventType: event.eventType,
+      date: extraction.date,
+      guests: extraction.guests ?? 0,
+      tradition: extraction.tradition,
+      honoree: extraction.honoree,
+      communityKind: extraction.communityKind,
+      functionKeys: rows.map((row) => row.key),
+      children: childrenOf(brief),
+      today,
+    },
+    functions: rows
+      .filter((row) => row.date !== null && row.guests !== null)
+      .map((row) => ({
+        key: row.key,
+        name: row.name,
+        date: row.date!,
+        guests: row.guests!,
+        assumed: row.assumed as ("date" | "guests")[],
+      })),
+    assumptions: brief.assumptions,
+  };
+}
+
+/**
+ * The previewed fixes for a budget below the minimum (X12). A query can't
+ * search or call a model, so every range comes from what the Budget check
+ * left behind: the city's cached research, else the reference table, the same
+ * per-unit ranges the check priced with. `now` is the start of the client's
+ * day in India, so the query isn't re-run on every render.
+ */
+async function budgetFixesOf(
+  ctx: QueryCtx,
+  event: Doc<"events">,
+  rows: Doc<"eventFunctions">[],
+  today: string,
+): Promise<BudgetFix[]> {
+  const draft = fixDraftOf(event, rows, today);
+  if (draft === null || event.city === null || event.budgetTotal === null)
+    return [];
+  const now = Date.parse(`${today}T00:00:00+05:30`);
+  const keyOf = (line: { category: string; unit: string }) =>
+    `${line.category}\u0000${line.unit}`;
+  const ranges = new Map<string, LineEstimate | null>();
+  for (const line of fixLineKeys(draft)) {
+    ranges.set(
+      keyOf(line),
+      await cachedOrTableEstimate(
+        ctx,
+        event.city.name,
+        event.city.tier,
+        line.category,
+        line.unit,
+        now,
+      ),
+    );
+  }
+  const rangeFor = (line: { category: string; unit: string }) =>
+    ranges.get(keyOf(line)) ?? null;
+  const lines = briefLines({
+    eventType: event.eventType,
+    tradition: event.tradition,
+    functions: draft.functions,
+    assumptions: draft.assumptions,
+    guests: draft.details.guests ?? 0,
+  });
+  return budgetCheckFixes(draft, planLines(lines).map(rangeFor), {
+    budget: event.budgetTotal,
+    contingencyShare: event.contingencyShare,
+    rangeFor,
+  });
+}
+
+const fixValidator = v.object({
+  kind: v.union(v.literal("fewerGuests"), v.literal("fewerFunctions")),
+  label: v.string(),
+  detail: v.union(v.string(), v.null()),
+  preview: v.string(),
+  minimum: v.number(),
+  fits: v.boolean(),
+  short: v.number(),
+  change: v.union(
+    v.object({
+      field: v.literal("guests"),
+      functionKey: v.null(),
+      guests: v.number(),
+    }),
+    v.object({ field: v.literal("dropFunction"), functionKey: v.string() }),
+  ),
+});
 
 const planLinesValidator = v.object({
   functions: v.array(
@@ -1449,6 +1617,8 @@ const summaryValidator = v.object({
     v.null(),
   ),
   canPlanAnyway: v.boolean(),
+  /** The previewed fixes beside "Raise the budget", fewer Guests first (X12). */
+  fixes: v.array(fixValidator),
 });
 
 /**
@@ -1550,6 +1720,12 @@ export const summary = query({
       checking: event.briefState === "summary" && stored === null,
       budgetCheck,
       canPlanAnyway: budgetCheck?.band === "belowMinimum",
+      fixes:
+        event.briefState === "summary" &&
+        budgetCheck?.band === "belowMinimum" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(today)
+          ? await budgetFixesOf(ctx, event, rows, today)
+          : [],
     };
   },
 });

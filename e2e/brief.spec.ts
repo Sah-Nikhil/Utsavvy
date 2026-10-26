@@ -91,7 +91,28 @@ test.describe("the first Brief", () => {
       summary.locator('[data-brief-function="cultural_night"]'),
     ).toContainText("400");
 
+    // X12 (#69): the previewed fixes beside "Raise the budget", worked out
+    // from the Budget check's ranges.
+    const fixes = summary.locator("[data-budget-fixes]");
+    const skip = fixes.getByRole("button", { name: /Skip the cultural night/ });
+    await expect(skip).toContainText("New minimum about ₹1.9L, which fits.");
+    await expect(
+      fixes.getByRole("button", { name: /Plan for 250 Guests instead of 400/ }),
+    ).toContainText("still about ₹2,000 short");
+
     await expectNoSeriousA11yViolations(page);
+
+    // Tapping a fix edits the Brief; the Budget check runs again and the flag goes.
+    await skip.click();
+    await expect(summary.locator("[data-budget-flag]")).toHaveCount(0, {
+      timeout: 60_000,
+    });
+    await expect(
+      summary.locator('[data-brief-function="cultural_night"]'),
+    ).toHaveCount(0);
+    await expect(
+      summary.getByRole("button", { name: "Make my plan" }),
+    ).toBeVisible();
     expect(cspViolations).toEqual([]);
   });
 });

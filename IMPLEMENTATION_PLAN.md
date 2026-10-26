@@ -86,7 +86,7 @@ If a build day slips, these sub-features move to SHOULD first, in this order. No
 
 1. Comments on highlighted passages (Comments on Items and Entries stay), from S8. **Moved to SHOULD on 2026-10-21** (X10), to make room for S20.
 2. Grouped "Undo all" (per-change Restore stays), from S6. **Moved to SHOULD on 2026-10-21** (X11), to make room for S20.
-3. The three previewed fixes in the Budget check (the flag, "raise the budget" and "Plan at my budget anyway" stay), from S11. **Moved to SHOULD on 2026-10-22** (X12), to make room for the estimate cascade in S3.
+3. The three previewed fixes in the Budget check (the flag, "raise the budget" and "Plan at my budget anyway" stay), from S11. **Moved to SHOULD on 2026-10-22** (X12), to make room for the estimate cascade in S3. **Built back on 2026-10-26** (X12, #69): `budgetCheckFixes` in `lib/pricing/budgetCheckFixes.ts`.
 4. Presence avatars on Items (the header dots stay), from S2.
 5. The Function filter, from S2.
 6. Compact mode's "by Function" grouping ("by kind" stays), from S16.
@@ -103,7 +103,7 @@ These are consequences of the scope above, not new decisions. Short "Amended by"
 - **No Remix from a screenshot of a Reference** (inspirations.md rule 14, corrected 2026-10-21). This first matters with X3b.
 - **Google places are the way to look beyond the starter set in v1** (S20). They stay Google's: the Canvas keeps only the place ID and the Member's note, and nothing from them reaches a Vendor, a Marker, the Chat or the Assistant ([ADR 0011](docs/adr/0011-google-places-only-through-the-places-ui-kit.md)).
 - **The model label** always shows `claude-sonnet-5-5` (or the fallback setting) until Event keys exist.
-- **The Budget check offers two ways forward in v1**: "Raise the budget" (to the minimum) and "Plan at my budget anyway". The fewer-Guests and fewer-Functions fixes with their previewed minimums are X12.
+- **The Budget check offers two ways forward in v1**: "Raise the budget" (to the minimum) and "Plan at my budget anyway". The fewer-Guests and fewer-Functions fixes with their previewed minimums are X12. Built back on 2026-10-26 (X12, #69): before the plan, a budget below the minimum also gets "Plan for N Guests instead of M" and "Skip the <Function>", each previewing its new minimum and saying whether it fits. The previews are priced in the Brief summary's query from the cached or reference-table ranges, so they spend no search and no model call. Fewer Guests lowers the Brief's own Guest count, and every assumed Function count follows it, as an edit to the Brief does; skipping never removes the Event's own Function, a Ganesh utsav's sthapana, daily aarti or visarjan, or the last Function.
 
 ## 3. Conflicts between the design docs, resolved
 
