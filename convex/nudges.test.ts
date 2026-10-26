@@ -372,9 +372,83 @@ describe("the post-write hook", () => {
     ]);
   });
 
-  // S12 (#45) is still open, so its Quote path is tested through the typed
-  // amount above (IMPLEMENTATION_PLAN.md section 10). Add this once S12 merges.
-  it.skip("schedules the check when api.quotes.useAsAmount sets a line's amount from a Quote", () => {});
+  it("schedules the check when api.quotes.useAsAmount sets a line's amount from a Quote", async () => {
+    const s = await setUp();
+    await s.t.mutation(internal.vendors.loadStarterSet, {});
+    // A caterer on the Vendor checklist that pays for the Caterer line.
+    const checklistEntry = await s.t.run(async (ctx) => {
+      const actor = { kind: "member" as const, membershipId: s.people.Meera };
+      const checklist = await ctx.db.insert("items", {
+        eventId: s.eventId,
+        sectionId: s.sections.money,
+        kind: "checklist",
+        position: { x: 0, y: 1200 },
+        size: null,
+        functionKey: null,
+        data: { note: null },
+        createdBy: actor,
+        version: 1,
+        deletedAt: null,
+      });
+      return await ctx.db.insert("entries", {
+        eventId: s.eventId,
+        itemId: checklist,
+        kind: "checklist",
+        order: 0,
+        functionKey: null,
+        fields: {
+          vendorCategory: "caterer",
+          freeLabel: null,
+          functionKeys: [],
+          bookByEntryId: null,
+          budgetEntryIds: [s.caterer],
+        },
+        assumed: [],
+        createdBy: actor,
+        version: 1,
+        deletedAt: null,
+      });
+    });
+    const vendor = await s.t.run((ctx) =>
+      ctx.db
+        .query("vendors")
+        .withIndex("by_domain", (q) =>
+          q.eq("domain", "vinayakfoodsncatering.in"),
+        )
+        .unique(),
+    );
+    const { linkId } = await s.as("Rohan").mutation(api.vendors.shortlist, {
+      eventId: s.eventId,
+      vendorId: vendor!._id,
+      checklistEntryId: checklistEntry,
+    });
+    const { quoteId } = await s.as("Rohan").action(api.quotes.add, {
+      linkId,
+      amount: 285_000,
+      unit: "total",
+      functionKeys: [],
+      guests: null,
+      receivedAt: null,
+      note: null,
+    });
+    await s.as("Rohan").mutation(api.vendors.setLinkStatus, {
+      linkId,
+      status: "booked",
+    });
+    await settle(s);
+    // Neither the Quote nor the booking changed an amount, so no Nudge yet.
+    expect(await nudgeLines(s)).toEqual([]);
+
+    await s.as("Aditi").mutation(api.quotes.useAsAmount, {
+      entryId: s.caterer,
+      quoteId,
+    });
+    expect(await checksScheduled(s)).toBe(1);
+    await settle(s);
+    expect(await nudgeLines(s)).toEqual([
+      "The Budget is now ₹40,000 over. Want me to suggest cuts?",
+    ]);
+  });
 
   it("schedules nothing for a Note edit or a write to anything else", async () => {
     const s = await setUp();

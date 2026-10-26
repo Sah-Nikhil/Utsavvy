@@ -38,6 +38,7 @@ import {
   refuse,
   resolveChanges,
 } from "./assistant/tools/propose";
+import { describeAddQuote } from "./assistant/tools/quotes";
 import { once } from "./lib/idempotency";
 import { memberWrite } from "./lib/write";
 import { checkQueueRoom, enqueueRun } from "./runs";
@@ -908,7 +909,7 @@ async function describeChange(
       return `Budget total ${from === null ? "not set" : formatINR(from)} → ${formatINR(change.values.budgetTotal)}`;
     }
     case "addQuote":
-      return `Add a Quote of ${formatINR(change.values.amount)}`;
+      return await describeAddQuote(ctx, change);
     case "updateTheme":
       return "Update the Theme";
     case "changeEssential":
