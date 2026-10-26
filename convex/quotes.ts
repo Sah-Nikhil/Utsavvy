@@ -405,6 +405,17 @@ export const useAsAmount = mutation({
     if (entry.kind !== "budget" || entry.deletedAt !== null)
       quoteRefused("That budget line was deleted.");
     const link = await loadLink(ctx, quote.linkId);
+    // The yes answers an ask made for a Booked link's current Quote; refuse
+    // it when either has moved on since, so an old price is never used.
+    if (link.eventId !== entry.eventId) notFound("quote");
+    if (link.status !== "booked")
+      quoteRefused(
+        "That Vendor is no longer Booked for this Entry, so its Quote wasn't used. Nothing changed.",
+      );
+    if ((await currentQuote(ctx, link._id))?._id !== quoteId)
+      quoteRefused(
+        "A newer Quote came in for this Vendor since you were asked, so nothing changed. Check the newer Quote first.",
+      );
     const checklist = await checklistEntryOf(ctx, link);
     const lines = checklist === null ? [] : await linesPaidBy(ctx, checklist);
     const compared = comparedEntries(quote, lines);
@@ -415,6 +426,8 @@ export const useAsAmount = mutation({
         `That Quote covers ${compared.length} budget lines. Type each line's amount yourself.`,
       );
     const plannedAmount = quoteForEntries(quote, lines);
+    // Already that amount (a second tap, a retry): no write, no history row, no hook.
+    if (entry.fields.plannedAmount === plannedAmount) return { plannedAmount };
     const actor: MemberActor = { kind: "member", membershipId: membership._id };
     await memberWrite(ctx, {
       table: "entries",

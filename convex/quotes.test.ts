@@ -778,6 +778,89 @@ describe("booking with a Quote", () => {
     expect(list.ask).toBeNull();
   });
 
+  async function askedFor(s: Setup) {
+    await quoted(s);
+    await setStatus(s, "booked");
+    const { ask } = await s
+      .as("Meera")
+      .query(api.quotes.listForLink, { linkId: s.linkId });
+    return ask!;
+  }
+
+  it("refuses a stale yes when a newer Quote arrived after the ask, writing nothing", async () => {
+    const s = await setUp();
+    const ask = await askedFor(s);
+    await s.as("Rohan").action(api.quotes.add, {
+      linkId: s.linkId,
+      ...formQuote,
+      amount: 900,
+    });
+    await expect(
+      s.as("Meera").mutation(api.quotes.useAsAmount, {
+        entryId: ask.entryId,
+        quoteId: ask.quoteId,
+      }),
+    ).rejects.toThrow(/newer Quote/);
+    const entry = await entryOf(s, s.sangeetCatering);
+    expect(entry.fields.plannedAmount).toBeNull();
+    expect(entry.version).toBe(1);
+  });
+
+  it("refuses a stale yes when the Vendor was dropped (or is no longer Booked) after the ask", async () => {
+    const s = await setUp();
+    const ask = await askedFor(s);
+    await setStatus(s, "dropped", "Rohan");
+    await expect(
+      s.as("Meera").mutation(api.quotes.useAsAmount, {
+        entryId: ask.entryId,
+        quoteId: ask.quoteId,
+      }),
+    ).rejects.toThrow(/no longer Booked/);
+    await setStatus(s, "quoted", "Rohan");
+    await expect(
+      s.as("Meera").mutation(api.quotes.useAsAmount, {
+        entryId: ask.entryId,
+        quoteId: ask.quoteId,
+      }),
+    ).rejects.toThrow(/no longer Booked/);
+    expect((await entryOf(s, s.sangeetCatering)).version).toBe(1);
+  });
+
+  it("writes once: a second yes leaves the version, the history and the Nudge check as they were", async () => {
+    const s = await setUp();
+    const ask = await askedFor(s);
+    const yes = () =>
+      s.as("Meera").mutation(api.quotes.useAsAmount, {
+        entryId: ask.entryId,
+        quoteId: ask.quoteId,
+      });
+    const changesOf = () =>
+      s.t.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("changes")
+              .withIndex("by_doc", (q) => q.eq("docId", s.sangeetCatering))
+              .collect()
+          ).length,
+      );
+    const checks = () =>
+      s.t.run(
+        async (ctx) =>
+          (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+            (job) => job.name === "nudges:check",
+          ).length,
+      );
+    expect(await yes()).toEqual({ plannedAmount: 285_000 });
+    const after = await entryOf(s, s.sangeetCatering);
+    const changes = await changesOf();
+    const scheduled = await checks();
+    expect(await yes()).toEqual({ plannedAmount: 285_000 });
+    expect((await entryOf(s, s.sangeetCatering)).version).toBe(after.version);
+    expect(await changesOf()).toBe(changes);
+    expect(await checks()).toBe(scheduled);
+  });
+
   it("never changes the planned amount on its own: adding, pasting, accepting and booking leave it as it was", async () => {
     const s = await setUp();
     await s.t.run(async (ctx) => {
