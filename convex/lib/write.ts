@@ -59,6 +59,8 @@ type WriteOptions = {
   /**
    * The history group a Member's writes belong to, such as one Undo all (X11).
    * Ignored for the Assistant, whose group is always its run or Proposal.
+   * Approved as a contract change on 2026-10-26 (#120). Only server code sets
+   * it; never spread a client's arguments into these options.
    */
   groupKey?: string | null;
 };

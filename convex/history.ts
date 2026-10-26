@@ -755,11 +755,25 @@ export const restore = mutation({
       change.eventId,
       "history.restore",
     );
-    const outcome = await putBack(ctx, change, membership, {});
+    // Restoring one row of an Undo all is a one-row redo: it joins that Undo
+    // all's chain, so the reply's own Undo all can still finish later.
+    const fromUndo = change.groupKey !== null && isUndoKey(change.groupKey);
+    const group: GroupOptions = fromUndo
+      ? {
+          groupKey: newUndoKey(change.groupKey!),
+          groupLabel: undoLabel(change.groupKey!, change.groupLabel),
+        }
+      : {};
+    const outcome = await putBack(ctx, change, membership, group);
     if (outcome.kind === "refused") refuse(outcome.problem);
     if (outcome.kind === "denied")
       throw new AccessDenied(outcome.reason, outcome.action);
-    if (outcome.changed) await reopenUndone(ctx, [change]);
+    if (outcome.changed && fromUndo) {
+      await ctx.db.patch("changes", change._id, {
+        undoneBy: outcome.changeId,
+      });
+      await reopenUndone(ctx, [change]);
+    }
     return { changed: outcome.changed };
   },
 });
@@ -767,34 +781,66 @@ export const restore = mutation({
 // ---------------------------------------------------------------------------
 // Undo all (X11)
 
-/** The prefix of an Undo all's history group: `undo:<the group it undid>`. */
+/**
+ * An Undo all's history group is `undo:<tap>:<the group it undid>`: one group
+ * per tap, so undo, redo and undo again show as three groups, while the group
+ * it undid can still be read back from the key.
+ */
 const UNDO_PREFIX = "undo:";
 /** The most later changes to one document Undo all looks through. */
 const LATER_MAX = 100;
+/**
+ * Roughly how many documents one Undo all tap reads before it stops and asks
+ * for another tap, well under Convex's per-mutation read limit. The changes
+ * it already undid stay undone, so the next tap carries on where it stopped.
+ */
+const READ_BUDGET = 8000;
+/** Reads per change besides its later history: the row, its Event, hooks. */
+const READS_PER_CHANGE = 8;
+/** Items every plan keeps; delete their Entries instead (as `deleteItemOp`). */
+const PLAN_ITEM_KINDS: readonly string[] = ["budget", "timeline", "checklist"];
+
+function isUndoKey(key: string): boolean {
+  return parentOf(key) !== null;
+}
+
+/** The group an Undo all's group undid, or null for any other group. */
+function parentOf(key: string): string | null {
+  if (!key.startsWith(UNDO_PREFIX)) return null;
+  const rest = key.slice(UNDO_PREFIX.length);
+  const colon = rest.indexOf(":");
+  return colon <= 0 ? null : rest.slice(colon + 1);
+}
+
+/** A fresh group key for one Undo all tap on `parent`. */
+function newUndoKey(parent: string): string {
+  const tap = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `${UNDO_PREFIX}${tap}:${parent}`;
+}
+
+/** How many Undo alls deep a group is: 0 for a reply, 1 for its undo, 2 for a redo. */
+function undoDepth(key: string): number {
+  let depth = 0;
+  for (let k: string | null = key; k !== null && isUndoKey(k); k = parentOf(k))
+    depth++;
+  return depth;
+}
 
 /** Whether `key` is `groupKey` or an Undo all of it, or of that, and so on. */
 function inUndoChain(key: string | null, groupKey: string): boolean {
-  if (key === null) return false;
-  if (key === groupKey) return true;
-  return (
-    key.startsWith(UNDO_PREFIX) &&
-    inUndoChain(key.slice(UNDO_PREFIX.length), groupKey)
-  );
+  for (let k = key; k !== null; k = parentOf(k)) {
+    if (k === groupKey) return true;
+  }
+  return false;
 }
 
 /**
- * The history label of an Undo all: "Undo all of Plan the sangeet", and
- * "Redo Plan the sangeet" when it undoes an Undo all.
+ * The history label of an Undo all of `groupKey`: "Undo all of Plan the
+ * sangeet", and "Redo Plan the sangeet" when it undoes an Undo all.
  */
 function undoLabel(groupKey: string, label: string | null): string {
-  let depth = 1;
-  let key = groupKey;
-  while (key.startsWith(UNDO_PREFIX)) {
-    depth++;
-    key = key.slice(UNDO_PREFIX.length);
-  }
   const base = (label ?? "").replace(/^(Undo all of |Redo )/, "");
-  if (depth % 2 === 0) return base ? `Redo ${base}` : "Redo";
+  if (undoDepth(groupKey) % 2 === 1) return base ? `Redo ${base}` : "Redo";
   return base ? `Undo all of ${base}` : "Undo all";
 }
 
@@ -809,8 +855,8 @@ async function reopenUndone(
 ): Promise<void> {
   const byParent = new Map<string, Set<Id<"changes">>>();
   for (const change of changes) {
-    if (change.groupKey?.startsWith(UNDO_PREFIX) !== true) continue;
-    const parent = change.groupKey.slice(UNDO_PREFIX.length);
+    const parent = change.groupKey === null ? null : parentOf(change.groupKey);
+    if (parent === null) continue;
     const ids = byParent.get(parent) ?? new Set();
     ids.add(change._id);
     byParent.set(parent, ids);
@@ -853,9 +899,60 @@ function plainName(table: HistoryTable, doc: Fields): string {
 }
 
 /**
+ * Whether Undo all may delete this row again: an Item other than the plan's
+ * Budget, Timeline and Vendor checklist, an Entry other than a Contingency or
+ * Unallocated line, or a custom Section. Deleting anything else has its own
+ * rules elsewhere.
+ */
+function canTakeBack(table: string, doc: Fields | null): boolean {
+  if (doc === null) return false;
+  switch (table) {
+    case "items":
+      return !PLAN_ITEM_KINDS.includes(doc.kind as string);
+    case "entries": {
+      const role = ((doc.fields ?? {}) as Fields).role;
+      return role !== "contingency" && role !== "unallocated";
+    }
+    case "sections":
+      return doc.kind === "custom";
+    default:
+      return false;
+  }
+}
+
+/** Whether undoing this change deletes its row again rather than putting values back. */
+function deletesAgain(change: Doc<"changes">): boolean {
+  if (change.op === "create") return true;
+  return isRestorable(change) && wouldDelete(change, restorableFields(change));
+}
+
+/** Whether Undo all can ever undo this change, whatever happens later. */
+function undoable(change: Doc<"changes">): boolean {
+  if (change.table === "memberships") return false;
+  if (deletesAgain(change))
+    return canTakeBack(change.table, (change.after ?? null) as Fields | null);
+  return isRestorable(change) && restorableFields(change).length > 0;
+}
+
+/** Whether this change's earlier state is already back, by whoever put it there. */
+async function alreadyBack(
+  ctx: MutationCtx,
+  change: Doc<"changes">,
+): Promise<boolean> {
+  const doc = (await ctx.db.get(
+    change.table as HistoryTable,
+    change.docId as Id<HistoryTable>,
+  )) as Fields | null;
+  if (doc === null) return false;
+  if (deletesAgain(change)) return doc.deletedAt != null;
+  const before = change.before as Fields;
+  return restorableFields(change).every((f) => sameValue(doc[f], before[f]));
+}
+
+/**
  * Deletes again a row the change added (or brought back), as a soft delete
- * through `memberSoftDelete`, so Restore can bring it back. Only Items,
- * Entries and empty custom Sections: deleting anything else has its own rules.
+ * through `memberSoftDelete`, so Restore can bring it back. Only what
+ * `canTakeBack` allows, and a custom Section only once it is empty.
  */
 async function takeBack(
   ctx: MutationCtx,
@@ -871,12 +968,12 @@ async function takeBack(
   if (doc === null) return { kind: "refused", problem: "gone" };
   if (!belongsTo(table, doc, change.eventId))
     return { kind: "denied", reason: "wrongEvent", action: "history.restore" };
+  if (!canTakeBack(table, doc))
+    return { kind: "refused", problem: "notRestorable" };
   if (doc.deletedAt !== null)
     return { kind: "done", changed: false, changeId: null };
 
   if (table === "sections") {
-    if (doc.kind !== "custom")
-      return { kind: "refused", problem: "notRestorable" };
     for await (const item of ctx.db
       .query("items")
       .withIndex("by_section", (q) =>
@@ -924,9 +1021,11 @@ const undoResultValidator = v.object({
  * Assistant reply or accepted Proposal changed, newest first, as one new
  * history group of the Member's own changes, reusing Restore's rules per
  * change. A row the reply added is deleted again. Anything someone else edited
- * after the reply is skipped and named in the message. Each change undone is
- * marked with `undoneBy`, so a second tap undoes nothing new. Members only,
- * like Restore; the Event comes from the stored rows, never from the caller.
+ * after the reply is skipped and named in the message, unless its earlier
+ * state is already back. Each change undone is marked with `undoneBy`, so a
+ * second tap undoes nothing new. Changes it can never undo (a shared Vendor,
+ * a Function, the plan's own Items) are named. Members only, like Restore;
+ * the Event comes from the stored rows, never from the caller.
  */
 export const undoGroup = mutation({
   args: { groupKey: v.string() },
@@ -942,24 +1041,41 @@ export const undoGroup = mutation({
     const { membership } = await requireAccess(ctx, eventId, "history.restore");
     const changes = rows.filter((r) => r.eventId === eventId);
     const group: GroupOptions = {
-      groupKey: `${UNDO_PREFIX}${groupKey}`,
+      groupKey: newUndoKey(groupKey),
       groupLabel: undoLabel(
         groupKey,
         changes.find((c) => c.groupLabel !== null)?.groupLabel ?? null,
       ),
     };
+    const redo = undoDepth(groupKey) % 2 === 1;
 
     const membershipOf = cached((id: Id<"memberships">) =>
       ctx.db.get("memberships", id),
     );
     let undone = 0;
     let already = 0;
-    let blocked = 0;
+    let reads = 0;
+    let unread = 0;
     const edited = new Map<string, string[]>();
+    /** Newest first; reversed for the message. */
+    const cannot: string[] = [];
     const putBackNow: Doc<"changes">[] = [];
+    const nameOfChange = (change: Doc<"changes">) =>
+      plainName(
+        change.table as HistoryTable,
+        (change.after ?? change.before ?? {}) as Fields,
+      );
     for (const change of changes) {
       if (change.undoneBy !== null) {
         already++;
+        continue;
+      }
+      if (!undoable(change)) {
+        cannot.push(nameOfChange(change));
+        continue;
+      }
+      if (reads > READ_BUDGET) {
+        unread++;
         continue;
       }
       // Someone outside this reply (and its undos) changed the row since.
@@ -969,23 +1085,29 @@ export const undoGroup = mutation({
           q.eq("docId", change.docId).gt("_creationTime", change._creationTime),
         )
         .take(LATER_MAX);
+      reads += later.length + READS_PER_CHANGE;
       const other = later.find((r) => !inUndoChain(r.groupKey, groupKey));
       if (other !== undefined) {
+        if (await alreadyBack(ctx, change)) {
+          // Put back by hand (a per-change Restore): count it as undone.
+          undone++;
+          await ctx.db.patch("changes", change._id, {
+            undoneBy: await latestChangeOf(ctx, change.docId),
+          });
+          continue;
+        }
         const who = await whoOf(other.actor, membershipOf, eventId);
-        const doc = (change.after ?? change.before ?? {}) as Fields;
         const names = edited.get(who) ?? [];
-        names.push(plainName(change.table as HistoryTable, doc));
+        names.push(nameOfChange(change));
         edited.set(who, names);
         continue;
       }
 
-      const restorable = isRestorable(change) ? restorableFields(change) : [];
-      const outcome =
-        change.op === "create" || wouldDelete(change, restorable)
-          ? await takeBack(ctx, change, membership, group)
-          : await putBack(ctx, change, membership, group);
+      const outcome = deletesAgain(change)
+        ? await takeBack(ctx, change, membership, group)
+        : await putBack(ctx, change, membership, group);
       if (outcome.kind !== "done") {
-        blocked++;
+        cannot.push(nameOfChange(change));
         continue;
       }
       undone++;
@@ -998,27 +1120,37 @@ export const undoGroup = mutation({
     await reopenUndone(ctx, putBackNow);
 
     const total = changes.length;
+    const verb = redo ? "Redid" : "Undid";
     const parts = [
       undone > 0 || already === 0
-        ? `Undid ${undone} of ${total}`
-        : already === total
-          ? "Already undone"
-          : "Nothing more to undo",
+        ? `${verb} ${undone} of ${total}`
+        : edited.size === 0 && unread === 0
+          ? redo
+            ? "Already redone"
+            : "Already undone"
+          : redo
+            ? "Nothing more to redo"
+            : "Nothing more to undo",
     ];
     for (const [who, names] of edited)
-      parts.push(`${who} has since edited ${listWords(names)}`);
-    if (blocked > 0)
+      parts.push(`${who} has since edited ${listWords(names.reverse())}`);
+    if (cannot.length > 0)
+      parts.push(`${listWords(cannot.reverse())} can't be undone here`);
+    if (unread > 0)
       parts.push(
-        `${blocked} ${blocked === 1 ? "change" : "changes"} can't be undone`,
+        `${unread} more ${unread === 1 ? "change" : "changes"} left: press again to carry on`,
       );
+    if (rows.length === GROUP_COUNT_MAX)
+      parts.push(`only the newest ${GROUP_COUNT_MAX} changes were looked at`);
     return { undone, total, message: parts.join("; ") };
   },
 });
 
 /**
  * What the Undo all button shows for one group: whether this person may
- * press it and how many changes are still to undo. Null when the group has
- * no changes (a reply that only talked) or the caller isn't in its Event.
+ * press it and how many changes it can still undo. Null when the group has
+ * nothing Undo all could ever undo (a reply that only talked) or the caller
+ * isn't in its Event.
  */
 export const groupStatus = query({
   args: { groupKey: v.string() },
@@ -1041,9 +1173,11 @@ export const groupStatus = query({
       throw error;
     }
     const changes = rows.filter((r) => r.eventId === eventId);
+    const undoableRows = changes.filter(undoable);
+    if (undoableRows.length === 0) return null;
     return {
       canUndo: can(role, "history.restore"),
-      left: changes.filter((c) => c.undoneBy === null).length,
+      left: undoableRows.filter((c) => c.undoneBy === null).length,
       total: changes.length,
     };
   },

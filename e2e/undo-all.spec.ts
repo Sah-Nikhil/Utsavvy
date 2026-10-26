@@ -99,8 +99,8 @@ test.describe("Undo all, seeded on a local deployment", () => {
     await page.screenshot({ path: testInfo.outputPath("history-desktop.png") });
 
     // Undoing the undo brings the Note back.
-    await undoGroup.getByRole("button", { name: /^Undo all/ }).click();
-    await expect(panel.getByRole("status")).toContainText("Undid 1 of 1.");
+    await undoGroup.getByRole("button", { name: /^Redo/ }).click();
+    await expect(panel.getByRole("status")).toContainText("Redid 1 of 1.");
     await page.keyboard.press("Escape");
     await expect(itemNode(page, noteId)).toBeVisible({ timeout: 10_000 });
 

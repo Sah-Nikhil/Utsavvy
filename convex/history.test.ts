@@ -928,6 +928,16 @@ describe("undoGroup (X11)", () => {
     ).length;
   }
 
+  /** The history group of the Event's newest change, such as the last Undo all. */
+  async function newestGroupKey(ctx: MutationCtx, eventId: Id<"events">) {
+    const row = await ctx.db
+      .query("changes")
+      .withIndex("by_event_at", (q) => q.eq("eventId", eventId))
+      .order("desc")
+      .first();
+    return row!.groupKey!;
+  }
+
   /** Rohan sets the Sangeet DJ line to ₹25,000 after the reply. */
   async function rohanEditsTheDj(
     ctx: MutationCtx,
@@ -973,7 +983,13 @@ describe("undoGroup (X11)", () => {
       t
         .withIdentity(identityFor("papa"))
         .mutation(api.history.undoGroup, { groupKey: s.runId }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      data: {
+        kind: "AccessDenied",
+        reason: "notAllowed",
+        action: "history.restore",
+      },
+    });
 
     const after = await t.run(async (ctx) => ({
       amounts: await plannedAmounts(ctx, s.lines),
@@ -995,7 +1011,13 @@ describe("undoGroup (X11)", () => {
       t
         .withIdentity(identityFor("stranger"))
         .mutation(api.history.undoGroup, { groupKey: s.runId }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      data: {
+        kind: "AccessDenied",
+        reason: "notAMember",
+        action: "history.restore",
+      },
+    });
 
     const amounts = await t.run((ctx) => plannedAmounts(ctx, s.lines));
     expect(amounts).toEqual(Array(8).fill(20_000));
@@ -1008,7 +1030,9 @@ describe("undoGroup (X11)", () => {
       t
         .withIdentity(identityFor("meera"))
         .mutation(api.history.undoGroup, { groupKey: "no-such-group" }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      data: { kind: "HistoryRefused", problem: "notFound" },
+    });
   });
 
   it("does nothing new on a second tap, and says so", async () => {
@@ -1199,9 +1223,9 @@ describe("undoGroup (X11)", () => {
     await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
 
     const redo = await meera.mutation(api.history.undoGroup, {
-      groupKey: `undo:${s.runId}`,
+      groupKey: await t.run((ctx) => newestGroupKey(ctx, s.eventId)),
     });
-    expect(redo.message).toBe("Undid 8 of 8");
+    expect(redo.message).toBe("Redid 8 of 8");
     expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
       Array(8).fill(20_000),
     );
@@ -1215,6 +1239,180 @@ describe("undoGroup (X11)", () => {
     expect(again.message).toBe("Undid 8 of 8");
     expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
       Array(8).fill(10_000),
+    );
+  });
+
+  it("keeps each tap as its own history group, so undo, redo and undo again read as three", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+    const firstUndo = await t.run((ctx) => newestGroupKey(ctx, s.eventId));
+    await meera.mutation(api.history.undoGroup, { groupKey: firstUndo });
+    const redo = await t.run((ctx) => newestGroupKey(ctx, s.eventId));
+    await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+    const secondUndo = await t.run((ctx) => newestGroupKey(ctx, s.eventId));
+
+    expect(new Set([firstUndo, redo, secondUndo]).size).toBe(3);
+    expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
+      Array(8).fill(10_000),
+    );
+    const { page } = await meera.query(api.history.list, {
+      eventId: s.eventId,
+      paginationOpts: firstPage,
+    });
+    const titles = [
+      ...new Set(
+        page
+          .filter((r) => r.groupKey !== null && r.groupKey !== s.runId)
+          .map((r) => `${r.groupKey}|${r.groupTitle}`),
+      ),
+    ].map((key) => key.split("|")[1]);
+    expect(titles).toEqual([
+      "Meera: Undo all of Plan the sangeet (8 changes)",
+      "Meera: Redo Plan the sangeet (8 changes)",
+      "Meera: Undo all of Plan the sangeet (8 changes)",
+    ]);
+  });
+
+  it("lets Undo all finish after a Restore of one of its own rows (probe P1)", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+    const undoRow = await t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("changes")
+          .withIndex("by_doc", (q) => q.eq("docId", s.lines[0]!))
+          .order("desc")
+          .first())!,
+    );
+    await meera.mutation(api.history.restore, { changeId: undoRow._id });
+    expect(await t.run((ctx) => plannedAmounts(ctx, [s.lines[0]!]))).toEqual([
+      20_000,
+    ]);
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 1, total: 8 });
+
+    const again = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(again.message).toBe("Undid 1 of 8");
+    expect(await t.run((ctx) => plannedAmounts(ctx, [s.lines[0]!]))).toEqual([
+      10_000,
+    ]);
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 0, total: 8 });
+  });
+
+  it("counts a change someone already Restored by hand as undone, not as edited since (probe P2)", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const caterer = await t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("changes")
+          .withIndex("by_doc", (q) => q.eq("docId", s.lines[1]!))
+          .first())!,
+    );
+    await t
+      .withIdentity(identityFor("rohan"))
+      .mutation(api.history.restore, { changeId: caterer._id });
+
+    const meera = t.withIdentity(identityFor("meera"));
+    const result = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(result.message).toBe("Undid 8 of 8");
+    expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
+      Array(8).fill(10_000),
+    );
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 0, total: 8 });
+  });
+
+  it("names what it can never undo, keeps plan Items and Contingency lines, and lets the button reach Undone", async () => {
+    const t = newTest();
+    const s = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      const common = {
+        runId: s.runId,
+        forMembershipId: s.meera,
+        groupLabel: "Plan the sangeet",
+      };
+      await assistantInsert(ctx, {
+        ...common,
+        table: "eventFunctions",
+        toolCallId: "toolu_04",
+        value: {
+          eventId: s.eventId,
+          key: "sangeet",
+          name: "Sangeet",
+          date: null,
+          guests: null,
+          assumed: [],
+          order: 0,
+        },
+      });
+      const { id: timelineId } = await assistantInsert(ctx, {
+        ...common,
+        table: "items",
+        toolCallId: "toolu_05",
+        value: {
+          eventId: s.eventId,
+          sectionId: s.sections.money,
+          kind: "timeline",
+          position: { x: 400, y: 0 },
+          size: null,
+          functionKey: null,
+          data: { note: null },
+          createdBy: { kind: "member", membershipId: s.meera },
+        },
+      });
+      const { id: contingencyId } = await assistantInsert(ctx, {
+        ...common,
+        table: "entries",
+        toolCallId: "toolu_06",
+        value: {
+          eventId: s.eventId,
+          itemId: s.budgetId,
+          kind: "budget",
+          order: 9,
+          functionKey: null,
+          fields: { ...line("Contingency", 30_000), role: "contingency" },
+          assumed: [],
+          createdBy: { kind: "member", membershipId: s.meera },
+        },
+      });
+      return { ...s, timelineId, contingencyId };
+    });
+    const meera = t.withIdentity(identityFor("meera"));
+
+    const first = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(first.message).toBe(
+      "Undid 8 of 11; Sangeet, the Timeline and Contingency can't be undone here",
+    );
+    const kept = await t.run(async (ctx) => ({
+      timeline: await ctx.db.get("items", s.timelineId),
+      contingency: await ctx.db.get("entries", s.contingencyId),
+    }));
+    expect(kept.timeline?.deletedAt).toBeNull();
+    expect(kept.contingency?.deletedAt).toBeNull();
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 0, total: 11 });
+
+    const second = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(second.message).toBe(
+      "Already undone; Sangeet, the Timeline and Contingency can't be undone here",
     );
   });
 

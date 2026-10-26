@@ -35,6 +35,16 @@ function problemOf(error: unknown): string {
 }
 
 /**
+ * Whether this group is a redo: an Undo all's history group is
+ * `undo:<tap>:<the group it undid>`, so an odd number of those prefixes means
+ * pressing the button puts the reply back.
+ */
+function isRedo(groupKey: string): boolean {
+  const prefixes = /^(?:undo:[^:]+:)+/.exec(groupKey)?.[0] ?? "";
+  return (prefixes.match(/undo:/g)?.length ?? 0) % 2 === 1;
+}
+
+/**
  * Undo all (assistant-behavior.md rule 18), under an Assistant reply in the
  * Chat and on its group in the history. It puts back everything the reply
  * changed as new changes, skips anything someone edited since, and says so
@@ -51,6 +61,7 @@ export function UndoAllButton({ groupKey, label, onDone }: UndoAllButtonProps) {
   } | null>(null);
 
   if (!status?.canUndo) return null;
+  const redo = isRedo(groupKey);
 
   async function onUndo() {
     setBusy(true);
@@ -87,7 +98,7 @@ export function UndoAllButton({ groupKey, label, onDone }: UndoAllButtonProps) {
         {result ? null : (
           <span className="flex h-8 items-center gap-1 px-2 text-caption text-ink-3">
             <Undo2 aria-hidden className="size-3.5" />
-            Undone
+            {redo ? "Redone" : "Undone"}
           </span>
         )}
         {inline}
@@ -105,7 +116,7 @@ export function UndoAllButton({ groupKey, label, onDone }: UndoAllButtonProps) {
         data-undo-all={groupKey}
       >
         <Undo2 />
-        {busy ? "Undoing…" : "Undo all"}
+        {busy ? (redo ? "Redoing…" : "Undoing…") : redo ? "Redo" : "Undo all"}
         {label ? <VisuallyHidden>: {label}</VisuallyHidden> : null}
       </Button>
       {inline}
