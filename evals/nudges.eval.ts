@@ -20,8 +20,8 @@ import { wedding, type Seeded } from "./harness";
  *
  *   EVAL_LIVE=1 ANTHROPIC_API_KEY=... bun run eval evals/nudges.eval.ts
  *
- * S12 (Quotes) is still open, so the Nudge case pushes the Budget over with a
- * typed amount instead of a Quote (IMPLEMENTATION_PLAN.md section 10).
+ * The Nudge case pushes the Budget over with a typed amount; its twin does
+ * the same with a Quote used as the line's amount (S12).
  */
 
 const LIVE = process.env.EVAL_LIVE === "1";
@@ -161,9 +161,78 @@ describe("scripted cases", () => {
     }
   });
 
-  // Add once S12 (#45) merges: the same case with a Quote used as the line's
-  // amount through api.quotes.useAsAmount instead of the typed ₹2,85,000.
-  it.skip("Nudge: a Quote used as the caterer's amount through api.quotes.useAsAmount pushes the Budget over", () => {});
+  it("Nudge: a Quote used as the caterer's amount through api.quotes.useAsAmount pushes the Budget over", async () => {
+    const t = newTest();
+    agentTest.register(t);
+    const seeded: Seeded = await t.run(NUDGE_SEED);
+    const caterer = seeded.entries.Caterer!;
+    await t.mutation(internal.vendors.loadStarterSet, {});
+    const asAditi = t.withIdentity(identityFor("Aditi"));
+    // The caterer on the Vendor checklist pays for the Caterer line.
+    const checklistEntry = await t.run((ctx) =>
+      ctx.db.insert("entries", {
+        eventId: seeded.eventId,
+        itemId: seeded.items.checklist,
+        kind: "checklist",
+        order: 0,
+        functionKey: null,
+        fields: {
+          vendorCategory: "caterer",
+          freeLabel: null,
+          functionKeys: ["sangeet"],
+          bookByEntryId: null,
+          budgetEntryIds: [caterer],
+        },
+        assumed: [],
+        createdBy: { kind: "member", membershipId: seeded.members.Meera },
+        version: 1,
+        deletedAt: null,
+      }),
+    );
+    const vendor = await t.run((ctx) =>
+      ctx.db
+        .query("vendors")
+        .withIndex("by_domain", (q) =>
+          q.eq("domain", "vinayakfoodsncatering.in"),
+        )
+        .unique(),
+    );
+    const { linkId } = await asAditi.mutation(api.vendors.shortlist, {
+      eventId: seeded.eventId,
+      vendorId: vendor!._id,
+      checklistEntryId: checklistEntry,
+    });
+    const { quoteId } = await asAditi.action(api.quotes.add, {
+      linkId,
+      amount: 285_000,
+      unit: "total",
+      functionKeys: ["sangeet"],
+      guests: 300,
+      receivedAt: null,
+      note: null,
+    });
+    await asAditi.mutation(api.vendors.setLinkStatus, {
+      linkId,
+      status: "booked",
+    });
+    // The Quote and the booking change no amount on their own.
+    expect(await plannedOf(t, caterer)).toBeNull();
+
+    await asAditi.mutation(api.quotes.useAsAmount, {
+      entryId: caterer,
+      quoteId,
+    });
+    expect(await plannedOf(t, caterer)).toBe(285_000);
+    const [nudge] = await until(
+      () => t.run((ctx) => ctx.db.query("nudges").collect()),
+      (rows) => rows.length > 0 && rows[0]!.messageId !== null,
+    );
+    await t.finishInProgressScheduledFunctions();
+    expect(nudge!.trigger).toBe("budgetOver");
+    expect(await chatTexts(t, seeded.eventId)).toContain(
+      "The Budget is now ₹40,000 over. Want me to suggest cuts?",
+    );
+  });
 
   it("@Utsavvy on a Venue card: Aditi asks in a Comment and the answer arrives in the thread", async () => {
     const t = newTest();

@@ -1,13 +1,16 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { referenceTableBasis } from "../lib/pricing";
 import type { EntryFields } from "../lib/types/canvas";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import type { ToolResult } from "./assistant/tools/core";
+import { runProposeQuote } from "./assistant/tools/quotes";
+import type { AssistantToolCtx } from "./assistant/agent";
 import { createStartingSections } from "./canvas";
+import { stubCalls } from "./lib/models";
 import { istDay } from "./lib/time";
 import {
   identityFor,
@@ -551,12 +554,10 @@ describe("a Quote pasted from WhatsApp", () => {
 
     // Nothing is saved until a Member accepts.
     expect(await quotesOf(s)).toEqual([]);
-    const card = await s
-      .as("Papa")
-      .query(api.proposals.get, {
-        eventId: s.eventId,
-        proposalId: proposal!._id,
-      });
+    const card = await s.as("Papa").query(api.proposals.get, {
+      eventId: s.eventId,
+      proposalId: proposal!._id,
+    });
     expect(card.lines).toEqual([
       "Quote from Vinayak Foods & Catering: ₹950/plate for 300 Guests at the Sangeet (₹2,85,000), live counters extra",
     ]);
@@ -839,5 +840,99 @@ describe("api.quotes.budgetComparison", () => {
         .as("Outsider")
         .query(api.quotes.budgetComparison, { eventId: s.eventId }),
     ).rejects.toThrow(/AccessDenied/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("the proposeQuote tool", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  function toolCtx(s: Setup, runId: Id<"runs">) {
+    return {
+      runQuery: s.t.query,
+      runMutation: s.t.mutation,
+      runAction: s.t.action,
+      runId,
+      eventId: s.eventId,
+      forMembershipId: s.people.Rohan,
+    } as unknown as AssistantToolCtx;
+  }
+
+  it("reads the pasted message on the helper model only as outside content, and finds the only caterer", async () => {
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    const s = await setUp();
+    const runId = await pastedRequest(s);
+    const result = await runProposeQuote(
+      toolCtx(s, runId),
+      { category: "caterer" },
+      "call_tool",
+    );
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const [proposal] = await proposalsOf(s);
+    expect(proposal!.changes[0]!.values).toMatchObject({
+      amount: 950,
+      unit: "per_plate",
+      guests: 300,
+      functionKeys: ["sangeet"],
+      note: "live counters extra",
+    });
+    // The extraction call saw the paste inside a labelled block, never bare.
+    const call = stubCalls.at(-1)!;
+    const user = call.prompt
+      .filter((message) => message.role === "user")
+      .flatMap((message) =>
+        typeof message.content === "string"
+          ? [message.content]
+          : message.content.map((part) =>
+              part.type === "text" ? part.text : "",
+            ),
+      )
+      .join("\n");
+    expect(user).toBe(
+      '<outside_content source="pasted text" added_by="Rohan">\nVeg 950/plate for 300 pax, live counters extra\n</outside_content>',
+    );
+    expect(call.responseFormat).toMatchObject({
+      type: "json",
+      name: "QuoteExtraction",
+    });
+  });
+
+  it("asks which Vendor when several could have sent it, and proposes nothing", async () => {
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    const s = await setUp();
+    const ml = await s.t.run((ctx) =>
+      ctx.db
+        .query("vendors")
+        .withIndex("by_domain", (q) => q.eq("domain", "mlcaterers.com"))
+        .unique(),
+    );
+    await s.as("Meera").mutation(api.vendors.shortlist, {
+      eventId: s.eventId,
+      vendorId: ml!._id,
+      checklistEntryId: s.caterer,
+    });
+    const runId = await pastedRequest(s);
+    const result = await runProposeQuote(
+      toolCtx(s, runId),
+      { category: "caterer" },
+      "call_tool",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "whichVendor" });
+    expect((result as { message: string }).message).toContain("M L Caterers");
+    expect(await proposalsOf(s)).toEqual([]);
+  });
+
+  it("proposes nothing when the message gives no price", async () => {
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    const s = await setUp();
+    const runId = await pastedRequest(s, "Will confirm the menu tomorrow");
+    const result = await runProposeQuote(
+      toolCtx(s, runId),
+      { linkId: s.linkId },
+      "call_tool",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "noPrice" });
+    expect(await proposalsOf(s)).toEqual([]);
   });
 });
