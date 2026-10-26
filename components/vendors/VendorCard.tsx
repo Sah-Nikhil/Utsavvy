@@ -298,7 +298,7 @@ export function VendorCard({
           </ul>
           {pricesTruncated ? (
             <p className="text-caption text-warn">
-              This Vendor's price history is too long to read whole, so some
+              This Vendor&rsquo;s price history is too long to read whole, so some
               Listed prices may be missing.
             </p>
           ) : null}
