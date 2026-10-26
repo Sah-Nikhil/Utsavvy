@@ -253,6 +253,78 @@ describe("internal.vendors.loadStarterSet", () => {
 
 // ---------------------------------------------------------------------------
 
+// Review of #122 round 2, Medium 2: a Vendor with 50+ older Listed price rows.
+describe("a Vendor with a long Listed price history", () => {
+  it("reloads idempotently past 50 older rows, and its card shows the current prices", async () => {
+    const t = newTest();
+    await t.mutation(internal.vendors.loadStarterSet, {});
+    const ml = await vendorByDomain(t, "mlcaterers.com");
+    const seedRows = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("listedPrices")
+        .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
+        .collect();
+      for (const row of rows) await ctx.db.delete("listedPrices", row._id);
+      // 50 older, superseded prices from before the seed's were first added.
+      for (let i = 0; i < 50; i++)
+        await ctx.db.insert("listedPrices", {
+          vendorId: ml._id,
+          sourceUrl: "https://mlcaterers.com/old",
+          sentence: `Old menu ${i}: Rs ${500 + i} per plate`,
+          seenAt: "2025-01-01",
+          comparable: true,
+          amount: { min: 500 + i, max: 500 + i },
+          unit: "per_plate",
+          qualifier: "exact",
+          text: `₹${500 + i} per plate`,
+          supersededAt: 1,
+        });
+      return rows.length;
+    });
+    const older = await t.run((ctx) =>
+      ctx.db
+        .query("listedPrices")
+        .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
+        .collect(),
+    );
+
+    expect(await t.mutation(internal.vendors.loadStarterSet, {})).toEqual({
+      inserted: 0,
+      existing: 16,
+      pricesAdded: seedRows,
+    });
+    expect(await t.mutation(internal.vendors.loadStarterSet, {})).toEqual({
+      inserted: 0,
+      existing: 16,
+      pricesAdded: 0,
+    });
+
+    const after = await t.run((ctx) =>
+      ctx.db
+        .query("listedPrices")
+        .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
+        .collect(),
+    );
+    expect(after).toHaveLength(50 + seedRows);
+    for (const row of older)
+      expect(after.find((p) => p._id === row._id)).toEqual(row);
+    expect(await vendorByDomain(t, "mlcaterers.com")).toEqual(ml);
+
+    const seeded = await setup(t);
+    const found = await as(t, seeded).query(api.vendors.findKnown, {
+      eventId: seeded.eventId,
+      category: "caterer",
+      functionKey: "sangeet",
+    });
+    const card = found.vendors.find((v) => v.vendor._id === ml._id)!;
+    expect(card.listedPrices.map((p) => p.text)).toEqual([
+      "₹850 per plate (Silver package)",
+      "₹1,350 per plate (Gold package)",
+      "₹1,950 per plate (Platinum package)",
+    ]);
+  });
+});
+
 describe("api.vendors.findKnown", () => {
   it("shows the Event's city's starter caterers, including ones with only an area served", async () => {
     const t = newTest();
