@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { expectNoSeriousA11yViolations } from "./axe";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./fixtures";
 
 /**
@@ -304,9 +305,18 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
   }) => {
     const dir = process.env.E2E_MAP_SHOTS;
     test.skip(!dir, "Set E2E_MAP_SHOTS=<dir> to save the review screenshots");
-    test.setTimeout(180_000);
+    test.setTimeout(240_000);
     mkdirSync(dir!, { recursive: true });
     await seededEvent(page, signIn);
+    const marker = (sheet: Locator, name: string) =>
+      sheet.locator(`[data-marker-id][aria-label^="${name},"]`);
+    /** Selects a Marker on the map and lets the bloom and ring finish. */
+    const select = async (sheet: Locator, name: string) => {
+      await marker(sheet, name).click();
+      // Off the Marker, so its hover tag doesn't show in the picture.
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(900);
+    };
     for (const [label, size] of [
       ["desktop", { width: 1440, height: 900 }],
       ["390", { width: 390, height: 844 }],
@@ -315,13 +325,13 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       const sheet = await openMap(page, label === "390");
       await page.waitForTimeout(3_000); // the tiles
       await page.screenshot({ path: `${dir}/jaipur-city-${label}.png` });
-      // An approximate Marker selected on the map, at city zoom.
-      await sheet
-        .locator('[data-marker-id][aria-label^="Rood Mahal,"]')
-        .click();
-      await page.waitForTimeout(1_000); // the petals open
+      await select(sheet, "Rood Mahal");
       await page.screenshot({
-        path: `${dir}/jaipur-city-selected-${label}.png`,
+        path: `${dir}/jaipur-selected-approximate-${label}.png`,
+      });
+      await select(sheet, "Wedding Velvet");
+      await page.screenshot({
+        path: `${dir}/jaipur-selected-exact-${label}.png`,
       });
       await sheet
         .locator("[data-list-vendor]")
@@ -329,6 +339,7 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
         .click();
       await page.waitForTimeout(800);
       await sheet.getByRole("button", { name: "Zoom in" }).click();
+      await page.mouse.move(2, 2);
       await page.waitForTimeout(3_000);
       await page.screenshot({ path: `${dir}/jaipur-street-${label}.png` });
       await page.keyboard.press("Escape");
@@ -336,15 +347,54 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       await expect(sheet).toBeHidden();
     }
 
-    // The same view with the Ornaments setting off: flat colours and shapes.
+    // The selection, frozen at three moments: petals blooming, pooling into
+    // the stamp, and the dotted ring in place.
     await page.setViewportSize({ width: 1440, height: 900 });
+    // Let the workspace switch back from the phone layout first.
+    await expect(
+      page.getByRole("navigation", { name: "Workspace" }),
+    ).toBeHidden();
+    await page.waitForTimeout(800);
+    let sheet = await openMap(page);
+    await page.waitForTimeout(3_000);
+    const rood = marker(sheet, "Rood Mahal");
+    const box = (await rood.boundingBox())!;
+    const clip = {
+      x: box.x + box.width / 2 - 70,
+      y: box.y + box.height / 2 - 70,
+      width: 140,
+      height: 140,
+    };
+    await rood.click();
+    await page.evaluate(() =>
+      document.getAnimations().forEach((a) => a.pause()),
+    );
+    await page.mouse.move(2, 2);
+    for (const [n, ms] of [
+      [1, 200],
+      [2, 420],
+      [3, 900],
+    ] as const) {
+      await page.evaluate((t) => {
+        for (const a of document.getAnimations()) a.currentTime = t;
+      }, ms);
+      await page.screenshot({ path: `${dir}/anim-${n}-${ms}ms.png`, clip });
+    }
+    await page.evaluate(() =>
+      document.getAnimations().forEach((a) => a.play()),
+    );
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+
+    // The same view with the Ornaments setting off: flat colours and shapes,
+    // and the ring without petals.
     await page.evaluate(() => {
       document.documentElement.dataset.ornaments = "off";
     });
-    const sheet = await openMap(page);
+    sheet = await openMap(page);
     await page.waitForTimeout(3_000);
-    await sheet.locator('[data-marker-id][aria-label^="Rood Mahal,"]').click();
-    await page.waitForTimeout(600);
+    await select(sheet, "Rood Mahal");
     await page.screenshot({ path: `${dir}/jaipur-ornaments-off-desktop.png` });
   });
 });
