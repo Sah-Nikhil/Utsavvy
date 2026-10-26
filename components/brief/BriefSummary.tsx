@@ -773,6 +773,23 @@ function BudgetCheckPanel({
 
       {below && editable ? (
         <div className="flex flex-col gap-2">
+          {brief.fixes.length > 0 ? (
+            <ul
+              aria-label="Ways to fit the budget"
+              className="flex flex-col gap-2"
+              data-budget-fixes
+            >
+              {brief.fixes.map((fix) => (
+                <li key={fix.kind}>
+                  <BudgetFixButton
+                    fix={fix}
+                    disabled={edit.busy}
+                    onApply={() => void edit.run(fix.change)}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <Button
             size="lg"
             disabled={edit.busy}
@@ -794,6 +811,56 @@ function BudgetCheckPanel({
         </p>
       ) : null}
     </section>
+  );
+}
+
+type BudgetFix = BriefSummaryData["fixes"][number];
+
+/**
+ * One previewed fix (X12): what it changes and its new minimum, worked out in
+ * code from the Budget check's ranges. Tapping it edits the Brief, and the
+ * Budget check runs again.
+ */
+function BudgetFixButton({
+  fix,
+  disabled,
+  onApply,
+}: {
+  fix: BudgetFix;
+  disabled: boolean;
+  onApply: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onApply}
+      data-budget-fix={fix.kind}
+      className={cn(
+        "state-layer flex w-full flex-col gap-1 rounded-md border border-rule-strong bg-surface px-3.5 py-2.5 text-left",
+        "transition-[border-color,border-radius] duration-(--dur-feedback) ease-standard hover:border-ink-2 active:rounded-sm",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
+        "disabled:cursor-not-allowed disabled:opacity-40",
+      )}
+    >
+      <span className="text-label font-semibold text-ink">{fix.label}</span>
+      {fix.detail ? (
+        <span className="text-caption text-ink-3">{fix.detail}</span>
+      ) : null}
+      <span
+        className={cn(
+          "flex items-center gap-1.5 text-caption",
+          fix.fits ? "text-ink-2" : "text-warn",
+        )}
+      >
+        {fix.fits ? (
+          <Check aria-hidden className="size-3.5 shrink-0 text-action" />
+        ) : (
+          <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
+        )}
+        {fix.preview}
+      </span>
+    </button>
   );
 }
 
