@@ -35,6 +35,26 @@ export const CATEGORY_PLURALS: Record<VendorCategory, string> = {
   photographer: "photographers",
 };
 
+/** A Shortlisted Vendor's link to one checklist Entry moves through these. */
+export type LinkStatus =
+  "considering" | "contacted" | "quoted" | "booked" | "dropped";
+
+export const LINK_STATUSES: readonly LinkStatus[] = [
+  "considering",
+  "contacted",
+  "quoted",
+  "booked",
+  "dropped",
+];
+
+export const LINK_STATUS_LABELS: Record<LinkStatus, string> = {
+  considering: "Considering",
+  contacted: "Contacted",
+  quoted: "Quoted",
+  booked: "Booked",
+  dropped: "Dropped",
+};
+
 // ---------------------------------------------------------------------------
 // The Chat card
 

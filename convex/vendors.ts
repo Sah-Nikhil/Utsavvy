@@ -69,14 +69,6 @@ export const linkStatusValidator = v.union(
 );
 export type LinkStatus = Infer<typeof linkStatusValidator>;
 
-export const LINK_STATUS_LABELS: Record<LinkStatus, string> = {
-  considering: "Considering",
-  contacted: "Contacted",
-  quoted: "Quoted",
-  booked: "Booked",
-  dropped: "Dropped",
-};
-
 function notFound(what: string): never {
   throw new ConvexError({ kind: "NotFound", what });
 }
@@ -595,6 +587,7 @@ export const forItem = query({
     return {
       view,
       linkable,
+      city: event.city?.name ?? null,
       canManage: can(membership.role, "vendor.manage"),
     };
   },
