@@ -90,3 +90,67 @@ describe("asksForStatus", () => {
     expect(asksForStatus(text, status, target)).toBe(false);
   });
 });
+
+// Review of #122, round 2: a name reference is the full distinctive name.
+const GANESH: AskTarget = {
+  name: "Ganesh Dal Bati Churma",
+  category: "caterer",
+  cardPosition: 4,
+  cardCount: 4,
+  entryLabel: "Caterer",
+};
+const VINAYAK: AskTarget = {
+  name: "Vinayak Foods & Catering",
+  category: "caterer",
+  cardPosition: 2,
+  cardCount: 4,
+  entryLabel: "Caterer",
+};
+const NAMED_ADD: AskTarget = {
+  name: "Add",
+  category: "caterer",
+  cardPosition: null,
+  cardCount: 0,
+  entryLabel: "Caterer",
+};
+
+describe("name references, deferral and romanized Hindi", () => {
+  it.each([
+    ["shortlist Ganesh Dal Bati Churma", GANESH],
+    ["add Ganesh Dal Bati please", GANESH],
+    ["add Vinayak Foods", VINAYAK],
+    ["dusra wala add karo", ML],
+    ["doosra vala shortlist kar do", ML],
+    ["add card 2", ML],
+    ["add #2", ML],
+  ] as const)("is a shortlist request: %s", (text, target) => {
+    expect(asksToShortlist(text, target)).toBe(true);
+  });
+
+  it.each([
+    ["Add Ganesh aarti to the Timeline", GANESH],
+    ["add Ganesh", GANESH],
+    ["add Vinayak", VINAYAK],
+    ["add the photographer", NAMED_ADD],
+    ["add caterers later", ML],
+    ["add the second one later", ML],
+    ["kal add karna", ML],
+    ["dusra wala baad mein add karna", ML],
+    ["teesra wala add karo", ML],
+    ["dusra wala mat add karo", ML],
+  ] as const)("is not a shortlist request: %s", (text, target) => {
+    expect(asksToShortlist(text, target)).toBe(false);
+  });
+
+  it("accepts book Vinayak Foods for the sangeet", () => {
+    expect(
+      asksForStatus("book Vinayak Foods for the sangeet", "booked", VINAYAK),
+    ).toBe(true);
+  });
+
+  it("refuses We booked Ganesh aarti for tomorrow", () => {
+    expect(
+      asksForStatus("We booked Ganesh aarti for tomorrow", "booked", GANESH),
+    ).toBe(false);
+  });
+});

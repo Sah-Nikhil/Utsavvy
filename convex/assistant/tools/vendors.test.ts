@@ -467,6 +467,145 @@ describe("setVendorStatus", () => {
   });
 });
 
+// Review of #122, round 2 (High 1, Medium 1): a name reference is the
+// Vendor's full distinctive name, never one shared word; a deferred ask
+// ("later", "kal") writes nothing; romanized Hindi card numbers count.
+describe("the ask has to name this Vendor, now", () => {
+  async function showCaterers(s: Setup) {
+    const first = await ask(s, "show me caterers for the sangeet");
+    await call(s, first, "findVendors", {
+      category: "caterer",
+      functionKey: "sangeet",
+    });
+    await finish(s, first);
+    const [annotation] = await vendorCards(s);
+    return parseVendorCards(annotation!.card!.id)!.vendorIds;
+  }
+
+  async function shortlistedLink(s: Setup, domain: string) {
+    const vendor = await vendorByDomain(s, domain);
+    return await s.asMeera.mutation(api.vendors.shortlist, {
+      eventId: s.eventId,
+      vendorId: vendor._id,
+      checklistEntryId: s.catererEntry,
+    });
+  }
+
+  const entryVersions = (s: Setup) =>
+    s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("entries")
+          .withIndex("by_event_kind", (q) => q.eq("eventId", s.eventId))
+          .collect()
+      ).map((e) => [e._id, e.version, e.fields]),
+    );
+
+  it.each([
+    ["Add Ganesh aarti to the Timeline", "ganeshdalbati.com"],
+    ["add caterers later", "ganeshdalbati.com"],
+    ["kal add karna Ganesh Dal Bati Churma", "ganeshdalbati.com"],
+  ])("shortlistVendor writes nothing for %s", async (text, domain) => {
+    const s = await setUp();
+    const vendor = await vendorByDomain(s, domain);
+    const before = await entryVersions(s);
+    const runId = await ask(s, text);
+    const result = await call(s, runId, "shortlistVendor", {
+      vendorId: vendor._id,
+    });
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect(await privateLayer(s)).toEqual({ items: 0, links: [] });
+    expect(await entryVersions(s)).toEqual(before);
+  });
+
+  it("shortlistVendor writes nothing for a card ask put off till later", async () => {
+    const s = await setUp();
+    await showCaterers(s);
+    const runId = await ask(s, "add the second one later");
+    const result = await call(s, runId, "shortlistVendor", { cardPosition: 2 });
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect(await privateLayer(s)).toEqual({ items: 0, links: [] });
+  });
+
+  it("shortlistVendor writes nothing for add the photographer when a caterer is named Add", async () => {
+    const s = await setUp();
+    const named = await s.t.run(async (ctx) => {
+      const ml = (await ctx.db
+        .query("vendors")
+        .withIndex("by_domain", (q) => q.eq("domain", "mlcaterers.com"))
+        .unique())!;
+      const { _id, _creationTime, ...rest } = ml;
+      void _id;
+      void _creationTime;
+      return await ctx.db.insert("vendors", {
+        ...rest,
+        domain: "add.example.in",
+        name: "Add",
+      });
+    });
+    const runId = await ask(s, "add the photographer");
+    const result = await call(s, runId, "shortlistVendor", { vendorId: named });
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect(await privateLayer(s)).toEqual({ items: 0, links: [] });
+  });
+
+  it("setVendorStatus writes nothing, and ticks no deadline, for We booked Ganesh aarti for tomorrow", async () => {
+    const s = await setUp();
+    const { linkId } = await shortlistedLink(s, "ganeshdalbati.com");
+    const before = await entryVersions(s);
+    const runId = await ask(s, "We booked Ganesh aarti for tomorrow");
+    const result = await call(s, runId, "setVendorStatus", {
+      linkId,
+      expectedVersion: 1,
+      status: "booked",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect((await privateLayer(s)).links).toEqual(["considering"]);
+    expect(await entryVersions(s)).toEqual(before);
+  });
+
+  it("shortlists the real second card for dusra wala add karo", async () => {
+    const s = await setUp();
+    const ids = await showCaterers(s);
+    const runId = await ask(s, "dusra wala add karo");
+    const result = await call(s, runId, "shortlistVendor", { cardPosition: 2 });
+    expect(result).toMatchObject({ ok: true });
+    const items = await s.t.run((ctx) =>
+      ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", s.eventId).eq("kind", "shortlistedVendor"),
+        )
+        .collect(),
+    );
+    expect(items).toMatchObject([{ data: { vendorId: ids[1] } }]);
+  });
+
+  it("shortlists a Vendor named in full: shortlist Ganesh Dal Bati Churma", async () => {
+    const s = await setUp();
+    const ganesh = await vendorByDomain(s, "ganeshdalbati.com");
+    const runId = await ask(s, "shortlist Ganesh Dal Bati Churma");
+    const result = await call(s, runId, "shortlistVendor", {
+      vendorId: ganesh._id,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(await privateLayer(s)).toEqual({ items: 1, links: ["considering"] });
+  });
+
+  it("books a Vendor named without its trailing generic words: book Vinayak Foods for the sangeet", async () => {
+    const s = await setUp();
+    const { linkId } = await shortlistedLink(s, "vinayakfoodsncatering.in");
+    const runId = await ask(s, "book Vinayak Foods for the sangeet");
+    const result = await call(s, runId, "setVendorStatus", {
+      linkId,
+      expectedVersion: 1,
+      status: "booked",
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect((await privateLayer(s)).links).toEqual(["booked"]);
+  });
+});
+
 describe("propose", () => {
   type Schema = {
     safeParse: (value: unknown) => { success: boolean };
