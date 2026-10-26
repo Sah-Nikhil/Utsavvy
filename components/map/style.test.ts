@@ -162,7 +162,9 @@ describe.each([
   });
 
   it("labels with the Latin name fields only", () => {
-    const labels = style.layers.filter((l) => l.type === "symbol");
+    const labels = style.layers.filter(
+      (l) => l.type === "symbol" && l.id !== VENDOR_FOOTPRINTS,
+    );
     expect(labels.length).toBeGreaterThan(0);
     for (const layer of labels) {
       const field = JSON.stringify(
@@ -176,6 +178,13 @@ describe.each([
   });
 });
 
+type FeatureCollection = {
+  features: {
+    geometry: { type: string; coordinates: number[] };
+    properties: Record<string, unknown>;
+  }[];
+};
+
 describe("the Vendors' footprints", () => {
   it("holds one point per Marker drawn, faint ones smaller", () => {
     const withPoints = buildMapStyle(COLOURS, {
@@ -185,7 +194,7 @@ describe("the Vendors' footprints", () => {
       ],
     });
     const source = withPoints.sources[VENDOR_FOOTPRINTS] as {
-      data: GeoJSON.FeatureCollection<GeoJSON.Point>;
+      data: FeatureCollection;
     };
     expect(source.data.features).toHaveLength(2);
     expect(source.data.features[0]).toMatchObject({
@@ -202,7 +211,7 @@ describe("the Vendors' footprints", () => {
 
   it("starts empty when no Marker is drawn", () => {
     const source = printed.sources[VENDOR_FOOTPRINTS] as {
-      data: GeoJSON.FeatureCollection;
+      data: FeatureCollection;
     };
     expect(source.data.features).toEqual([]);
   });

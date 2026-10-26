@@ -119,3 +119,21 @@ export function patternImage(
   drawPattern(id, colours, ctx);
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
+
+/**
+ * The Markers' footprint: a transparent square the size of a selected
+ * Shortlisted Marker with its ring (style.ts, VENDOR_FOOTPRINTS). It paints
+ * nothing; MapLibre only uses its size, so place and road labels give way to
+ * our DOM Markers instead of drawing through them.
+ */
+export const MARKER_FOOTPRINT = { id: "map-marker-footprint", size: 48 };
+
+/** The footprint as image data for map.addImage: every pixel transparent. */
+export function footprintImage(ratio: number): {
+  width: number;
+  height: number;
+  data: Uint8Array;
+} {
+  const side = Math.round(MARKER_FOOTPRINT.size * ratio);
+  return { width: side, height: side, data: new Uint8Array(side * side * 4) };
+}

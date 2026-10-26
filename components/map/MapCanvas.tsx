@@ -19,9 +19,19 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { MapVendor, MapView } from "@/convex/map";
 import { approximateTag, markerLabel, toneOf } from "./markers";
 import { MarkerStamp } from "./MarkerStamp";
-import { isMapPattern, patternImage } from "./patterns";
+import {
+  footprintImage,
+  isMapPattern,
+  MARKER_FOOTPRINT,
+  patternImage,
+} from "./patterns";
 import { cityBounds, fitPadding, openingFit } from "./placement";
-import { buildMapStyle, readMapColours, type MapColours } from "./style";
+import {
+  buildMapStyle,
+  readMapColours,
+  type MapColours,
+  type MarkerPoint,
+} from "./style";
 
 /*
  * The map itself (MapLibre through react-map-gl), loaded only in the browser.
@@ -71,16 +81,23 @@ function ornamentsOn(): boolean {
   return document.documentElement.dataset.ornaments !== "off";
 }
 
-/** Adds the printed patterns the style asks for, drawn in the token colours. */
-function addPatterns(map: MapLibreMap, colours: MapColours) {
+/**
+ * Adds the images the style asks for: the printed patterns, drawn in the
+ * token colours, and the Markers' transparent footprint.
+ */
+function addImages(map: MapLibreMap, colours: MapColours) {
   const add = (id: string) => {
-    if (!isMapPattern(id) || map.hasImage(id)) return;
+    if (map.hasImage(id)) return;
     // Drawn at least at 2x, so the small prints stay crisp on any screen.
     const ratio = Math.max(2, Math.round(window.devicePixelRatio || 1));
-    map.addImage(id, patternImage(id, colours, ratio), { pixelRatio: ratio });
+    if (id === MARKER_FOOTPRINT.id)
+      map.addImage(id, footprintImage(ratio), { pixelRatio: ratio });
+    else if (isMapPattern(id))
+      map.addImage(id, patternImage(id, colours, ratio), { pixelRatio: ratio });
   };
   map.on("styleimagemissing", (e) => add(e.id));
-  for (const id of ["map-butta", "map-leaf", "map-lahar"]) add(id);
+  for (const id of ["map-butta", "map-leaf", "map-lahar", MARKER_FOOTPRINT.id])
+    add(id);
 }
 
 const GEOAPIFY_ATTRIBUTION =
@@ -111,8 +128,10 @@ export default function MapCanvas({
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const holder = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<StyleSpecification | string | null>(null);
-  const colours = useRef<MapColours | null>(null);
+  // Our style's inputs (or a whole style URL), set once the map mounts.
+  const [look, setLook] = useState<
+    { colours: MapColours; ornaments: boolean } | { url: string } | null
+  >(null);
   const [street, setStreet] = useState(false);
   const [padding, setPadding] = useState(() => fitPadding(1024));
   // A Marker being moved with the keyboard, before Enter saves it.
@@ -125,11 +144,10 @@ export default function MapCanvas({
   useEffect(() => {
     // Read the map tokens once the map's element is in the document.
     const url = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
+    const colours = readMapColours(holder.current ?? document.body);
     const build = () => {
       setPadding(fitPadding(holder.current?.clientWidth ?? 1024));
-      if (url) return setStyle(url);
-      colours.current ??= readMapColours(holder.current ?? document.body);
-      setStyle(buildMapStyle(colours.current, { ornaments: ornamentsOn() }));
+      setLook(url ? { url } : { colours, ornaments: ornamentsOn() });
     };
     build();
     if (url) return;
@@ -141,6 +159,27 @@ export default function MapCanvas({
     });
     return () => watch.disconnect();
   }, []);
+
+  // The Markers drawn, where they stand now, for their footprints in the
+  // style; MapLibre hides any label that would cross one.
+  const points = useMemo<MarkerPoint[]>(
+    () =>
+      vendors.map((v) => {
+        const at = draft?.id === v._id ? draft : v.marker;
+        return {
+          id: v._id,
+          lat: at.lat,
+          lng: at.lng,
+          faint: v.shortlist === null,
+        };
+      }),
+    [vendors, draft],
+  );
+  const style = useMemo<StyleSpecification | string | null>(() => {
+    if (look === null) return null;
+    if ("url" in look) return look.url;
+    return buildMapStyle(look.colours, { ornaments: look.ornaments, points });
+  }, [look, points]);
 
   const centre = centreOf(city, vendors);
   // The opening view and reach are fixed when the map mounts.
@@ -267,7 +306,7 @@ export default function MapCanvas({
           attributionControl={false}
           onClick={() => onSelect(null)}
           onLoad={(e) => {
-            if (colours.current) addPatterns(e.target, colours.current);
+            if (look && "colours" in look) addImages(e.target, look.colours);
           }}
           onZoom={(e) => setStreet(e.viewState.zoom >= TAG_ZOOM)}
           style={{ width: "100%", height: "100%" }}

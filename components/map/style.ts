@@ -3,6 +3,7 @@ import type {
   LayerSpecification,
   StyleSpecification,
 } from "maplibre-gl";
+import { MARKER_FOOTPRINT } from "./patterns";
 
 /*
  * The Vendor map's own style (IMPLEMENTATION_PLAN.md section 7.5): OpenFreeMap's
@@ -17,7 +18,11 @@ import type {
  * water keep their flat colours. The patterns are drawn in patterns.ts.
  *
  * No points of interest and no sprite, so the only symbols on the map are our
- * Markers. Labels read the Latin name fields, because MapLibre can't shape
+ * Markers. Those are DOM elements over the map, so the style also carries an
+ * invisible layer of their footprints (VENDOR_FOOTPRINTS): a transparent icon
+ * per Marker, above every label, which MapLibre's collision makes place and
+ * road labels avoid. The icon is not a paint colour; it has no colour at all.
+ * Labels read the Latin name fields, because MapLibre can't shape
  * Devanagari. Built in the browser, so every colour stays in the token files:
  * this file must never hold a colour of its own.
  */
@@ -38,6 +43,17 @@ export const MAP_TOKENS = {
 } as const;
 
 export type MapColours = Record<keyof typeof MAP_TOKENS, string>;
+
+/** The source and layer holding the Markers' invisible footprints. */
+export const VENDOR_FOOTPRINTS = "vendor-footprints";
+
+/** A Marker drawn on the map, for its footprint. Faint ones are smaller. */
+export type MarkerPoint = {
+  id: string;
+  lat: number;
+  lng: number;
+  faint: boolean;
+};
 
 /** The map token values, read from the document's computed style when the map mounts. */
 export function readMapColours(element: Element): MapColours {
@@ -102,7 +118,10 @@ const ROUND = { "line-cap": "round", "line-join": "round" } as const;
 
 export function buildMapStyle(
   colours: MapColours,
-  { ornaments = true }: { ornaments?: boolean } = {},
+  {
+    ornaments = true,
+    points = [],
+  }: { ornaments?: boolean; points?: readonly MarkerPoint[] } = {},
 ): StyleSpecification {
   const label = {
     "text-color": colours.label,
@@ -335,6 +354,20 @@ export function buildMapStyle(
     }),
   ];
 
+  // Last, so above every label: MapLibre places the top layer's symbols
+  // first, and a label that would cross a footprint is left out.
+  layers.push({
+    id: VENDOR_FOOTPRINTS,
+    type: "symbol",
+    source: VENDOR_FOOTPRINTS,
+    layout: {
+      "icon-image": MARKER_FOOTPRINT.id,
+      "icon-size": ["case", ["get", "faint"], 0.55, 1],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": false,
+    },
+  });
+
   return {
     version: 8,
     name: "Utsavvy",
@@ -344,6 +377,18 @@ export function buildMapStyle(
         type: "vector",
         url: OPENFREEMAP_SOURCE,
         attribution: OPENFREEMAP_ATTRIBUTION,
+      },
+      [VENDOR_FOOTPRINTS]: {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: points.map((p) => ({
+            type: "Feature",
+            id: p.id,
+            geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+            properties: { faint: p.faint },
+          })),
+        },
       },
     },
     layers,
