@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import starterSet from "../seed/jaipur-vendors.json";
 import { api, internal } from "./_generated/api";
+import { MAX_PRICE_ROWS } from "./vendors";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { createStartingSections } from "./canvas";
@@ -253,10 +254,13 @@ describe("internal.vendors.loadStarterSet", () => {
 
 // ---------------------------------------------------------------------------
 
-// Review of #122 round 2, Medium 2: a Vendor with 50+ older Listed price rows.
-describe("a Vendor with a long Listed price history", () => {
-  it("reloads idempotently past 50 older rows, and its card shows the current prices", async () => {
-    const t = newTest();
+// Review of #122 rounds 2 and 3, Medium 2. In v1 only the starter set writes
+// Listed prices, so a Vendor's history stays small. The reads are bounded at
+// MAX_PRICE_ROWS rows: a reload that can't see a Vendor's whole history fails
+// loudly and writes nothing, rather than adding duplicates; a card says when
+// it couldn't read every price.
+describe("a Vendor's Listed price history", () => {
+  async function withOlderRows(t: T, count: number) {
     await t.mutation(internal.vendors.loadStarterSet, {});
     const ml = await vendorByDomain(t, "mlcaterers.com");
     const seedRows = await t.run(async (ctx) => {
@@ -265,8 +269,8 @@ describe("a Vendor with a long Listed price history", () => {
         .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
         .collect();
       for (const row of rows) await ctx.db.delete("listedPrices", row._id);
-      // 50 older, superseded prices from before the seed's were first added.
-      for (let i = 0; i < 50; i++)
+      // Older, superseded prices from before the seed's were first added.
+      for (let i = 0; i < count; i++)
         await ctx.db.insert("listedPrices", {
           vendorId: ml._id,
           sourceUrl: "https://mlcaterers.com/old",
@@ -281,12 +285,24 @@ describe("a Vendor with a long Listed price history", () => {
         });
       return rows.length;
     });
-    const older = await t.run((ctx) =>
-      ctx.db
-        .query("listedPrices")
-        .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
-        .collect(),
+    const pricesOf = () =>
+      t.run((ctx) =>
+        ctx.db
+          .query("listedPrices")
+          .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
+          .collect(),
+      );
+    return { ml, seedRows, pricesOf };
+  }
+
+  it("reloads idempotently while the history fits, and the card shows the current prices", async () => {
+    const t = newTest();
+    // Leaves room for the seed's own rows under the bound.
+    const { ml, seedRows, pricesOf } = await withOlderRows(
+      t,
+      MAX_PRICE_ROWS - 3,
     );
+    const older = await pricesOf();
 
     expect(await t.mutation(internal.vendors.loadStarterSet, {})).toEqual({
       inserted: 0,
@@ -299,13 +315,8 @@ describe("a Vendor with a long Listed price history", () => {
       pricesAdded: 0,
     });
 
-    const after = await t.run((ctx) =>
-      ctx.db
-        .query("listedPrices")
-        .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
-        .collect(),
-    );
-    expect(after).toHaveLength(50 + seedRows);
+    const after = await pricesOf();
+    expect(after).toHaveLength(MAX_PRICE_ROWS - 3 + seedRows);
     for (const row of older)
       expect(after.find((p) => p._id === row._id)).toEqual(row);
     expect(await vendorByDomain(t, "mlcaterers.com")).toEqual(ml);
@@ -322,6 +333,39 @@ describe("a Vendor with a long Listed price history", () => {
       "₹1,350 per plate (Gold package)",
       "₹1,950 per plate (Platinum package)",
     ]);
+    expect(card.pricesTruncated).toBe(false);
+  });
+
+  it("fails loudly past the bound, writing nothing, and the card says its prices were cut short", async () => {
+    const t = newTest();
+    const { ml, pricesOf } = await withOlderRows(t, MAX_PRICE_ROWS + 1);
+    // Another starter Vendor gone missing: the failed reload mustn't add it either.
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    await t.run((ctx) => ctx.db.delete("vendors", rood._id));
+    const before = await pricesOf();
+
+    await expect(
+      t.mutation(internal.vendors.loadStarterSet, {}),
+    ).rejects.toThrow(/Listed price history/);
+
+    expect(await pricesOf()).toEqual(before);
+    expect(
+      await t.run((ctx) =>
+        ctx.db
+          .query("vendors")
+          .withIndex("by_domain", (q) => q.eq("domain", "roodmahal.com"))
+          .first(),
+      ),
+    ).toBeNull();
+
+    const seeded = await t.run((ctx) => seedEvent(ctx, "Meera", JAIPUR, 300));
+    const found = await as(t, seeded).query(api.vendors.findKnown, {
+      eventId: seeded.eventId,
+      category: "caterer",
+      functionKey: "sangeet",
+    });
+    const card = found.vendors.find((v) => v.vendor._id === ml._id)!;
+    expect(card.pricesTruncated).toBe(true);
   });
 });
 

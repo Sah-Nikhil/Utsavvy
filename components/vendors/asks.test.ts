@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { asksForStatus, asksToShortlist, type AskTarget } from "./asks";
+import starterSet from "../../seed/jaipur-vendors.json";
+import {
+  asksForStatus,
+  asksToShortlist,
+  namesVendor,
+  type AskTarget,
+} from "./asks";
 
 // IMPLEMENTATION_PLAN.md section 6: shortlistVendor and setVendorStatus run
 // only when the Member's own message asked for that change, to that Vendor.
@@ -130,7 +136,6 @@ describe("name references, deferral and romanized Hindi", () => {
   it.each([
     ["Add Ganesh aarti to the Timeline", GANESH],
     ["add Ganesh", GANESH],
-    ["add Vinayak", VINAYAK],
     ["add the photographer", NAMED_ADD],
     ["add caterers later", ML],
     ["add the second one later", ML],
@@ -152,5 +157,72 @@ describe("name references, deferral and romanized Hindi", () => {
     expect(
       asksForStatus("We booked Ganesh aarti for tomorrow", "booked", GANESH),
     ).toBe(false);
+  });
+});
+
+// Review of #122, round 3. Medium 1: initials ("G.D.") don't end a sentence,
+// so every starter Vendor's displayed name works. Low 1: one distinctive
+// word is enough when everything left off is generic ("Viresh" for Viresh
+// Studio), but never a word another name shares, a request word, or one word
+// of a longer distinctive name.
+const SEED = starterSet as { name: string; category: string }[];
+const bare = (name: string, category: string): AskTarget => ({
+  name,
+  category,
+  cardPosition: null,
+  cardCount: 0,
+  entryLabel: null,
+});
+
+describe("starter Vendors by their displayed names", () => {
+  it.each(SEED.map((v) => [v.name, v.category]))(
+    "add %s is a request for it",
+    (name, category) => {
+      expect(asksToShortlist(`add ${name}`, bare(name, category))).toBe(true);
+    },
+  );
+
+  it("book G.D. Caterer asks to book it", () => {
+    expect(
+      asksForStatus(
+        "book G.D. Caterer",
+        "booked",
+        bare("G.D. Caterer", "caterer"),
+      ),
+    ).toBe(true);
+  });
+
+  it("still splits real sentences: Add the second one. Which is cheapest?", () => {
+    expect(asksToShortlist("Which is cheapest? Add it later.", ML)).toBe(false);
+  });
+
+  it.each([
+    ["add Viresh", "Viresh Studio", "photographer"],
+    ["add Sapphire", "Sapphire Inn", "venue"],
+    ["add Vinayak", "Vinayak Foods & Catering", "caterer"],
+    ["add Umaid", "Umaid Haveli", "venue"],
+    ["add Bhanwar Singh", "Bhanwar Singh Palace", "venue"],
+  ])("%s names %s", (text, name, category) => {
+    expect(asksToShortlist(text, bare(name, category))).toBe(true);
+  });
+
+  it.each([
+    ["add Ganesh", "Ganesh Dal Bati Churma", "caterer"],
+    ["add Candid", "Candid Life Photography", "photographer"],
+    ["add Bhanwar", "Bhanwar Singh Palace", "venue"],
+    ["add the photographer", "Add", "caterer"],
+    ["add it", "Add", "caterer"],
+  ])("%s does not name %s", (text, name, category) => {
+    expect(asksToShortlist(text, bare(name, category))).toBe(false);
+  });
+
+  it("no starter Vendor's name names another", () => {
+    for (const a of SEED)
+      for (const b of SEED)
+        if (a !== b)
+          expect(
+            namesVendor(`add ${a.name}`, b.name),
+            `${a.name} → ${b.name}`,
+          ).toBe(false);
   });
 });

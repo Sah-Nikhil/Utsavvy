@@ -564,6 +564,31 @@ describe("the ask has to name this Vendor, now", () => {
     expect(await entryVersions(s)).toEqual(before);
   });
 
+  // Review of #122, round 3, Medium 1: the displayed name with initials.
+  it("shortlists add G.D. Caterer, with no card shown", async () => {
+    const s = await setUp();
+    const gd = await vendorByDomain(s, "gdcaterer.com");
+    const runId = await ask(s, "add G.D. Caterer");
+    const result = await call(s, runId, "shortlistVendor", {
+      vendorId: gd._id,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(await privateLayer(s)).toEqual({ items: 1, links: ["considering"] });
+  });
+
+  it("books on book G.D. Caterer", async () => {
+    const s = await setUp();
+    const { linkId } = await shortlistedLink(s, "gdcaterer.com");
+    const runId = await ask(s, "book G.D. Caterer");
+    const result = await call(s, runId, "setVendorStatus", {
+      linkId,
+      expectedVersion: 1,
+      status: "booked",
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect((await privateLayer(s)).links).toEqual(["booked"]);
+  });
+
   it("shortlists the real second card for dusra wala add karo", async () => {
     const s = await setUp();
     const ids = await showCaterers(s);
