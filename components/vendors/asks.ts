@@ -30,7 +30,11 @@ export type AskTarget = {
 /** A question that asks about something rather than for something. */
 const ASKING_ABOUT =
   /^\s*(which|what|how|why|when|where|who|is|are|does|do|did|should|shall)\b/i;
-const NEGATION = /\b(don'?t|do not|not|never|no need)\b|मत|नहीं/i;
+const NEGATION =
+  /\b(don'?t|do not|not|never|no need|mat|nahi|nahin)\b|मत|नहीं/i;
+/** Put off for later: suggest it now, change nothing. */
+const DEFERRED =
+  /\b(later|afterwards|some ?day|eventually|kal|baad|baad mein|abhi nahi)\b|बाद|कल/i;
 
 /** Splits a message into sentences, keeping Hindi's danda as a stop. */
 function sentences(text: string): string[] {
@@ -48,7 +52,7 @@ function words(text: string): string {
     .trim()} `;
 }
 
-/** Words in a Vendor's name that don't single it out. */
+/** Words in a Vendor's name that don't single it out; a reference may leave trailing ones off. */
 const GENERIC = new Set([
   "the",
   "and",
@@ -57,6 +61,7 @@ const GENERIC = new Set([
   "catering",
   "food",
   "foods",
+  "churma",
   "event",
   "events",
   "group",
@@ -74,16 +79,77 @@ const GENERIC = new Set([
   "jaipur",
 ]);
 
+/** Words of a request that can never stand for a Vendor's name ("add", "book", "the"). */
+const STOP = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "of",
+  "for",
+  "to",
+  "with",
+  "in",
+  "on",
+  "at",
+  "it",
+  "this",
+  "that",
+  "one",
+  "add",
+  "shortlist",
+  "save",
+  "keep",
+  "put",
+  "go",
+  "take",
+  "choose",
+  "pick",
+  "select",
+  "book",
+  "booked",
+  "call",
+  "called",
+  "contact",
+  "contacted",
+  "mark",
+  "drop",
+  "dropped",
+  "remove",
+  "cancel",
+  "quote",
+  "quoted",
+  "consider",
+  "confirm",
+  "confirmed",
+]);
+
+/**
+ * The ways a Member can name a Vendor: its whole name, with or without a part
+ * in brackets, optionally leaving off trailing generic words ("Vinayak Foods"
+ * for "Vinayak Foods & Catering", "Ganesh Dal Bati" for "Ganesh Dal Bati
+ * Churma"). Never one word of a longer name ("Ganesh" alone), and never a
+ * name made only of generic or request words (a Vendor called "Add").
+ */
+function nameForms(name: string): string[] {
+  const forms = new Set<string>();
+  for (const variant of [name, name.replace(/\([^)]*\)/g, " ")]) {
+    const tokens = words(variant).trim().split(" ").filter(Boolean);
+    for (let end = tokens.length; end >= 1; end--) {
+      const kept = tokens.slice(0, end);
+      const dropped = tokens.slice(end);
+      if (!dropped.every((t) => GENERIC.has(t))) break;
+      if (kept.length < Math.min(2, tokens.length)) break;
+      if (!kept.some((t) => !GENERIC.has(t) && !STOP.has(t))) break;
+      forms.add(kept.join(" "));
+    }
+  }
+  return [...forms];
+}
+
 function namesVendor(sentence: string, name: string): boolean {
   const said = words(sentence);
-  const full = words(name).trim();
-  if (full !== "" && said.includes(` ${full} `)) return true;
-  return full
-    .split(" ")
-    .some(
-      (token) =>
-        token.length >= 4 && !GENERIC.has(token) && said.includes(` ${token} `),
-    );
+  return nameForms(name).some((form) => said.includes(` ${form} `));
 }
 
 const CATEGORY_WORDS: Record<string, RegExp> = {
@@ -110,18 +176,21 @@ function namesEntry(sentence: string, label: string | null | undefined) {
   return full !== "" && said.includes(` ${full} `);
 }
 
+/** English, Devanagari and romanized Hindi ("dusra wala") card numbers. */
 const ORDINALS: [RegExp, number][] = [
-  [/\b(first|1st)\b|पहल[ाे]/i, 1],
-  [/\b(second|2nd)\b|दूसर[ाे]/i, 2],
-  [/\b(third|3rd)\b|तीसर[ाे]/i, 3],
-  [/\b(fourth|4th)\b|चौथ[ाे]/i, 4],
-  [/\b(fifth|5th)\b|पा[ंँ]चव[ाे]/i, 5],
-  [/\b(sixth|6th)\b|छठ[ाे]/i, 6],
+  [/\b(first|1st|pehl[aei]|pahl[aei])\b|पहल[ाे]/i, 1],
+  [/\b(second|2nd|dus(a)?r[aei]|doosr[aei])\b|दूसर[ाे]/i, 2],
+  [/\b(third|3rd|teesr[aei]|tisr[aei])\b|तीसर[ाे]/i, 3],
+  [/\b(fourth|4th|chauth[aei]|chooth[aei]|choth[aei])\b|चौथ[ाे]/i, 4],
+  [/\b(fifth|5th|pa+nch(a)?v[aei]n?|pa+nchw[aei]n?)\b|पा[ंँ]चव[ाे]/i, 5],
+  [/\b(sixth|6th|chhath[aei]|chhat[aei])\b|छठ[ाे]/i, 6],
 ];
 
 /** The card number a sentence names: "the second one", "#2", "number 2". */
 function cardNumberIn(sentence: string): number | null {
-  const numbered = /(?:#|\bno\.?\s*|\bnumber\s*)(\d{1,2})\b/i.exec(sentence);
+  const numbered = /(?:#|\bno\.?\s*|\bnumber\s*|\bcard\s*)(\d{1,2})\b/i.exec(
+    sentence,
+  );
   if (numbered) return Number(numbered[1]);
   for (const [pattern, n] of ORDINALS) if (pattern.test(sentence)) return n;
   return null;
@@ -130,10 +199,14 @@ function cardNumberIn(sentence: string): number | null {
 /** "that one", "it": only clear when the cards showed one Vendor. */
 const POINTING = /\b(that|this|it|them)\b|वह|वो|ये|इसे|उसे/i;
 
-/** Whether the sentence is about the target Vendor. */
+/**
+ * Whether the sentence is about the target Vendor. Another category's word
+ * ("add the photographer") rules it out first, so even a Vendor whose name is
+ * a common word can't be picked by accident.
+ */
 function about(sentence: string, target: AskTarget): boolean {
-  if (namesVendor(sentence, target.name)) return true;
   if (namesOtherCategory(sentence, target.category)) return false;
+  if (namesVendor(sentence, target.name)) return true;
   const number = cardNumberIn(sentence);
   if (number !== null) return number === target.cardPosition;
   if (namesCategory(sentence, target.category)) return true;
@@ -145,12 +218,16 @@ function about(sentence: string, target: AskTarget): boolean {
   );
 }
 
-/** One sentence carries the change: the verb, about this Vendor, not a question about something or a "don't". */
+/**
+ * One sentence carries the change: the verb, about this Vendor, now. Not a
+ * question about something, a "don't", or something put off ("later", "kal").
+ */
 function asksIn(text: string, verb: RegExp, target: AskTarget): boolean {
   return sentences(text).some(
     (sentence) =>
       verb.test(sentence) &&
       !NEGATION.test(sentence) &&
+      !DEFERRED.test(sentence) &&
       !ASKING_ABOUT.test(sentence) &&
       about(sentence, target),
   );
