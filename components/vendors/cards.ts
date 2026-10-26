@@ -215,3 +215,42 @@ export function estimateLineFor(
       return { category: "photography_video", unit: "per_day" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Which Function "Find Vendors" prices for
+
+export type FunctionOption = { key: string; name: string };
+
+/**
+ * The Functions a checklist Entry serves, in the Entry's order (leaving out
+ * any since removed), and the one "Find Vendors" prices for at first: the
+ * only one, or none (an Event-wide comparison) when there are several, so it
+ * never quietly picks the first.
+ */
+export function functionChoice(
+  functionKeys: string[],
+  functions: FunctionOption[],
+): { initial: string | null; options: FunctionOption[] } {
+  const options = functionKeys
+    .map((key) => functions.find((fn) => fn.key === key))
+    .filter((fn): fn is FunctionOption => fn !== undefined)
+    .map(({ key, name }) => ({ key, name }));
+  return {
+    initial: options.length === 1 ? options[0]!.key : null,
+    options,
+  };
+}
+
+/** The line above the cards saying what their prices are worked out for. */
+export function pricingNote(
+  functionName: string | null,
+  guests: number | null,
+  optionCount: number,
+): string | null {
+  if (functionName !== null)
+    return guests !== null
+      ? `Prices worked out for the ${functionName}, ${guests} Guests.`
+      : `Prices worked out for the ${functionName}.`;
+  if (optionCount === 0) return null;
+  return "Prices compared Event-wide. Pick a Function to work them out for its Guests.";
+}

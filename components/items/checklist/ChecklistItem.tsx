@@ -269,7 +269,8 @@ function ChecklistRow({
           entryId={entry._id}
           entryName={name}
           category={fields.vendorCategory}
-          functionKey={fields.functionKeys[0] ?? null}
+          functionKeys={fields.functionKeys}
+          functions={functions}
         />
       ) : null}
       {canEdit ? (

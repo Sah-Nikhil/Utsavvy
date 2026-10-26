@@ -680,9 +680,9 @@ function refuseOutsideLocal() {
 
 /**
  * What "show me caterers for the sangeet" leaves behind, without a model: the
- * starter set loaded, the Event in Jaipur with a 300-Guest sangeet, the
- * request from the person with `email`, and the real `findVendors` mutation's
- * Vendor cards. For e2e/vendors.spec.ts against `bun run dev`; refuses
+ * starter set loaded, the Event in Jaipur with a 300-Guest sangeet and a
+ * 150-Guest reception, a caterer Entry serving both, the request from the
+ * person with `email`, and the real `findVendors` mutation's Vendor cards. For e2e/vendors.spec.ts against `bun run dev`; refuses
  * anything but a local deployment.
  */
 export const cardsForLocalCheck = internalMutation({
@@ -718,15 +718,19 @@ export const cardsForLocalCheck = internalMutation({
       .query("eventFunctions")
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
       .take(50);
-    if (!functions.some((f) => f.key === "sangeet")) {
+    // A 300-Guest sangeet and a 150-Guest reception, so a caterer Entry
+    // serving both has two ways to be priced.
+    for (const [i, fn] of [
+      { key: "sangeet", name: "Sangeet", guests: 300 },
+      { key: "reception", name: "Reception", guests: 150 },
+    ].entries()) {
+      if (functions.some((f) => f.key === fn.key)) continue;
       await ctx.db.insert("eventFunctions", {
         eventId,
-        key: "sangeet",
-        name: "Sangeet",
+        ...fn,
         date: null,
-        guests: 300,
         assumed: [],
-        order: functions.length,
+        order: functions.length + i,
         version: 1,
       });
     }
@@ -761,7 +765,7 @@ export const cardsForLocalCheck = internalMutation({
           fields: {
             vendorCategory: "caterer",
             freeLabel: null,
-            functionKeys: ["sangeet"],
+            functionKeys: ["sangeet", "reception"],
             bookByEntryId: null,
             budgetEntryIds: [],
           },

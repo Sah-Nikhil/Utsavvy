@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { CATEGORY_PLURALS, isVendorCategory } from "./cards";
+import { inlineControlClass } from "@/components/items/budget/parts";
+import {
+  CATEGORY_PLURALS,
+  functionChoice,
+  isVendorCategory,
+  pricingNote,
+  type FunctionOption,
+} from "./cards";
 import { VendorCard } from "./VendorCard";
 
 /*
@@ -26,16 +33,26 @@ export function FindVendors({
   entryId,
   entryName,
   category,
-  functionKey,
+  functionKeys,
+  functions,
 }: {
   eventId: Id<"events">;
   entryId: Id<"entries">;
   /** The Entry as Members read it: "Caterer", "Venue". */
   entryName: string;
   category: string;
-  functionKey: string | null;
+  /** The Functions the Entry serves. */
+  functionKeys: string[];
+  /** The Event's Functions, for their names. */
+  functions: FunctionOption[];
 }) {
   const [open, setOpen] = useState(false);
+  const choice = functionChoice(functionKeys, functions);
+  // Several Functions: Event-wide until the Member picks one (Review of #122).
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  const functionKey = picked === undefined ? choice.initial : picked;
+  const functionName =
+    choice.options.find((fn) => fn.key === functionKey)?.name ?? null;
   const [asOf] = useState(() => Math.floor(Date.now() / HOUR) * HOUR);
   const found = useQuery(
     api.vendors.findKnown,
@@ -89,6 +106,30 @@ export function FindVendors({
         }
         className="sm:w-[min(26rem,100vw)]"
       >
+        {choice.options.length > 1 ? (
+          <label className="mb-2 flex items-center gap-2 text-label text-ink-2">
+            Compare for
+            <select
+              value={functionKey ?? ""}
+              onChange={(e) => setPicked(e.target.value || null)}
+              className={inlineControlClass("w-auto pr-6")}
+            >
+              <option value="">Event-wide</option>
+              {choice.options.map((fn) => (
+                <option key={fn.key} value={fn.key}>
+                  {fn.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {found &&
+        found.vendors.length > 0 &&
+        pricingNote(functionName, found.guests, choice.options.length) ? (
+          <p data-pricing-note className="mb-3 text-caption text-ink-3">
+            {pricingNote(functionName, found.guests, choice.options.length)}
+          </p>
+        ) : null}
         {found === undefined ? (
           <div
             aria-hidden

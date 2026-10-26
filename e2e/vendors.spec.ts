@@ -165,6 +165,16 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
     await expect(
       known.getByRole("article").filter({ hasText: secondName }),
     ).toContainText("Linked to Caterer");
+    // The Entry serves the sangeet and the reception: Event-wide until a
+    // Function is picked, then worked out for its Guests.
+    await expect(sheet).toContainText("Prices compared Event-wide");
+    await sheet.getByLabel("Compare for").selectOption("sangeet");
+    await expect(sheet).toContainText(
+      "Prices worked out for the Sangeet, 300 Guests.",
+    );
+    await expect(
+      known.getByRole("article").filter({ hasText: "Vinayak" }),
+    ).toContainText("from ₹250/plate (starting price)");
     await expectNoSeriousA11yViolations(page);
     await page.screenshot({
       path: testInfo.outputPath("find-vendors-desktop.png"),
