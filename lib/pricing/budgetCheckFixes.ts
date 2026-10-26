@@ -4,8 +4,9 @@ import {
   briefLines,
   type FunctionDetailsInput,
 } from "../brief/functions";
-import { formatLakh } from "../format";
+import { formatINR } from "../format";
 import type { Assumption, DraftBudgetLine } from "../types";
+import { isFunctionKey } from "../types/functions";
 import {
   type LineEstimate,
   type PlanLines,
@@ -44,9 +45,14 @@ export type BudgetFix = {
   kind: "fewerGuests" | "fewerFunctions";
   /** The button's words: "Plan for 200 Guests instead of 300", "Skip the reception". */
   label: string;
-  /** For fewer Guests, each Function's new count; otherwise null. */
+  /** For fewer Guests, each Function's new count and any Event-wide count that moves with it; otherwise null. */
   detail: string | null;
-  /** "New minimum about ₹14.2L, which fits." or "…, still about ₹55,000 short." */
+  /**
+   * "New minimum about ₹14.2L, which fits." or "…, still about ₹9,000 short."
+   * Softened to "which should fit" or "which should leave about ₹9,000 short"
+   * when a line came from the table while the check researched prices: the
+   * check after the tap may research that line and land elsewhere.
+   */
   preview: string;
   minimum: number;
   fits: boolean;
@@ -67,14 +73,25 @@ function about(amount: number): number {
   return Math.round(amount / step) * step;
 }
 
+/**
+ * A figure in lakh for a preview: two decimals below ₹10L ("₹1.90L"), one
+ * from ₹10L up ("₹14.2L"), matching how `about` rounds; below ₹1L, rupees.
+ */
+function lakh(amount: number): string {
+  if (Math.abs(amount) < 100_000) return formatINR(amount);
+  const digits = Math.abs(amount) >= 1_000_000 ? 1 : 2;
+  const text = (amount / 100_000).toFixed(digits).replace(/\.0+$/, "");
+  return `₹${text}L`;
+}
+
 function lowerFirst(name: string): string {
   return name.charAt(0).toLowerCase() + name.slice(1);
 }
 
 /**
  * The Guest counts the fewer-Guests fix tries, largest first: round steps
- * below today's count (50 from 200 Guests up, else 10), going down by a third
- * at most.
+ * below today's count (50 from 200 Guests up, else 10), down by about a third,
+ * to the nearest round step (400 goes as far as 250, 300 as far as 200).
  */
 export function fewerGuestsSteps(guests: number): number[] {
   const step = guests >= 200 ? 50 : 10;
@@ -110,24 +127,34 @@ function isDerived(field: string): boolean {
  * with the Assumptions worked out again for them (150 invitation cards become
  * 100 at 200 Guests), as the Budget check after the edit would price them.
  */
+function assumptionsFor(
+  draft: FixDraft,
+  functions: BriefFunction[],
+  guests: number,
+): Assumption[] {
+  const changed =
+    guests !== (draft.details.guests ?? 0) ||
+    functions.length !== draft.functions.length;
+  if (!changed) return draft.assumptions;
+  return [
+    ...draft.assumptions.filter((a) => !isDerived(a.field)),
+    ...assumeFunctionDetails({
+      ...draft.details,
+      guests,
+      functionKeys: functions.map((fn) => fn.key),
+    }).assumptions,
+  ];
+}
+
+/** Event-wide counts that follow the Guests and change the budget lines. */
+const GUEST_COUNTS = ["invitations", "cake"];
+
 function linesOf(
   draft: FixDraft,
   functions: BriefFunction[],
   guests: number,
 ): PlanLines {
-  const changed =
-    guests !== (draft.details.guests ?? 0) ||
-    functions.length !== draft.functions.length;
-  const assumptions = changed
-    ? [
-        ...draft.assumptions.filter((a) => !isDerived(a.field)),
-        ...assumeFunctionDetails({
-          ...draft.details,
-          guests,
-          functionKeys: functions.map((fn) => fn.key),
-        }).assumptions,
-      ]
-    : draft.assumptions;
+  const assumptions = assumptionsFor(draft, functions, guests);
   return briefLines({
     eventType: draft.details.eventType ?? "wedding",
     tradition: draft.details.tradition,
@@ -165,6 +192,16 @@ export function skippableFunctions(draft: FixDraft): BriefFunction[] {
       .functions.filter((fn) => !fn.assumed.includes("guests"))
       .map((fn) => fn.key),
   );
+  if (own.size === 0) {
+    // No Function carries the Brief's Guests: a wedding named only with
+    // Functions Utsavvy doesn't know ("shaadi_ceremony"). One of them may be
+    // the ceremony, so the largest of those stays, with every one tied with
+    // it; with none of those, the largest of all.
+    const custom = draft.functions.filter((fn) => !isFunctionKey(fn.key));
+    const pool = custom.length > 0 ? custom : draft.functions;
+    const largest = Math.max(...pool.map((fn) => fn.guests));
+    for (const fn of pool) if (fn.guests === largest) own.add(fn.key);
+  }
   return draft.functions.filter((fn) => !own.has(fn.key));
 }
 
@@ -186,15 +223,20 @@ function candidates(draft: FixDraft): {
     const changed = functions.filter(
       (fn, i) => fn.guests !== draft.functions[i]!.guests,
     );
+    // Event-wide counts that move with the Guests: "100 invitation cards".
+    const before = new Map(draft.assumptions.map((a) => [a.field, a.value]));
+    const counts = assumptionsFor(draft, functions, guests)
+      .filter((a) => GUEST_COUNTS.includes(a.field))
+      .filter((a) => before.get(a.field) !== a.value)
+      .map((a) => a.value);
+    const parts = [
+      ...changed.map((fn) => `${fn.name} ${fn.guests.toLocaleString("en-IN")}`),
+      ...counts,
+    ];
     return {
       kind: "fewerGuests",
       label: `Plan for ${guests.toLocaleString("en-IN")} Guests instead of ${from.toLocaleString("en-IN")}`,
-      detail:
-        changed.length > 0
-          ? changed
-              .map((fn) => `${fn.name} ${fn.guests.toLocaleString("en-IN")}`)
-              .join(", ")
-          : null,
+      detail: parts.length > 0 ? parts.join(", ") : null,
       change: { field: "guests", functionKey: null, guests },
       lines: linesOf(draft, functions, guests),
     };
@@ -239,8 +281,8 @@ export function fixLineKeys(draft: FixDraft): DraftBudgetLine[] {
  * when the budget reaches it.
  *
  * - Fewer Guests lowers the Brief's Guests in round steps
- *   (`fewerGuestsSteps`) and stops at the first count that fits, or at a third
- *   fewer.
+ *   (`fewerGuestsSteps`) and stops at the first count that fits, or at about
+ *   a third fewer.
  * - Fewer Functions skips the smallest Function that makes the plan fit, or,
  *   when none does, the one that saves the most.
  *
@@ -248,7 +290,9 @@ export function fixLineKeys(draft: FixDraft): DraftBudgetLine[] {
  * `planLines` order. A preview line with the same category and unit reuses
  * that range; a line the Brief doesn't have yet (a sangeet that becomes small
  * enough for a small Venue) asks `rangeFor`, which reads the cache or the
- * table and never searches.
+ * table and never searches. `researched` says the stored check researched at
+ * least one line; a preview with a line priced any other way then says
+ * "should", since the check after the tap may research that line.
  */
 export function budgetCheckFixes(
   draft: FixDraft,
@@ -257,6 +301,7 @@ export function budgetCheckFixes(
     budget: number;
     contingencyShare: number;
     rangeFor: (line: DraftBudgetLine) => LineEstimate | null;
+    researched: boolean;
   },
 ): BudgetFix[] {
   const current = linesOf(draft, draft.functions, draft.details.guests ?? 0);
@@ -288,14 +333,25 @@ export function budgetCheckFixes(
     const minimum = minimumOf(c.lines);
     const fits = minimum <= opts.budget;
     const short = fits ? 0 : minimum - opts.budget;
-    const shown = formatLakh(about(minimum));
+    const shown = lakh(about(minimum));
+    const gap = lakh(Math.max(1000, about(short)));
+    const unsure =
+      opts.researched &&
+      planLines(c.lines).some(
+        (line) => rangeOf(line)?.basis.kind !== "researched",
+      );
+    const outcome = fits
+      ? unsure
+        ? "which should fit"
+        : "which fits"
+      : unsure
+        ? `which should leave about ${gap} short`
+        : `still about ${gap} short`;
     return {
       kind: c.kind,
       label: c.label,
       detail: c.detail,
-      preview: fits
-        ? `New minimum about ${shown}, which fits.`
-        : `New minimum about ${shown}, still about ${formatLakh(Math.max(1000, about(short)))} short.`,
+      preview: `New minimum about ${shown}, ${outcome}.`,
       minimum,
       fits,
       short,

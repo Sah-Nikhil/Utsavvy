@@ -5,12 +5,13 @@ import {
   type FunctionDetailsInput,
 } from "../brief/functions";
 import type { DraftBudgetLine } from "../types";
-import { referenceTableBasis } from "./basis";
+import { referenceTableBasis, researchedBasis } from "./basis";
 import {
   budgetCheckFixes,
   type FixDraft,
   fewerGuestsSteps,
   fixLineKeys,
+  skippableFunctions,
 } from "./budgetCheckFixes";
 import { type LineEstimate, planLines, pricePlan } from "./pricePlan";
 import { tableRange } from "./table";
@@ -60,8 +61,36 @@ function tableFor(tier: "X" | "Y") {
   };
 }
 
-function fixesFor(draft: FixDraft, tier: "X" | "Y", budget: number) {
-  const rangeFor = tableFor(tier);
+/** The table's ranges, as if research had found them: what a fully cached city gives. */
+function researchedFor(tier: "X" | "Y") {
+  const table = tableFor(tier);
+  return (line: DraftBudgetLine): LineEstimate | null => {
+    const range = table(line);
+    if (!range) return null;
+    return {
+      ...range,
+      basis: researchedBasis({
+        unit: range.unit,
+        unitLow: range.unitLow,
+        unitHigh: range.unitHigh,
+        sourceUrls: ["https://example.in/prices"],
+        searchedAt: 0,
+        reasoning: "Listed on the caterer's own site.",
+      }),
+    };
+  };
+}
+
+function fixesFor(
+  draft: FixDraft,
+  tier: "X" | "Y",
+  budget: number,
+  opts: {
+    researched?: boolean;
+    rangeFor?: (line: DraftBudgetLine) => LineEstimate | null;
+  } = {},
+) {
+  const rangeFor = opts.rangeFor ?? tableFor(tier);
   const lines = briefLines({
     eventType: draft.details.eventType!,
     tradition: draft.details.tradition,
@@ -78,6 +107,7 @@ function fixesFor(draft: FixDraft, tier: "X" | "Y", budget: number) {
     budget,
     contingencyShare: 0.1,
     rangeFor,
+    researched: opts.researched ?? false,
   });
   return { minimum, fixes };
 }
@@ -116,7 +146,7 @@ describe("the ₹15L Jaipur wedding (first-brief.md, worked example 1 variant)",
     // The assumed Guests follow the Brief's, as an edit to it would: the
     // smaller Functions keep their shares of the wedding's Guests.
     expect(fewer.detail).toBe(
-      "Haldi 40, Mehendi 80, Sangeet 150, Wedding 200, Reception 200",
+      "Haldi 40, Mehendi 80, Sangeet 150, Wedding 200, Reception 200, 100 invitation cards",
     );
     expect(fewer.fits).toBe(false);
     expect(fewer.minimum).toBeGreaterThan(1500000);
@@ -143,7 +173,7 @@ describe("the Pune Ganesh utsav (first-brief.md, worked example 3)", () => {
     });
     expect(Math.round(drop.minimum / 1000) * 1000).toBe(190000);
     expect(drop.fits).toBe(true);
-    expect(drop.preview).toBe("New minimum about ₹1.9L, which fits.");
+    expect(drop.preview).toBe("New minimum about ₹1.90L, which fits.");
   });
 
   it("never skips the sthapana, the daily aarti or the visarjan, even when that would fit", () => {
@@ -232,5 +262,62 @@ describe("budgetCheckFixes rules", () => {
       expect.arrayContaining(["venue_small", "decor_small"]),
     );
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("review of PR 121", () => {
+  it("M2: says 'should' when a preview line comes from the table but the check researched lines", () => {
+    const { fixes } = fixesFor(jaipurAt15L, "Y", 1500000, { researched: true });
+    expect(fixes.map((f) => f.preview)).toEqual([
+      "New minimum about ₹15.1L, which should leave about ₹9,000 short.",
+      "New minimum about ₹14.2L, which should fit.",
+    ]);
+  });
+
+  it("M2: stays firm when every preview line has a researched range", () => {
+    const { fixes } = fixesFor(jaipurAt15L, "Y", 1500000, {
+      researched: true,
+      rangeFor: researchedFor("Y"),
+    });
+    expect(fixes.map((f) => f.preview)).toEqual([
+      "New minimum about ₹15.1L, still about ₹9,000 short.",
+      "New minimum about ₹14.2L, which fits.",
+    ]);
+  });
+
+  it("L1: a wedding with no Function carrying the Brief's Guests never skips its own Functions", () => {
+    const other = draftOf({
+      eventType: "wedding",
+      date: { kind: "day", value: "2027-02-15" },
+      guests: 300,
+      tradition: "Other",
+      honoree: null,
+      communityKind: null,
+      functionKeys: ["mehendi", "shaadi_ceremony", "dinner_party"],
+      children: null,
+      today: "2026-10-21",
+    });
+    expect(skippableFunctions(other).map((fn) => fn.key)).toEqual(["mehendi"]);
+    const { fixes } = fixesFor(other, "Y", 300000);
+    expect(fixes.find((f) => f.kind === "fewerFunctions")?.change).toEqual({
+      field: "dropFunction",
+      functionKey: "mehendi",
+    });
+  });
+
+  it("L5: a birthday's fewer-Guests detail names the smaller cake", () => {
+    const birthday = draftOf({
+      eventType: "birthday",
+      date: { kind: "day", value: "2026-12-12" },
+      guests: 60,
+      tradition: null,
+      honoree: { who: "child", age: 6, name: null },
+      communityKind: null,
+      functionKeys: null,
+      children: 35,
+      today: "2026-10-21",
+    });
+    const { fixes } = fixesFor(birthday, "Y", 50000);
+    expect(fixes[0]!.detail).toBe("Party 40, 2 kg cake");
   });
 });

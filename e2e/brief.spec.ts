@@ -95,7 +95,7 @@ test.describe("the first Brief", () => {
     // from the Budget check's ranges.
     const fixes = summary.locator("[data-budget-fixes]");
     const skip = fixes.getByRole("button", { name: /Skip the cultural night/ });
-    await expect(skip).toContainText("New minimum about ₹1.9L, which fits.");
+    await expect(skip).toContainText("New minimum about ₹1.90L, which fits.");
     await expect(
       fixes.getByRole("button", { name: /Plan for 250 Guests instead of 400/ }),
     ).toContainText("still about ₹2,000 short");

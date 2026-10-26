@@ -1026,7 +1026,7 @@ export const editField = mutation({
       });
     }
     if (change.field === "dropFunction") {
-      await dropFunction(ctx, event, rows, change.functionKey);
+      await dropFunction(ctx, event, rows, change.functionKey, actor);
       await syncFunctions(ctx, eventId, actor);
       await startBudgetCheck(ctx, eventId);
       return null;
@@ -1159,15 +1159,19 @@ export const editField = mutation({
  * wedding itself, a birthday party), a Ganesh utsav's rituals and the last
  * Function are never skipped.
  *
- * `eventFunctions` has no soft delete, so the row goes; its Assumptions go
- * with the `syncFunctions` that follows, which records the Brief's change in
- * the Event's history.
+ * `eventFunctions` has no soft delete and the write helpers have no hard
+ * delete, so the row goes with its own "Skipped the <Function>" history row,
+ * written here in the shape `convex/lib/write.ts` records a delete. History
+ * shows it; Restore refuses it, since the row is gone. Items tagged to the
+ * Function become Event-wide first, through `memberWrite`. Its Assumptions go
+ * with the `syncFunctions` that follows.
  */
 async function dropFunction(
   ctx: MutationCtx,
   event: Doc<"events">,
   rows: Doc<"eventFunctions">[],
   functionKey: string,
+  actor: MemberActor,
 ): Promise<void> {
   if (event.briefState !== "summary") {
     throw new ConvexError({
@@ -1190,6 +1194,34 @@ async function dropFunction(
       message: `The ${row.name.toLowerCase()} stays in the plan.`,
     });
   }
+  const groupLabel = `Skipped the ${row.name.toLowerCase()}`;
+  // Before the plan an Event has few Items; read them all.
+  for await (const item of ctx.db
+    .query("items")
+    .withIndex("by_event", (q) => q.eq("eventId", event._id))) {
+    if (item.deletedAt !== null || item.functionKey !== functionKey) continue;
+    await memberWrite(ctx, {
+      table: "items",
+      id: item._id,
+      actor,
+      groupLabel,
+      patch: { functionKey: null },
+    });
+  }
+  await ctx.db.insert("changes", {
+    eventId: event._id,
+    at: Date.now(),
+    actor,
+    groupKey: null,
+    groupLabel,
+    fromComment: false,
+    table: "eventFunctions",
+    docId: row._id,
+    op: "delete",
+    before: row,
+    after: null,
+    undoneBy: null,
+  });
   await ctx.db.delete("eventFunctions", row._id);
 }
 
@@ -1287,6 +1319,7 @@ async function budgetFixesOf(
     budget: event.budgetTotal,
     contingencyShare: event.contingencyShare,
     rangeFor,
+    researched: (event.budgetCheck?.basis?.researched ?? 0) > 0,
   });
 }
 
@@ -1722,6 +1755,7 @@ export const summary = query({
       canPlanAnyway: budgetCheck?.band === "belowMinimum",
       fixes:
         event.briefState === "summary" &&
+        can(membership.role, "canvas.edit") &&
         budgetCheck?.band === "belowMinimum" &&
         /^\d{4}-\d{2}-\d{2}$/.test(today)
           ? await budgetFixesOf(ctx, event, rows, today)

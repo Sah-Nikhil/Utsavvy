@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hinglishWedding, puneGaneshUtsav } from "../lib/brief/examples";
 import { api } from "./_generated/api";
 import { runBudgetCheck } from "./brief";
-import { stubEstimateDeps } from "./estimates";
+import {
+  type EstimateDeps,
+  type ResearchInput,
+  type ResearchOutput,
+  stubEstimateDeps,
+} from "./estimates";
 import { STUB_MODEL, stubCallCount } from "./lib/models";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 
@@ -159,7 +164,7 @@ describe("the ₹15L Jaipur wedding's fixes", () => {
       },
     ]);
     expect(brief.fixes[0]!.detail).toBe(
-      "Haldi 40, Mehendi 80, Sangeet 150, Wedding 200, Reception 200",
+      "Haldi 40, Mehendi 80, Sangeet 150, Wedding 200, Reception 200, 100 invitation cards",
     );
   });
 
@@ -230,7 +235,7 @@ describe("the Pune Ganesh utsav's fixes", () => {
       },
       {
         label: "Skip the cultural night",
-        preview: "New minimum about ₹1.9L, which fits.",
+        preview: "New minimum about ₹1.90L, which fits.",
       },
     ]);
   });
@@ -306,5 +311,154 @@ describe("skipping a Function", () => {
       }),
     ).rejects.toThrow(/AfterThePlan/);
     expect((await summary(s))!.fixes).toEqual([]);
+  });
+});
+
+describe("review of PR 121", () => {
+  it("M2: a preview with table-priced lines says 'should' when the check researched prices", async () => {
+    const { s } = await jaipurAt15L();
+    // Research finds the main-dinner plate price; every other line stays on
+    // the table, and so do the lines a preview adds.
+    const research = vi.fn(
+      async (input: ResearchInput): Promise<ResearchOutput | null> => {
+        const line = input.lines[0]!;
+        if (line.category !== "catering_main") return null;
+        const url = "https://example-caterer.in/menus";
+        return {
+          model: "claude-sonnet-5-5",
+          searchResultUrls: [url],
+          searchesUsed: 1,
+          usage: [],
+          results: [
+            {
+              key: line.key,
+              unitLow: 1000,
+              unitHigh: 2000,
+              sourceUrls: [url],
+              reasoning: "Jaipur banquet menus list ₹1,000 to ₹2,000 a plate.",
+            },
+          ],
+        };
+      },
+    );
+    const deps: Partial<EstimateDeps> = {
+      ...stubEstimateDeps,
+      research,
+      claudeReachable: () => true,
+    };
+    await runBudgetCheck(actionCtx(s.t), s.eventId, deps);
+    const brief = (await summary(s))!;
+    expect(brief.fixes.map((f) => f.preview)).toEqual([
+      "New minimum about ₹15.1L, which should leave about ₹9,000 short.",
+      "New minimum about ₹14.2L, which should fit.",
+    ]);
+  });
+
+  it("N3: a Viewer gets no fixes", async () => {
+    const { s } = await jaipurAt15L();
+    const brief = await s.asPapa.query(api.brief.summary, {
+      eventId: s.eventId,
+      today: TODAY,
+    });
+    expect(brief!.budgetCheck!.band).toBe("belowMinimum");
+    expect(brief!.fixes).toEqual([]);
+  });
+
+  it("L3: skipping writes a 'Skipped the reception' history row by the Member", async () => {
+    const { s, brief } = await jaipurAt15L();
+    const skip = brief.fixes.find((f) => f.kind === "fewerFunctions")!;
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: skip.change,
+    });
+    const rows = await s.t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_event_at", (q) => q.eq("eventId", s.eventId))
+        .collect(),
+    );
+    const row = rows.find(
+      (c) => c.table === "eventFunctions" && c.op === "delete",
+    );
+    expect(row).toMatchObject({
+      groupLabel: "Skipped the reception",
+      actor: { kind: "member" },
+      before: { key: "reception", name: "Reception" },
+      after: null,
+    });
+  });
+
+  it("L4: Items tagged to the skipped Function become Event-wide", async () => {
+    const { s, brief } = await jaipurAt15L();
+    const ids = await s.t.run(async (ctx) => {
+      const section = await ctx.db
+        .query("sections")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .first();
+      const membership = await ctx.db
+        .query("memberships")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .first();
+      const note = (functionKey: string | null) =>
+        ctx.db.insert("items", {
+          eventId: s.eventId,
+          sectionId: section!._id,
+          position: { x: 0, y: 0 },
+          size: null,
+          functionKey,
+          createdBy: { kind: "member", membershipId: membership!._id },
+          version: 1,
+          deletedAt: null,
+          kind: "note",
+          data: { text: "Mehendi favours", citations: [] },
+        });
+      return {
+        reception: await note("reception"),
+        mehendi: await note("mehendi"),
+      };
+    });
+    const skip = brief.fixes.find((f) => f.kind === "fewerFunctions")!;
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: skip.change,
+    });
+    const [reception, mehendi] = await s.t.run((ctx) =>
+      Promise.all([
+        ctx.db.get("items", ids.reception),
+        ctx.db.get("items", ids.mehendi),
+      ]),
+    );
+    expect(reception).toMatchObject({ functionKey: null, version: 2 });
+    expect(mehendi).toMatchObject({ functionKey: "mehendi", version: 1 });
+  });
+
+  it("L1: an 'Other' wedding keeps the Functions Utsavvy doesn't know", async () => {
+    const { s } = await jaipurAt15L();
+    await s.t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("eventFunctions")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .collect();
+      const keep = ["mehendi", "wedding", "reception"];
+      const rename: Record<string, string> = {
+        wedding: "shaadi_ceremony",
+        reception: "dinner_party",
+      };
+      for (const row of rows) {
+        if (!keep.includes(row.key))
+          await ctx.db.delete("eventFunctions", row._id);
+        else if (rename[row.key])
+          await ctx.db.patch("eventFunctions", row._id, {
+            key: rename[row.key]!,
+            name: rename[row.key]!,
+          });
+      }
+    });
+    await expect(
+      s.asMeera.mutation(api.brief.editField, {
+        eventId: s.eventId,
+        change: { field: "dropFunction", functionKey: "shaadi_ceremony" },
+      }),
+    ).rejects.toThrow(/BadAnswer/);
   });
 });

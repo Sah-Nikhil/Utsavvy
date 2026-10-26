@@ -85,6 +85,8 @@ A Chat message with every field editable in place:
 - The Budget check, when the budget is below the typical minimum: "A plan like this in Jaipur usually starts at about ₹19.6L. You're about ₹4.6L short." with three fixes, each previewing its new minimum: fewer Guests, fewer or merged Functions, raise the budget. And "Plan at my budget anyway".
 
   > Amended by [IMPLEMENTATION_PLAN.md](../../IMPLEMENTATION_PLAN.md) section 1.5 on 2026-10-22: v1 shows the flag, "Raise the budget" and "Plan at my budget anyway". The previewed fewer-Guests and fewer-Functions fixes are SHOULD (X12).
+
+  > Amended on 2026-10-26 (X12, [#69](https://github.com/Sah-Nikhil/Utsavvy/issues/69)): the two fixes are built, before the plan only. **Fewer Guests** lowers the Brief's own Guest count (the wedding's, the busiest programme's) in round steps, down by about a third, to the nearest round step, and stops at the first count that fits. Every Guest count that is still an Assumption follows it, as it does when a Member edits the Guests, so the smaller Functions' counts and the invitation cards fall too. The button lists each new count. **Fewer Functions** skips one Function: the smallest one whose skip makes the plan fit, or, when none does, the one that saves the most. It never skips the Event's own Function, a Ganesh utsav's sthapana, daily aarti or visarjan, or the last Function. **Merging Functions is not built.** The worked examples' fewer-Guests figures below change accordingly.
 - A late-date note is not added here; lateness is handled in the Timeline.
 - "Make my plan".
 
@@ -311,6 +313,8 @@ Suggestions (7): Rajasthani folk musicians at the sangeet dinner · marigold can
 
 **Variant, ₹15L (below minimum).** Same Brief with ₹15L. The Brief summary flags: "A plan like this in Jaipur usually starts at about ₹19.6L. You're about ₹4.6L short." Fixes with previews: drop the reception (new minimum about ₹14.2L, fits); invite 200 to the wedding and reception and 150 to the sangeet (new minimum about ₹15.5L, still about ₹55,000 short); raise the budget to ₹19.6L. "Plan at my budget anyway" scales every Entry to about 76% of its low end.
 
+> Amended on 2026-10-26 (X12, [#69](https://github.com/Sah-Nikhil/Utsavvy/issues/69)): 200 Guests lowers every assumed count with the wedding's: haldi 40, mehendi 80, sangeet 150, wedding and reception 200, and 100 invitation cards. The new minimum is ₹15,09,200, so the preview reads "about ₹15.1L, still about ₹9,000 short" (₹9,200 exactly). The ₹15.5L above kept the haldi at 60 and the mehendi at 120, values no Member set. Skipping the reception is unchanged: ₹14,17,900, fits.
+
 ### 2. Jaipur birthday, 6-year-old, 60 Guests, ₹1.5L (comfortable band)
 
 Brief: "Aarav's 6th birthday party in Jaipur on Saturday 12 December, about 35 kids and their parents, budget 1.5 lakh."
@@ -338,6 +342,8 @@ Extraction: community, Pune (X), Ganesh utsav, 240 households, budget ₹2,40,00
 Functions: sthapana 4 Sep (150 Guests), daily aarti 4-13 Sep (100 a day, a date range), cultural night 11 Sep (400), visarjan 14 Sep (300). All four dates and Guest counts other than the cultural night's are Assumptions.
 
 Budget check: Minimum ₹2,75,700, Typical ₹5,17,300, High ₹7,59,000 (tier X, so the Y table × 1.25). The Brief summary flags: "A Ganeshotsav like this in Pune usually starts at about ₹2.76L. You're about ₹36,000 short." Fixes: skip the cultural night (new minimum about ₹1.90L, fits); 250 Guests at the cultural night instead of 400 (about ₹2.59L, still about ₹19,000 short); raise the budget to ₹2.76L, which is about ₹1,150 per household. The Budget shows "₹1,000 per household" next to the total.
+
+> Amended on 2026-10-26 (X12, [#69](https://github.com/Sah-Nikhil/Utsavvy/issues/69)): 250 Guests at the cultural night lowers the other programmes' assumed shares with it: sthapana 94, daily aarti 63 a day, visarjan 188. The new minimum is ₹2,42,083, so the preview reads "about ₹2.42L, still about ₹2,000 short" (₹2,083 exactly). The ₹2.59L above kept 150, 100 and 300 at the other programmes. Skipping the cultural night is unchanged: ₹1,90,438, "about ₹1.90L, which fits".
 
 Timeline: 318 days out, nothing late. Committee approves the budget by early June 2027, book the idol by April, book the dhol-tasha pathak by early June, pandal and decor by early July, check whether permissions are needed by late July, book sound by early August.
 
