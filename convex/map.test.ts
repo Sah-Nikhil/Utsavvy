@@ -443,6 +443,96 @@ describe("api.map.moveMarker", () => {
       approximate: false,
     });
   });
+
+  // Review round 2 of #123: the Marker is shared, so a stale Restore in one
+  // Event must not overwrite a correction another Event made since.
+  it("refuses a stale Restore once another Event has moved the Marker, and keeps that Event's correction", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    await t.run((ctx) => seedEvent(ctx, "Kabir", JAIPUR));
+    const kabir = await t.run(async (ctx) => {
+      const events = await ctx.db.query("events").collect();
+      return events.find((e) => e.name === "Kabir's wedding")!._id;
+    });
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    const restoreAs = (changeId: Id<"changes">) =>
+      as(t, "Meera").mutation(api.history.restore, { changeId });
+    const history = () =>
+      as(t, "Meera").query(api.history.list, {
+        eventId: meera.eventId,
+        paginationOpts: { numItems: 50, cursor: null },
+      });
+
+    // Meera's Event moves the Marker, then Restores the move.
+    await as(t, "Meera").mutation(api.map.moveMarker, {
+      eventId: meera.eventId,
+      vendorId: rood._id,
+      lat: 26.9301,
+      lng: 75.7712,
+    });
+    const moved = (await vendorChanges(t))[0]!;
+    await restoreAs(moved._id);
+    const restored = (await vendorChanges(t)).find((c) => c.op === "restore")!;
+
+    // Kabir's Event then puts the Marker in place itself.
+    await as(t, "Kabir").mutation(api.map.moveMarker, {
+      eventId: kabir,
+      vendorId: rood._id,
+      lat: 26.925,
+      lng: 75.765,
+    });
+    const corrected = await vendorByDomain(t, "roodmahal.com");
+
+    // Meera's history no longer offers either stale Restore...
+    const rows = (await history()).page;
+    for (const id of [moved._id, restored._id])
+      expect(rows.find((r) => r.changeId === id)?.canRestore, id).toBe(false);
+    // ...and Restoring them anyway is refused and writes nothing.
+    const before = await vendorChanges(t);
+    await expect(restoreAs(restored._id)).rejects.toThrow(/markerMovedSince/);
+    await expect(restoreAs(moved._id)).rejects.toThrow(/markerMovedSince/);
+    expect(await vendorByDomain(t, "roodmahal.com")).toEqual(corrected);
+    expect(corrected.marker).toMatchObject({
+      lat: 26.925,
+      lng: 75.765,
+      approximate: false,
+    });
+    expect(await vendorChanges(t)).toEqual(before);
+  });
+
+  it("still offers Restore and its redo while the Marker is as the change left it", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    await as(t, "Meera").mutation(api.map.moveMarker, {
+      eventId: meera.eventId,
+      vendorId: rood._id,
+      lat: 26.9301,
+      lng: 75.7712,
+    });
+    const listed = async () =>
+      (
+        await as(t, "Meera").query(api.history.list, {
+          eventId: meera.eventId,
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page;
+    const moved = (await vendorChanges(t))[0]!;
+    expect(
+      (await listed()).find((r) => r.changeId === moved._id)?.canRestore,
+    ).toBe(true);
+    await as(t, "Meera").mutation(api.history.restore, {
+      changeId: moved._id,
+    });
+    const restored = (await vendorChanges(t)).find((c) => c.op === "restore")!;
+    expect(
+      (await listed()).find((r) => r.changeId === restored._id)?.canRestore,
+    ).toBe(true);
+    // Restoring the move again while it's already undone changes nothing.
+    await expect(
+      as(t, "Meera").mutation(api.history.restore, { changeId: moved._id }),
+    ).resolves.toEqual({ changed: false });
+  });
 });
 
 describe("api.map.view", () => {
