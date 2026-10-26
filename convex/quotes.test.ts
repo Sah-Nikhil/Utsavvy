@@ -603,7 +603,7 @@ describe("a Quote pasted from WhatsApp", () => {
     const [vendor] = line.vendors;
     expect(vendor!.vendorName).toBe("Vinayak Foods & Catering");
     expect(vendor!.listed.map((p) => p.label)).toContain(
-      "from ₹250/plate (starting price)",
+      "from ₹250/plate × 300 = from ₹75,000 (starting price)",
     );
     expect(vendor!.quote).toMatchObject({
       total: 285_000,
@@ -902,7 +902,7 @@ describe("api.quotes.budgetComparison", () => {
     expect(line.vendors[0]!.listed).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: "from ₹250/plate (starting price)",
+          label: "from ₹250/plate × 300 = from ₹75,000 (starting price)",
           low: 75_000,
         }),
       ]),

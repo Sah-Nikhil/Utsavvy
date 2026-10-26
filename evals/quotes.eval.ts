@@ -264,7 +264,7 @@ describe("scripted case: a Quote pasted from WhatsApp", () => {
     )!;
     expect(line.estimate).not.toBeNull();
     expect(line.vendors[0]!.listed.map((p) => p.label)).toContain(
-      "from ₹250/plate (starting price)",
+      "from ₹250/plate × 300 = from ₹75,000 (starting price)",
     );
     expect(line.vendors[0]!.quote).toMatchObject({
       total: 285_000,

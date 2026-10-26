@@ -529,6 +529,7 @@ function BudgetRow({
             <EstimateLine
               estimate={fields.estimate}
               amount={fields.plannedAmount !== null}
+              range={(comparison?.vendors.length ?? 0) > 0}
             />
           ) : (
             <NoEstimate />

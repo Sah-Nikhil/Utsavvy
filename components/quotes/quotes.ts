@@ -6,6 +6,11 @@
  */
 
 import { formatINR, formatLakh } from "../../lib/format";
+import {
+  comparableForFunction,
+  type ComparablePrice,
+  type ListedPriceLike,
+} from "../vendors/comparable";
 
 export type QuoteUnit =
   "per_plate" | "per_person" | "per_day" | "per_function" | "total";
@@ -207,4 +212,37 @@ export function numbersIn(text: string): number[] {
     found.push(Math.round(value * multiplier));
   }
   return found;
+}
+
+const LISTED_PER: Record<NonNullable<ListedPriceLike["unit"]>, string> = {
+  per_plate: "/plate",
+  per_person: "/person",
+  per_day: "/day",
+  per_function: "/Function",
+};
+
+/**
+ * A comparable Listed price for a budget line's Function, as the Budget
+ * comparison shows it: `comparableForFunction`, except that a starting price
+ * is also worked out for the Guests, as a floor that keeps its qualifier
+ * ("from ₹250/plate × 300 = from ₹75,000 (starting price)").
+ */
+export function listedForGuests(
+  price: ListedPriceLike,
+  guests: number | null,
+): ComparablePrice | null {
+  const comparable = comparableForFunction(price, guests);
+  if (
+    comparable === null ||
+    price.qualifier !== "starting" ||
+    !price.amount ||
+    !price.unit ||
+    comparable.low === price.amount.min
+  )
+    return comparable;
+  const times = Math.round(comparable.low / price.amount.min);
+  return {
+    ...comparable,
+    label: `from ${formatINR(price.amount.min)}${LISTED_PER[price.unit]} × ${times.toLocaleString("en-IN")} = from ${formatINR(comparable.low)} (starting price)`,
+  };
 }

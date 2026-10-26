@@ -47,7 +47,7 @@ function provenanceFor(vendor: Doc<"vendors">, fields: string[]): Provenance[] {
  * "The exact sentence": the quote-checked sentence(s) a fact or price was read
  * from, in a tooltip on hover and inline on tap, so touch screens get it too.
  */
-function ExactSentence({
+export function ExactSentence({
   sentences,
 }: {
   sentences: { sentence: string; url: string }[];

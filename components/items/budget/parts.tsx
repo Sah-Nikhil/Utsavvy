@@ -14,7 +14,7 @@ import type { FunctionIndex } from "@/components/ui/function-marker";
 import { Money } from "@/components/ui/money";
 import { PriceBadge } from "@/components/ui/price-badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatLakh } from "@/lib/format";
 import { basisText } from "@/lib/pricing/basis";
 import { scriptClass } from "@/lib/script";
 import type { SelectionTarget } from "@/lib/types/canvas";
@@ -58,10 +58,13 @@ function hostOf(url: string): string {
 export function EstimateLine({
   estimate,
   amount = false,
+  range = false,
   className,
 }: {
   estimate: PricedEstimate;
   amount?: boolean;
+  /** Show its low-to-high range beside the badge, as the Budget comparison does (S12). */
+  range?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -71,6 +74,12 @@ export function EstimateLine({
     <div className={cn("grid min-w-0 gap-1", className)}>
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <PriceBadge kind="estimate" detail="none" />
+        {range ? (
+          <span className="num text-label text-price-estimate">
+            {formatLakh(estimate.low)} to {formatLakh(estimate.high)}
+            {amount ? <span className="text-ink-3"> · picked</span> : null}
+          </span>
+        ) : null}
         {amount ? (
           <Money
             amount={estimate.amount}

@@ -9,6 +9,7 @@ import {
   LINK_STATUS_LABELS,
   siteOf,
 } from "@/components/vendors/cards";
+import { ExactSentence } from "@/components/vendors/VendorCard";
 import type { LineComparison } from "@/convex/quotes";
 import { formatINR } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,14 @@ import { compareWithPlanned, type Comparison } from "./quotes";
  * into them. A Quote says in words and colour how far it is over or under the
  * planned amount and the Function's budget.
  */
+
+/** The Listed price badge's source and day. */
+function listedBadge(price: { sourceUrl: string; seenAt: string }) {
+  return {
+    source: siteOf(price.sourceUrl),
+    seenOn: formatSeenDay(price.seenAt),
+  };
+}
 
 /** At most this many Listed prices per Vendor, so a long price list stays short here. */
 const MAX_LISTED = 2;
@@ -65,20 +74,27 @@ export function BudgetQuotes({
               key={`${price.sourceUrl}\n${price.label}`}
               className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5"
             >
-              <PriceBadge
-                kind="listed"
-                source={siteOf(price.sourceUrl)}
-                seenOn={formatSeenDay(price.seenAt)}
-                detail="none"
-              />
+              <PriceBadge kind="listed" detail="none" {...listedBadge(price)} />
               <span className="num text-caption text-price-listed">
                 {price.label}
               </span>
               {/* Its own line that wraps, so a long site name stays inside a narrow card. */}
               <span className="min-w-0 text-caption text-ink-3 [overflow-wrap:anywhere]">
-                from {siteOf(price.sourceUrl)} · seen{" "}
-                {formatSeenDay(price.seenAt)}
+                from{" "}
+                <a
+                  href={price.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xs text-action underline underline-offset-2 hover:text-action-strong focus-visible:outline-2 focus-visible:outline-focus"
+                >
+                  {siteOf(price.sourceUrl)}
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>{" "}
+                · seen {formatSeenDay(price.seenAt)}
               </span>
+              <ExactSentence
+                sentences={[{ sentence: price.sentence, url: price.sourceUrl }]}
+              />
             </span>
           ))}
 

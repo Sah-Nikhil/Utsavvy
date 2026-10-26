@@ -170,7 +170,25 @@ test.describe("Quotes, seeded on a local deployment", () => {
       name: "Vendor prices for Catering",
     });
     await expect(prices).toContainText("Vinayak");
-    await expect(prices).toContainText("250");
+    // The Estimate's range stands beside its badge, apart from the amount.
+    await expect(row).toContainText("₹3L to ₹6L");
+    // The starting Listed price, worked out for the sangeet's 300 Guests as a
+    // floor, with its page linked and its exact sentence on tap.
+    await expect(prices).toContainText(
+      "from ₹250/plate × 300 = from ₹75,000 (starting price)",
+    );
+    const source = prices
+      .getByRole("link", { name: /vinayakfoodsncatering\.in/ })
+      .first();
+    await expect(source).toHaveAttribute(
+      "href",
+      /^https:\/\/(www\.)?vinayakfoodsncatering\.in/,
+    );
+    await prices
+      .getByRole("button", { name: "The exact sentence" })
+      .first()
+      .click();
+    await expect(prices.locator("blockquote").first()).toContainText("250");
     await expect(prices).toContainText("₹950/plate × 300 = ₹2.85L");
     const over = prices.locator('[data-verdict="over"]').first();
     await expect(over).toHaveText("₹40,000 over the planned ₹2,45,000");

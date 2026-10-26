@@ -9,12 +9,12 @@ import {
 import {
   bookingQuestion,
   comparedEntries,
+  listedForGuests,
   numbersIn,
   quoteForEntries,
   quoteLine,
   standaloneTotal,
 } from "../components/quotes/quotes";
-import { comparableForFunction } from "../components/vendors/comparable";
 import { can } from "../lib/access/permissions";
 import { formatINR } from "../lib/format";
 import { referenceTableBasis } from "../lib/pricing";
@@ -451,6 +451,8 @@ const listedViewValidator = v.object({
   low: v.number(),
   high: v.union(v.number(), v.null()),
   sourceUrl: v.string(),
+  /** The exact, quote-checked sentence it was read from. */
+  sentence: v.string(),
   seenAt: v.string(),
 });
 
@@ -561,7 +563,7 @@ export const budgetComparison = query({
               ? null
               : (guests.get(line.functionKey) ?? null);
           const listed = prices.get(vendorId)!.flatMap((price) => {
-            const comparable = comparableForFunction(price, lineGuests);
+            const comparable = listedForGuests(price, lineGuests);
             return comparable === null
               ? []
               : [
@@ -570,6 +572,7 @@ export const budgetComparison = query({
                     low: comparable.low,
                     high: comparable.high,
                     sourceUrl: price.sourceUrl,
+                    sentence: price.sentence,
                     seenAt: price.seenAt,
                   },
                 ];

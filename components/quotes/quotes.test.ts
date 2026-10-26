@@ -7,6 +7,7 @@ import {
   quoteForEntries,
   quoteLine,
   bookingQuestion,
+  listedForGuests,
   type QuoteEntry,
 } from "./quotes";
 
@@ -196,5 +197,36 @@ describe("numbersIn", () => {
     ]);
     expect(numbersIn("₹९५० प्रति प्लेट")).toEqual([950]);
     expect(numbersIn("no numbers here")).toEqual([]);
+  });
+});
+
+describe("listedForGuests", () => {
+  const starting = {
+    comparable: true,
+    amount: { min: 250, max: 250 },
+    unit: "per_plate" as const,
+    qualifier: "starting" as const,
+    text: "Starting from ₹250 per plate",
+  };
+
+  it("works a starting price out for the Function's Guests as a floor, keeping its qualifier", () => {
+    expect(listedForGuests(starting, 300)).toEqual({
+      low: 75_000,
+      high: null,
+      label: "from ₹250/plate × 300 = from ₹75,000 (starting price)",
+    });
+  });
+
+  it("leaves a starting price per plate when there are no Guests, and other prices as comparableForFunction gives them", () => {
+    expect(listedForGuests(starting, null)?.label).toBe(
+      "from ₹250/plate (starting price)",
+    );
+    expect(
+      listedForGuests(
+        { ...starting, amount: { min: 1_200, max: 1_200 }, qualifier: "exact" },
+        300,
+      )?.label,
+    ).toBe("₹1,200/plate × 300 = ₹3.6L, from Listed price");
+    expect(listedForGuests({ ...starting, comparable: false }, 300)).toBeNull();
   });
 });
