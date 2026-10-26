@@ -88,6 +88,10 @@ test.describe("The demo Event, seeded on a local deployment", () => {
         .locator('[data-chat-row="reply"]')
         .filter({ hasText: "I reworked the sangeet's run sheet" }),
     ).toBeVisible();
+    // The five Shortlisted Vendors from the starter set.
+    const vendors = page.locator('[data-canvas-item="shortlistedVendor"]');
+    await expect(vendors).toHaveCount(5, { timeout: 20_000 });
+    await expect(vendors.filter({ hasText: "Umaid Haveli" })).toBeVisible();
     await expectNoSeriousA11yViolations(page);
     await page.screenshot({ path: testInfo.outputPath("demo-desktop.png") });
 
@@ -95,6 +99,22 @@ test.describe("The demo Event, seeded on a local deployment", () => {
     await expect(banner).toBeVisible();
     await expectNoSeriousA11yViolations(page);
     await page.screenshot({ path: testInfo.outputPath("demo-phone.png") });
+
+    // The Canvas tab lists the Shortlisted Vendors with their statuses.
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: "Canvas" })
+      .click();
+    const venue = page
+      .locator('[data-compact-item="shortlistedVendor"]')
+      .filter({ hasText: "Umaid Haveli" });
+    await expect(venue).toBeVisible({ timeout: 20_000 });
+    await expect(venue).toContainText("Considering");
+    await venue.scrollIntoViewIfNeeded();
+    await expectNoSeriousA11yViolations(page);
+    await page.screenshot({
+      path: testInfo.outputPath("demo-vendors-phone.png"),
+    });
 
     // Any other Event: no banner.
     await page.setViewportSize({ width: 1280, height: 800 });
