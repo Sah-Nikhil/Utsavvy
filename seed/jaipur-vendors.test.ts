@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   FACT_FIELDS,
@@ -19,9 +19,8 @@ import {
 
 const SEED_FILE = new URL("./jaipur-vendors.json", import.meta.url);
 
-// The file is written only from the cards Sah-Nikhil approves (seed/README.md), so these
-// checks skip until it lands and then run on every change to it.
-describe.skipIf(!existsSync(SEED_FILE))("seed/jaipur-vendors.json", () => {
+// Written only from the cards Sah-Nikhil approved (seed/README.md).
+describe("seed/jaipur-vendors.json", () => {
   let vendors: Vendor[];
   beforeAll(() => {
     vendors = JSON.parse(readFileSync(SEED_FILE, "utf8"));

@@ -4,7 +4,7 @@
 
 Issue [#33](https://github.com/Sah-Nikhil/Utsavvy/issues/33). The 16 Jaipur Vendors the app ships with: 6 Venues, 4 caterers, 3 decorators and 3 photographers. Every fact and Listed price comes from the Vendor's own website and keeps the page, the exact sentence and the date seen. No Instagram-only Vendor was needed (see below). `jaipur-vendors.test.ts` checks the file's shape.
 
-**Status: collected, waiting for Sah-Nikhil's card review.** `jaipur-vendors.json` is written only from the approved cards, so it isn't in the repo yet and its seed test fails until then.
+**Status: reviewed.** Sah-Nikhil checked and approved all 19 cards on 26 Oct 2026 (the 16 below and the 3 reserves) and rejected none. `jaipur-vendors.json` holds the 16 main cards exactly as reviewed; the reserves are recorded below and are not in the file.
 
 ### How it was collected
 
@@ -44,30 +44,32 @@ Sites read but not used: thelalit.com (one domain for a hotel chain in many citi
 
 Prices that describe the Jaipur market in general ("catering in Jaipur starts from ₹800-₹1,200 per plate") were not recorded as a Vendor's Listed price, even when they appear on that Vendor's own site.
 
+Umaid Haveli's room rate was looked at on 26 Oct 2026, from the Umaid hotel group's booking engine (booking.umaidhotels.com, read through Jina Reader because the page is built by JavaScript; its `robots.txt` returned 403, which RFC 9309 treats as no limits). It was not recorded as a Listed price: the page never names the property, it is on a different domain from umaidhaveli.com, the amounts sit in fragments ("INR 6,250", "Rate for 1 Night Tax Exclusive") with no sentence that carries an amount and its unit together, and it is a discounted room rate for one night rather than a price for hiring the Venue.
+
 ### Card review
 
-Sah-Nikhil ticks each card after checking its name, address, Marker, and every Listed price and unit against the Vendor's site.
+Sah-Nikhil ticks each card after checking its name, address, Marker, and every Listed price and unit against the Vendor's site. All 16 were checked and approved on 26 Oct 2026.
 
 | Category     | Vendor                           | Domain                   | Checked |
 | ------------ | -------------------------------- | ------------------------ | ------- |
-| Venue        | Umaid Haveli                     | umaidhaveli.com          | [ ]     |
-| Venue        | Rood Mahal                       | roodmahal.com            | [ ]     |
-| Venue        | Harika Bagh                      | harikabagh.com           | [ ]     |
-| Venue        | Bhanwar Singh Palace             | bspjaipur.com            | [ ]     |
-| Venue        | Parampara Banquet Hall (Virasat) | virasatjaipur.com        | [ ]     |
-| Venue        | Sapphire Inn                     | sapphireinnjaipur.com    | [ ]     |
-| Caterer      | M L Caterers                     | mlcaterers.com           | [ ]     |
-| Caterer      | Vinayak Foods & Catering         | vinayakfoodsncatering.in | [ ]     |
-| Caterer      | G.D. Caterer                     | gdcaterer.com            | [ ]     |
-| Caterer      | Ganesh Dal Bati Churma           | ganeshdalbati.com        | [ ]     |
-| Decorator    | JMD Events And Flowers           | jmdeventsandflowers.com  | [ ]     |
-| Decorator    | Manha Event Decoration           | manhaevent.com           | [ ]     |
-| Decorator    | The Prince Group of Events       | theprinceevents.com      | [ ]     |
-| Photographer | Candid Life Photography          | candidlifephotography.in | [ ]     |
-| Photographer | Viresh Studio                    | vireshstudio.com         | [ ]     |
-| Photographer | Wedding Velvet                   | weddingvelvet.com        | [ ]     |
+| Venue        | Umaid Haveli                     | umaidhaveli.com          | [x]     |
+| Venue        | Rood Mahal                       | roodmahal.com            | [x]     |
+| Venue        | Harika Bagh                      | harikabagh.com           | [x]     |
+| Venue        | Bhanwar Singh Palace             | bspjaipur.com            | [x]     |
+| Venue        | Parampara Banquet Hall (Virasat) | virasatjaipur.com        | [x]     |
+| Venue        | Sapphire Inn                     | sapphireinnjaipur.com    | [x]     |
+| Caterer      | M L Caterers                     | mlcaterers.com           | [x]     |
+| Caterer      | Vinayak Foods & Catering         | vinayakfoodsncatering.in | [x]     |
+| Caterer      | G.D. Caterer                     | gdcaterer.com            | [x]     |
+| Caterer      | Ganesh Dal Bati Churma           | ganeshdalbati.com        | [x]     |
+| Decorator    | JMD Events And Flowers           | jmdeventsandflowers.com  | [x]     |
+| Decorator    | Manha Event Decoration           | manhaevent.com           | [x]     |
+| Decorator    | The Prince Group of Events       | theprinceevents.com      | [x]     |
+| Photographer | Candid Life Photography          | candidlifephotography.in | [x]     |
+| Photographer | Viresh Studio                    | vireshstudio.com         | [x]     |
+| Photographer | Wedding Velvet                   | weddingvelvet.com        | [x]     |
 
-Reserves, used only if a card above is rejected: AG Events And Tent (decorator), Matrix Studio and KumKum Photos (photographers). The Prince Group of Events is a wedding planner with its own decor production, so it is a borderline decorator.
+Approved reserves (checked and approved by Sah-Nikhil on 26 Oct 2026, kept out of `jaipur-vendors.json` because the starter set is exactly 16): AG Events And Tent (ageventsandtent.com, decorator), Matrix Studio (matrixstudio.in) and KumKum Photos (kumkumphotosjaipur.com), both photographers. Swap one in only if a card above is later withdrawn. The Prince Group of Events is a wedding planner with its own decor production, so it is a borderline decorator.
 
 ### Schema notes for the contract (C0)
 
