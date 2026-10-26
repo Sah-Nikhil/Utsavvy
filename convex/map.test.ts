@@ -320,6 +320,129 @@ describe("api.map.moveMarker", () => {
       /Invalid/,
     );
   });
+
+  // Review of #123, finding 1: the Marker is shared by every Event, so a
+  // point far from the Vendor's city must never reach the shared row.
+  it("refuses a point outside the Vendor's city, on the globe or not, and changes nothing", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    for (const [lat, lng] of [
+      [19.076, 72.8777], // Mumbai
+      [0, 0],
+      [27.25, 75.79], // ~38 km north of Jaipur's centre
+    ] as const) {
+      await expectRefused(
+        t,
+        () =>
+          as(t, "Meera").mutation(api.map.moveMarker, {
+            eventId: meera.eventId,
+            vendorId: rood._id,
+            lat,
+            lng,
+          }),
+        /Invalid/,
+      );
+    }
+  });
+
+  it("refuses a point too far from the Marker for a Vendor shortlisted from another city", async () => {
+    const t = newTest();
+    const pune = await setup(t, "Asha", PUNE);
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    await shortlist(t, pune, rood._id);
+    // Pune's centre is no help for a Jaipur Vendor; Rood Mahal's own Marker is.
+    await expectRefused(
+      t,
+      () =>
+        as(t, "Asha").mutation(api.map.moveMarker, {
+          eventId: pune.eventId,
+          vendorId: rood._id,
+          lat: PUNE.centre.lat,
+          lng: PUNE.centre.lng,
+        }),
+      /Invalid/,
+    );
+    await expectRefused(
+      t,
+      () =>
+        as(t, "Asha").mutation(api.map.moveMarker, {
+          eventId: pune.eventId,
+          vendorId: rood._id,
+          lat: 27.1,
+          lng: 75.76,
+        }),
+      /Invalid/,
+    );
+  });
+
+  // Review of #123, finding 2: only an approximate Marker is dragged into place.
+  it("refuses to move an exact Marker and changes nothing", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    const velvet = await vendorByDomain(t, "weddingvelvet.com");
+    expect(velvet.marker?.approximate).toBe(false);
+    await expectRefused(
+      t,
+      () =>
+        as(t, "Meera").mutation(api.map.moveMarker, {
+          eventId: meera.eventId,
+          vendorId: velvet._id,
+          lat: velvet.marker!.lat + 0.005,
+          lng: velvet.marker!.lng,
+        }),
+      /Invalid/,
+    );
+  });
+
+  it("can't move the same Marker twice, so moves never chain away from the city", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    const move = (lat: number) =>
+      as(t, "Meera").mutation(api.map.moveMarker, {
+        eventId: meera.eventId,
+        vendorId: rood._id,
+        lat,
+        lng: rood.marker!.lng,
+      });
+    await move(rood.marker!.lat + 0.02);
+    await expect(move(rood.marker!.lat + 0.04)).rejects.toThrow(/Invalid/);
+    expect((await vendorByDomain(t, "roodmahal.com")).marker?.lat).toBe(
+      rood.marker!.lat + 0.02,
+    );
+  });
+
+  it("Restore puts the shared Marker back where it was, approximate again, and Restore again puts the move back", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    const rood = await vendorByDomain(t, "roodmahal.com");
+    await as(t, "Meera").mutation(api.map.moveMarker, {
+      eventId: meera.eventId,
+      vendorId: rood._id,
+      lat: 26.9301,
+      lng: 75.7712,
+    });
+    const [moved] = await vendorChanges(t);
+
+    await as(t, "Meera").mutation(api.history.restore, {
+      changeId: moved!._id,
+    });
+    expect((await vendorByDomain(t, "roodmahal.com")).marker).toEqual(
+      rood.marker,
+    );
+
+    const restored = (await vendorChanges(t)).find((c) => c.op === "restore");
+    expect(restored?.eventId).toBe(meera.eventId);
+    await as(t, "Meera").mutation(api.history.restore, {
+      changeId: restored!._id,
+    });
+    expect((await vendorByDomain(t, "roodmahal.com")).marker).toMatchObject({
+      lat: 26.9301,
+      lng: 75.7712,
+      approximate: false,
+    });
+  });
 });
 
 describe("api.map.view", () => {
@@ -370,6 +493,17 @@ describe("api.map.view", () => {
 
     expect(view.city?.name).toBe("Pune");
     expect(view.vendors.map((v) => v.name)).toEqual(["Rood Mahal"]);
+    // Review of #123, finding 3: it's listed as outside Pune, not drawn.
+    expect(view.vendors[0]?.inCity).toBe(false);
+  });
+
+  it("marks the Vendors in the Event's city as in it", async () => {
+    const t = newTest();
+    const meera = await setup(t);
+    const view = await as(t, "Meera").query(api.map.view, {
+      eventId: meera.eventId,
+    });
+    expect(view.vendors.every((v) => v.inCity)).toBe(true);
   });
 
   it("lets a Viewer see the map but not move Markers, and refuses a non-member", async () => {
