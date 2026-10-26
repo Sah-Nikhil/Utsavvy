@@ -1,4 +1,4 @@
-import { createTool } from "@convex-dev/agent";
+import { createThread, createTool, saveMessage } from "@convex-dev/agent";
 import type { Tool } from "ai";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
@@ -31,6 +31,7 @@ import { assistantInsert, assistantWrite } from "../../lib/write";
 import {
   findKnownFor,
   linkStatusValidator,
+  loadStarterSetRows,
   markBooked,
   shortlistIn,
   type Insert,
@@ -620,4 +621,102 @@ function refuseOutsideLocal() {
   }
 }
 
-void refuseOutsideLocal;
+/**
+ * What "show me caterers for the sangeet" leaves behind, without a model: the
+ * starter set loaded, the Event in Jaipur with a 300-Guest sangeet, the
+ * request from the person with `email`, and the real `findVendors` mutation's
+ * Vendor cards. For e2e/vendors.spec.ts against `bun run dev`; refuses
+ * anything but a local deployment.
+ */
+export const cardsForLocalCheck = internalMutation({
+  args: { eventId: v.id("events"), email: v.string() },
+  handler: async (ctx, { eventId, email }): Promise<ToolResult> => {
+    refuseOutsideLocal();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    const membership =
+      user &&
+      (await ctx.db
+        .query("memberships")
+        .withIndex("by_event_user", (q) =>
+          q.eq("eventId", eventId).eq("userId", user._id),
+        )
+        .unique());
+    if (!membership) throw new Error(`${email} is not in that Event`);
+    await loadStarterSetRows(ctx);
+    const event = (await ctx.db.get("events", eventId))!;
+    if (event.city === null) {
+      await ctx.db.patch("events", eventId, {
+        city: { name: "Jaipur", tier: "Y", centre: null },
+      });
+    }
+    const functions = await ctx.db
+      .query("eventFunctions")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(50);
+    if (!functions.some((f) => f.key === "sangeet")) {
+      await ctx.db.insert("eventFunctions", {
+        eventId,
+        key: "sangeet",
+        name: "Sangeet",
+        date: null,
+        guests: 300,
+        assumed: [],
+        order: functions.length,
+        version: 1,
+      });
+    }
+    let threadId = event.agentThreadId;
+    if (threadId === null) {
+      threadId = await createThread(ctx, components.agent, {
+        title: event.name,
+      });
+      await ctx.db.patch("events", eventId, { agentThreadId: threadId });
+    }
+    const request = await saveMessage(ctx, components.agent, {
+      threadId,
+      userId: membership._id,
+      prompt: "show me caterers for the sangeet",
+    });
+    await ctx.db.insert("chatAnnotations", {
+      eventId,
+      messageId: request.messageId,
+      authorMembershipId: membership._id,
+      dontReply: false,
+      mentions: [],
+      pointing: [],
+      card: null,
+    });
+    const runId = await ctx.db.insert("runs", {
+      eventId,
+      requestedBy: membership._id,
+      source: "chat",
+      messageId: request.messageId,
+      commentId: null,
+      status: "running",
+      stoppedBy: null,
+      model: "check",
+      createdAt: Date.now(),
+      startedAt: Date.now(),
+      endedAt: null,
+    });
+    const result: ToolResult = await ctx.runMutation(
+      internal.assistant.tools.vendors.findForRun,
+      {
+        runId,
+        eventId,
+        forMembershipId: membership._id,
+        toolCallId: "check_vendor_cards",
+        category: "caterer",
+        functionKey: "sangeet",
+        minCapacity: null,
+        maxPrice: null,
+        showInChat: true,
+      },
+    );
+    await ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() });
+    return result;
+  },
+});
