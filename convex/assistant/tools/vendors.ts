@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   asksForStatus,
   asksToShortlist,
+  type AskTarget,
 } from "../../../components/vendors/asks";
 import {
   CATEGORY_PLURALS,
@@ -193,28 +194,49 @@ function assistantActor(g: Gate): AssistantActor {
 // ---------------------------------------------------------------------------
 // What the model reads about a Vendor
 
+/** Where a Vendor's fact came from: its provenance page, else its own site. */
+function sourceOf(vendor: Doc<"vendors">, field: string): string {
+  return (
+    vendor.provenance.find((p) => p.field === field)?.url ??
+    vendor.website ??
+    vendor.profileUrl ??
+    vendor.domain
+  );
+}
+
+/** Text from a Vendor's site, as a labelled outside-content block. */
+function fromSite(text: string, source: string): string {
+  return wrapOutside(text, { source, addedBy: null });
+}
+
 /**
- * One card as the model reads it. The Vendor's name, address and every
- * sentence come from its own website, so they reach the model as data:
- * escaped, and each quoted sentence wrapped as outside content.
+ * One card as the model reads it. Every text that came from the Vendor's own
+ * site (its name, locality, summary, each Listed price and its sentence)
+ * reaches the model inside a labelled outside-content block, so an
+ * instruction planted in any of them stays data.
  */
 function forModel(card: VendorCardView, position: number) {
   const { vendor } = card;
+  const locality = vendor.address
+    ? fromSite(vendor.address.locality, sourceOf(vendor, "address"))
+    : vendor.areaServed
+      ? fromSite(vendor.areaServed, sourceOf(vendor, "areaServed"))
+      : null;
   return {
     position,
     vendorId: vendor._id,
-    name: inert(vendor.name),
+    name: fromSite(vendor.name, sourceOf(vendor, "name")),
     category: vendor.category,
-    locality: inert(vendor.address?.locality ?? vendor.areaServed ?? null),
+    locality,
     capacity: vendor.capacity ?? null,
-    summary: inert(vendor.summary),
+    summary: fromSite(
+      vendor.summary,
+      vendor.website ?? sourceOf(vendor, "name"),
+    ),
     listedPrices: card.listedPrices.map((price) => ({
-      shownAs: inert(price.text),
+      shownAs: fromSite(price.text, price.sourceUrl),
       comparable: price.comparable?.label ?? "not comparable",
-      sentence: wrapOutside(price.sentence, {
-        source: price.sourceUrl,
-        addedBy: null,
-      }),
+      sentence: fromSite(price.sentence, price.sourceUrl),
     })),
     estimate: card.estimate
       ? {
@@ -334,6 +356,22 @@ async function latestCards(
   return null;
 }
 
+/** What a request must be about to change this Vendor: see `components/vendors/asks.ts`. */
+function targetOf(
+  vendor: Doc<"vendors">,
+  cards: VendorCards | null,
+  entryLabel: string | null,
+): AskTarget {
+  const index = cards?.vendorIds.indexOf(vendor._id) ?? -1;
+  return {
+    name: vendor.name,
+    category: vendor.category,
+    cardPosition: index === -1 ? null : index + 1,
+    cardCount: cards?.vendorIds.length ?? 0,
+    entryLabel,
+  };
+}
+
 function assistantInserter(
   ctx: MutationCtx,
   g: Gate,
@@ -365,9 +403,8 @@ export const shortlistForRun = internalMutation({
   handler: async (ctx, args): Promise<ToolResult> => {
     const g = await gate(ctx, args, "vendor.manage");
     return await once(ctx, callKey(args), async (): Promise<ToolResult> => {
-      const text = asked(g.run) ? await requestText(ctx, g.run) : "";
-      if (!asked(g.run) || !asksToShortlist(text))
-        return refusal("notAsked", NOT_ASKED_SHORTLIST);
+      if (!asked(g.run)) return refusal("notAsked", NOT_ASKED_SHORTLIST);
+      const text = await requestText(ctx, g.run);
 
       let vendorId = args.vendorId;
       const cards = await latestCards(ctx, args.eventId);
@@ -388,6 +425,8 @@ export const shortlistForRun = internalMutation({
           "invalid",
           "That isn't a Vendor. Use a vendorId from findVendors.",
         );
+      if (!asksToShortlist(text, targetOf(vendor, cards, null)))
+        return refusal("notAsked", NOT_ASKED_SHORTLIST);
 
       const functions = await ctx.db
         .query("eventFunctions")
@@ -413,7 +452,7 @@ export const shortlistForRun = internalMutation({
         linkId,
         version: link?.version ?? 1,
         status: link?.status ?? "considering",
-        name: inert(vendor.name),
+        name: fromSite(vendor.name, sourceOf(vendor, "name")),
         message:
           "Shortlisted on the Vendors Section, linked to its Vendor checklist Entry as Considering. Say so in one line.",
       };
@@ -437,12 +476,30 @@ export const setStatusForRun = internalMutation({
   handler: async (ctx, args): Promise<ToolResult> => {
     const g = await gate(ctx, args, "vendor.manage");
     return await once(ctx, callKey(args), async (): Promise<ToolResult> => {
-      const text = asked(g.run) ? await requestText(ctx, g.run) : "";
-      if (!asked(g.run) || !asksForStatus(text, args.status))
-        return refusal("notAsked", NOT_ASKED_STATUS);
+      if (!asked(g.run)) return refusal("notAsked", NOT_ASKED_STATUS);
       const link = await ctx.db.get("vendorLinks", args.linkId);
       if (link === null || link.eventId !== args.eventId)
         throw new AccessDenied("wrongEvent", "vendor.manage");
+      const item = await ctx.db.get("items", link.shortlistItemId);
+      const vendor =
+        item?.kind === "shortlistedVendor"
+          ? await ctx.db.get("vendors", item.data.vendorId)
+          : null;
+      const entry = await ctx.db.get("entries", link.checklistEntryId);
+      const text = await requestText(ctx, g.run);
+      if (
+        vendor === null ||
+        !asksForStatus(
+          text,
+          args.status,
+          targetOf(
+            vendor,
+            await latestCards(ctx, args.eventId),
+            entry?.kind === "checklist" ? entry.fields.freeLabel : null,
+          ),
+        )
+      )
+        return refusal("notAsked", NOT_ASKED_STATUS);
       const opts = {
         runId: g.run._id,
         forMembershipId: g.membership._id,
