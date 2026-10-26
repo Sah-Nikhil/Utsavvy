@@ -1,7 +1,11 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { setWorkerUrl, type StyleSpecification } from "maplibre-gl";
+import {
+  setWorkerUrl,
+  type Map as MapLibreMap,
+  type StyleSpecification,
+} from "maplibre-gl";
 import { LocateFixed, Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
@@ -10,19 +14,22 @@ import Map, {
   type MapRef,
 } from "react-map-gl/maplibre";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MapVendor, MapView } from "@/convex/map";
-import { markerLabel, toneOf } from "./markers";
-import { MarkerPin } from "./MarkerPin";
-import { cityBounds, openingFit } from "./placement";
-import { buildMapStyle, readMapColours } from "./style";
+import { approximateTag, markerLabel, toneOf } from "./markers";
+import { MarkerStamp } from "./MarkerStamp";
+import { isMapPattern, patternImage } from "./patterns";
+import { cityBounds, fitPadding, openingFit } from "./placement";
+import { buildMapStyle, readMapColours, type MapColours } from "./style";
 
 /*
  * The map itself (MapLibre through react-map-gl), loaded only in the browser.
  * It opens on the Event's city and stays near it, draws our own Markers and
  * lets a Member drag an approximate one into place, or move it with the arrow
  * keys and Enter. With NEXT_PUBLIC_MAP_STYLE_URL set it loads that style
- * instead of ours (ADR 0005).
+ * instead of ours (ADR 0005). The printed look follows the Ornaments setting:
+ * with it off the map is redrawn without its prints.
  */
 
 // MapLibre looks for its worker next to its own module, which the bundler
@@ -48,9 +55,33 @@ export type MapCanvasProps = {
 };
 
 const STREET_ZOOM = 15;
+/** From this zoom on, approximate Markers write "approximate" under themselves. */
+const TAG_ZOOM = 14;
 /** The opening view never comes closer than this, so it reads as the city. */
 const CITY_MAX_ZOOM = 12.5;
-const FIT = { padding: 48, maxZoom: CITY_MAX_ZOOM };
+
+/** The city's name in Devanagari for the cartouche, where we know it. */
+const CITY_NAMES_HI: Record<string, string> = {
+  Jaipur: "जयपुर",
+  Pune: "पुणे",
+};
+
+/** Whether this page shows ornaments (lib/ornaments.ts marks <html> when off). */
+function ornamentsOn(): boolean {
+  return document.documentElement.dataset.ornaments !== "off";
+}
+
+/** Adds the printed patterns the style asks for, drawn in the token colours. */
+function addPatterns(map: MapLibreMap, colours: MapColours) {
+  const add = (id: string) => {
+    if (!isMapPattern(id) || map.hasImage(id)) return;
+    // Drawn at least at 2x, so the small prints stay crisp on any screen.
+    const ratio = Math.max(2, Math.round(window.devicePixelRatio || 1));
+    map.addImage(id, patternImage(id, colours, ratio), { pixelRatio: ratio });
+  };
+  map.on("styleimagemissing", (e) => add(e.id));
+  for (const id of ["map-butta", "map-leaf", "map-lahar"]) add(id);
+}
 
 const GEOAPIFY_ATTRIBUTION =
   'Geocoding by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a>';
@@ -81,6 +112,9 @@ export default function MapCanvas({
   const mapRef = useRef<MapRef>(null);
   const holder = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<StyleSpecification | string | null>(null);
+  const colours = useRef<MapColours | null>(null);
+  const [street, setStreet] = useState(false);
+  const [padding, setPadding] = useState(() => fitPadding(1024));
   // A Marker being moved with the keyboard, before Enter saves it.
   const [draft, setDraft] = useState<{
     id: Id<"vendors">;
@@ -89,13 +123,23 @@ export default function MapCanvas({
   } | null>(null);
 
   useEffect(() => {
-    // Read the --map-* tokens once the map's element is in the document.
+    // Read the map tokens once the map's element is in the document.
     const url = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
-    setStyle(
-      url
-        ? url
-        : buildMapStyle(readMapColours(holder.current ?? document.body)),
-    );
+    const build = () => {
+      setPadding(fitPadding(holder.current?.clientWidth ?? 1024));
+      if (url) return setStyle(url);
+      colours.current ??= readMapColours(holder.current ?? document.body);
+      setStyle(buildMapStyle(colours.current, { ornaments: ornamentsOn() }));
+    };
+    build();
+    if (url) return;
+    // Turning ornaments off or on redraws the map with or without its prints.
+    const watch = new MutationObserver(build);
+    watch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-ornaments"],
+    });
+    return () => watch.disconnect();
   }, []);
 
   const centre = centreOf(city, vendors);
@@ -171,6 +215,8 @@ export default function MapCanvas({
     }
   }
 
+  const fit = { padding, maxZoom: CITY_MAX_ZOOM };
+
   if (initial === null)
     return (
       <div className="grid size-full place-items-center bg-surface-high p-6 text-center text-body text-ink-2">
@@ -181,14 +227,37 @@ export default function MapCanvas({
   return (
     <div
       ref={holder}
-      className="relative size-full"
+      className={cn(
+        "relative size-full",
+        // The credits on a quiet sand panel, in the panel's own type.
+        "[&_.maplibregl-ctrl-attrib]:rounded-tl-md [&_.maplibregl-ctrl-attrib]:bg-surface-container/90! [&_.maplibregl-ctrl-attrib]:px-2! [&_.maplibregl-ctrl-attrib]:text-[11px] [&_.maplibregl-ctrl-attrib]:text-ink-2 [&_.maplibregl-ctrl-attrib_a]:text-ink-2!",
+      )}
       data-map-ready={style ? true : undefined}
     >
+      {/* A slightly uneven, hand-pressed edge for the stamped Markers. */}
+      <svg aria-hidden className="absolute size-0">
+        <filter id="map-ink" x="-10%" y="-10%" width="120%" height="120%">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.85"
+            numOctaves={2}
+            seed={7}
+            result="grain"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="grain"
+            scale={1.6}
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </svg>
       {style ? (
         <Map
           ref={mapRef}
           mapStyle={style}
-          initialViewState={{ bounds: initial.fit, fitBoundsOptions: FIT }}
+          initialViewState={{ bounds: initial.fit, fitBoundsOptions: fit }}
           maxBounds={initial.bounds}
           minZoom={9.5}
           maxZoom={18}
@@ -197,6 +266,10 @@ export default function MapCanvas({
           pitchWithRotate={false}
           attributionControl={false}
           onClick={() => onSelect(null)}
+          onLoad={(e) => {
+            if (colours.current) addPatterns(e.target, colours.current);
+          }}
+          onZoom={(e) => setStreet(e.viewState.zoom >= TAG_ZOOM)}
           style={{ width: "100%", height: "100%" }}
         >
           <AttributionControl
@@ -213,7 +286,7 @@ export default function MapCanvas({
                 key={vendor._id}
                 latitude={at.lat}
                 longitude={at.lng}
-                anchor="bottom"
+                anchor="center"
                 draggable={movable}
                 onDragEnd={(e) =>
                   onMove(vendor._id, e.lngLat.lat, e.lngLat.lng)
@@ -230,13 +303,18 @@ export default function MapCanvas({
                     onSelect(selected ? null : vendor._id);
                   }}
                   onKeyDown={movable ? (e) => nudge(vendor, e) : undefined}
-                  className="block cursor-pointer rounded-md outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
+                  className="group/stamp block cursor-pointer rounded-full outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
                 >
-                  <MarkerPin
+                  <MarkerStamp
                     category={vendor.category}
                     tone={toneOf(vendor)}
                     approximate={vendor.marker.approximate}
                     selected={selected || draft?.id === vendor._id}
+                    tag={approximateTag({
+                      approximate: vendor.marker.approximate,
+                      street,
+                      faint: vendor.shortlist === null,
+                    })}
                   />
                 </button>
               </Marker>
@@ -250,11 +328,13 @@ export default function MapCanvas({
         Approximate: drag it, or use the arrow keys and then Enter, to put it
         where the Vendor really is. Escape puts it back.
       </p>
+      <Cartouche city={city?.name ?? null} count={vendors.length} />
       <div className="absolute top-3 right-3 flex flex-col gap-1.5">
         <Button
           variant="tonal"
           size="sm"
           icon
+          className={CONTROL}
           aria-label="Zoom in"
           onClick={() => mapRef.current?.zoomIn()}
         >
@@ -264,6 +344,7 @@ export default function MapCanvas({
           variant="tonal"
           size="sm"
           icon
+          className={CONTROL}
           aria-label="Zoom out"
           onClick={() => mapRef.current?.zoomOut()}
         >
@@ -273,14 +354,42 @@ export default function MapCanvas({
           variant="tonal"
           size="sm"
           icon
+          className={CONTROL}
           aria-label={`Back to ${city?.name ?? "the city"}`}
           onClick={() =>
-            mapRef.current?.fitBounds(initial.fit, { ...FIT, duration: 600 })
+            mapRef.current?.fitBounds(initial.fit, { ...fit, duration: 600 })
           }
         >
           <LocateFixed />
         </Button>
       </div>
+    </div>
+  );
+}
+
+const CONTROL =
+  "bg-surface-container text-action shadow-overlay hover:bg-surface-high";
+
+/** The city's name over the map, as on an atlas page (desktop only). */
+function Cartouche({ city, count }: { city: string | null; count: number }) {
+  if (city === null) return null;
+  const hi = CITY_NAMES_HI[city];
+  return (
+    <div className="pointer-events-none absolute top-3 left-4 hidden rounded-md bg-surface-container/90 px-4 pt-2 pb-2.5 shadow-overlay md:block">
+      <p className="font-display text-[21px] leading-none font-medium text-ink italic">
+        {city}
+        {hi ? (
+          <span
+            lang="hi"
+            className="ml-2 font-display-hi text-[17px] text-motif-2 not-italic"
+          >
+            {hi}
+          </span>
+        ) : null}
+      </p>
+      <p className="mt-1 text-[11.5px] tracking-[0.02em] text-ink-2">
+        {count === 1 ? "1 Vendor" : `${count} Vendors`} on the map
+      </p>
     </div>
   );
 }

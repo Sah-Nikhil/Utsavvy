@@ -71,3 +71,20 @@ export function placeVendors<V extends Placeable>(
   }
   return { onMap, outside, noAddress };
 }
+
+/**
+ * The space the opening view keeps around the Markers, in pixels, for a map
+ * `width` pixels wide: clear of the zoom buttons down the right edge, the
+ * credits along the bottom (two lines on a phone), the city's cartouche at
+ * the top left on a desktop, and wide enough that a selected Marker's petals
+ * and its "approximate" tag stay inside the map.
+ */
+export function fitPadding(width: number): {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+} {
+  if (width < 640) return { top: 40, right: 60, bottom: 52, left: 40 };
+  return { top: 92, right: 64, bottom: 44, left: 48 };
+}
