@@ -82,6 +82,191 @@ describe("checkMemberStatedAmount counts only money (review M3)", () => {
   });
 });
 
+describe("checkMemberStatedAmount ties an amount to the line it names (review M3, the rest)", () => {
+  it("refuses the caterer's quote on the DJ line", () => {
+    expect(
+      checkMemberStatedAmount(240_000, "caterer quoted 2.4L, add a DJ too", [
+        "DJ",
+      ]),
+    ).toBe(false);
+  });
+
+  it("accepts the same quote on the caterer's line", () => {
+    expect(
+      checkMemberStatedAmount(240_000, "caterer quoted 2.4L, add a DJ too", [
+        "Catering",
+      ]),
+    ).toBe(true);
+  });
+
+  it("gives each line its own amount when one message names two", () => {
+    const text = "DJ 50k and caterer 2.4L";
+    expect(checkMemberStatedAmount(50_000, text, ["DJ"])).toBe(true);
+    expect(checkMemberStatedAmount(240_000, text, ["DJ"])).toBe(false);
+    expect(checkMemberStatedAmount(240_000, text, ["Caterer"])).toBe(true);
+  });
+
+  it.each([["Entertainment"], ["Sound and music"]])(
+    "refuses the caterer's quote on a DJ line the Assistant labelled %j",
+    (label) => {
+      // The amount's own clause names the caterer. A label the message never
+      // mentions mustn't turn the check off (second review of #116, M2).
+      expect(
+        checkMemberStatedAmount(240_000, "caterer quoted 2.4L, add a DJ too", [
+          label,
+        ]),
+      ).toBe(false);
+    },
+  );
+
+  it("refuses the Event's Budget on the DJ line", () => {
+    // "Budget 5L" says what the ₹5,00,000 is for; it doesn't borrow the DJ
+    // from the next clause (second review of #116, L1).
+    expect(
+      checkMemberStatedAmount(500_000, "Budget 5L, add a DJ", ["DJ"]),
+    ).toBe(false);
+    expect(
+      checkMemberStatedAmount(50_000, "DJ ka budget 50k rakho", ["DJ"]),
+    ).toBe(true);
+  });
+
+  it.each([
+    [15_000, "Add a mehendi artist, around ₹15,000", "Mehendi artist"],
+    [15_000, "around 15k, for the mehendi artist", "Mehendi artist"],
+    [240_000, "Caterer ko 2,40,000 kar do", "Catering"],
+    [230_000, "Make the caterer ₹2,30,000", "Caterer (Sangeet)"],
+    [15_000, "Rs. 15000 for the DJ", "DJ"],
+    [50_000, "add a DJ, quoted 50k", "DJ"],
+    [150_000, "decor 1.5 lakh rakho", "Decor"],
+    [50_000, "folk musicians and dancers 50k", "Folk musicians and dancers"],
+  ])("accepts %i for %j on the %j line", (amount, text, label) => {
+    expect(checkMemberStatedAmount(amount, text, [label])).toBe(true);
+  });
+
+  it.each([
+    [15_000, "let's go with 15k", "Photographer"],
+    [15_000, "ok fine, 15k works", "Photographer"],
+    [15_000, "yes please keep 15k", "Mehendi artist"],
+    [15_000, "15k sounds good", "Mehendi artist"],
+    [15_000, "make it 15k for now", "Mehendi artist"],
+  ])(
+    "accepts %i for %j, a reply that names no other line, on the %j line",
+    (amount, text, label) => {
+      // Words such as "go", "works" and "sounds" are no evidence that the
+      // amount is for another line (orchestrator check of PR 116).
+      expect(checkMemberStatedAmount(amount, text, [label])).toBe(true);
+    },
+  );
+
+  it("refuses an amount whose clause names another line of the Event", () => {
+    // "Sharma ji" is no category word, but the Event has a line by that name.
+    const text = "Sharma ji quoted 2.4L, add a DJ too";
+    expect(
+      checkMemberStatedAmount(
+        240_000,
+        text,
+        ["Entertainment"],
+        ["Sharma ji (halwai)", "Entertainment"],
+      ),
+    ).toBe(false);
+    expect(checkMemberStatedAmount(240_000, text, ["Entertainment"])).toBe(
+      true,
+    );
+  });
+
+  it("refuses an amount whose clause names a trade, such as the halwai", () => {
+    // "halwai" is a trade word, so it names another line wherever it is
+    // written (issue #102, orchestrator check of PR 116; review of #118, L1).
+    const others = ["Sharma ji (halwai)", "Mithai"];
+    expect(
+      checkMemberStatedAmount(
+        20_000,
+        "halwai ko 20k de do",
+        ["Mithai"],
+        others,
+      ),
+    ).toBe(false);
+    expect(
+      checkMemberStatedAmount(
+        20_000,
+        "Sharma ji quoted 20k",
+        ["Mithai"],
+        others,
+      ),
+    ).toBe(false);
+    expect(
+      checkMemberStatedAmount(20_000, "mithai 20k rakho", ["Mithai"], others),
+    ).toBe(true);
+  });
+
+  it.each([
+    [20_000, "halwai ko 20k de do", "Mithai"],
+    [50_000, "tentwala ne 50k bola", "Decor"],
+    [11_000, "panditji ko 11k dena hai", "Photographer"],
+    [15_000, "mehendiwali 15k leti hai", "Photographer"],
+    [21_000, "dholwala 21k maang raha hai", "Photographer"],
+    [30_000, "ghodi ke 30k", "Photographer"],
+  ])(
+    "refuses %i for %j on the %j line: the trade is another line's",
+    (amount, text, label) => {
+      expect(checkMemberStatedAmount(amount, text, [label], [])).toBe(false);
+    },
+  );
+
+  it.each([
+    ["15k for the sangeet", "Photography and video", ["Catering (Sangeet)"]],
+    [
+      "15k for the wedding",
+      "Photographer",
+      ["Catering, main dinner (sangeet, wedding, reception)"],
+    ],
+    ["15k, veg only", "Photographer", ["Catering (veg)"]],
+    ["15k for the sangeet", "Photographer", ["Sangeet DJ"]],
+    ["15k, non-veg too", "Photographer", ["Non-veg catering"]],
+  ])(
+    "accepts %j on the %j line: a Function or a food descriptor names no other line",
+    (text, label, others) => {
+      // Review of #118, L1: these were refused when another line's bracketed
+      // words counted.
+      expect(checkMemberStatedAmount(15_000, text, [label], others)).toBe(true);
+    },
+  );
+
+  it("doesn't read a generic bracketed note as another line", () => {
+    // "(Event-wide)" and "(≤150 Guests)" say how a line is priced, not what it is.
+    const others = ["Outfits (Event-wide)", "Venue, small (≤150 Guests)"];
+    expect(
+      checkMemberStatedAmount(
+        15_000,
+        "15k for the whole event",
+        ["Photographer"],
+        others,
+      ),
+    ).toBe(true);
+    expect(
+      checkMemberStatedAmount(
+        15_000,
+        "let's go with 15k",
+        ["Photographer"],
+        ["Sharma ji (halwai)", ...others],
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    // The Member answers the Assistant's "How much for the mehendi artist?"
+    [15_000, "15k", "Mehendi artist"],
+    [200_000, "keep it at 2L", "Decor"],
+    // Another script than the label's: there is nothing to compare.
+    [15_000, "मेहंदी के लिए ₹१५,००० रखो", "Mehendi artist"],
+  ])(
+    "still accepts %i for %j when the message doesn't name the %j line",
+    (amount, text, label) => {
+      expect(checkMemberStatedAmount(amount, text, [label])).toBe(true);
+    },
+  );
+});
+
 describe("exceedsProposalThresholds", () => {
   const budget = 1_200_000;
 

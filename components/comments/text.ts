@@ -22,3 +22,14 @@ const INVISIBLE = /[­​-‍⁠-⁤﻿]/g;
 export function isBlankComment(body: string): boolean {
   return body.replace(INVISIBLE, "").trim() === "";
 }
+
+/**
+ * Whether a Comment asks the Assistant: it mentions @Utsavvy as a word, in any
+ * case ("@utsavvy, is this enough?"), not inside an address like
+ * "hi@utsavvy.in".
+ */
+export function mentionsAssistant(body: string): boolean {
+  return /(^|[^\p{L}\p{N}_.@-])@utsavvy(?![\p{L}\p{N}_]|\.[\p{L}\p{N}])/iu.test(
+    body,
+  );
+}

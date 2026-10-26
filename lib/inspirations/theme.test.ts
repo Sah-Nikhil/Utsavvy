@@ -167,6 +167,29 @@ describe("themeUpdateFromImage", () => {
     });
   });
 
+  it.each([
+    "theme",
+    "indoor",
+    "outdoor",
+    "night",
+    "home",
+    "couple",
+    "bride",
+    "ceremony",
+    "detail",
+    "mumbai",
+  ])(
+    "skips the generic tag %j, which names no piece of decor (review of #112, L5)",
+    (word) => {
+      const result = themeUpdateFromImage(
+        { palette: [], decorKeywords: [word, "drapes", "urli"] },
+        JAIPUR,
+        null,
+      );
+      expect(result.addDecorKeywords).toEqual(["drapes", "urli"]);
+    },
+  );
+
   it("skips a colour too close to one the Theme already has", () => {
     const result = themeUpdateFromImage(
       { palette: ["#C3195C", "#1F6F78"], decorKeywords: [] },

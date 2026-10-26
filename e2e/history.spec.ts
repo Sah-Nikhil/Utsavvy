@@ -84,7 +84,23 @@ test("lists changes with who made them, Restores a deleted Section and highlight
   await page.keyboard.press("Escape");
   await expect(sangeet).toBeVisible({ timeout: 5_000 });
 
-  // Clicking a row closes the panel and selects its Item on the Canvas.
+  // Look far away from the Budget first (review of #90): this person's view
+  // is kept in the browser, so a saved one far off opens there on reload.
+  const budget = page.locator('[data-canvas-item="budget"]');
+  const eventId = new URL(page.url()).pathname.split("/").at(-1)!;
+  await page.evaluate((id) => {
+    window.localStorage.setItem(
+      `utsavvy.canvas.viewport.${id}`,
+      JSON.stringify({ x: -6000, y: -4000, zoom: 1 }),
+    );
+  }, eventId);
+  await page.reload();
+  await expect(page.locator(".react-flow__node-section")).toHaveCount(5, {
+    timeout: 20_000,
+  });
+  await expect(budget).not.toBeInViewport();
+
+  // Clicking a row closes the panel, selects its Item and pans to it.
   await page.getByRole("button", { name: "History" }).click();
   await panel
     .getByRole("button", {
@@ -95,7 +111,45 @@ test("lists changes with who made them, Restores a deleted Section and highlight
   await expect(
     page.locator('[data-canvas-item="budget"] [data-item-id][data-selected]'),
   ).toBeVisible();
+  await expect(budget).toBeInViewport({ timeout: 5_000 });
   await testInfo.attach("history-highlight", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+
+  // Looking away and clicking the same row again shows it again, though the
+  // Budget is still the selected Item (second review of #116, L2). Holding
+  // Space makes the wheel pan the Canvas; nothing is focused, so Space
+  // presses no button.
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+  await page.locator(".react-flow__pane").hover({ position: { x: 40, y: 40 } });
+  await page.keyboard.down("Space");
+  await page.mouse.wheel(0, 6000);
+  await page.keyboard.up("Space");
+  await expect(budget).not.toBeInViewport({ timeout: 5_000 });
+  await page.getByRole("button", { name: "History" }).click();
+  await panel
+    .getByRole("button", {
+      name: /^Added the Budget .*show on the Canvas$/,
+    })
+    .click();
+  await expect(budget).toBeInViewport({ timeout: 5_000 });
+
+  // "Add a Note" on the Canvas toolbar puts a Note in the Notes Section and
+  // shows it (review of #92).
+  await page.getByRole("button", { name: "Add a Note" }).click();
+  const noteDialog = page.getByRole("dialog", { name: "Add a Note" });
+  await noteDialog
+    .getByRole("textbox", { name: "Note" })
+    .fill("Ask Nani about the haldi songs");
+  await noteDialog.getByRole("button", { name: "Add Note" }).click();
+  await expect(noteDialog).toBeHidden();
+  const note = page
+    .locator('[data-canvas-item="note"]')
+    .filter({ hasText: "Ask Nani about the haldi songs" });
+  await expect(note).toBeInViewport({ timeout: 5_000 });
+  await expect(note.locator("[data-item-id][data-selected]")).toBeVisible();
+  await testInfo.attach("add-a-note", {
     body: await page.screenshot(),
     contentType: "image/png",
   });

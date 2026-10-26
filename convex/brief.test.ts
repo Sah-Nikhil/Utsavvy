@@ -254,6 +254,49 @@ describe("the Ganesh utsav", () => {
   });
 });
 
+describe("the summary's day", () => {
+  it("asks Q3 from the client's ISO day, not the Event's creation day", async () => {
+    const s = await setUp("community");
+    await s.asMeera.mutation(api.brief.submitText, {
+      eventId: s.eventId,
+      text: puneGaneshUtsav.text,
+    });
+    await untilQuestion(s, "date");
+    const on = (today: string) =>
+      s.asMeera.query(api.brief.summary, { eventId: s.eventId, today });
+
+    // Before 4 Sep 2027 the festival's dates are proposed.
+    const before = await on("2027-06-01");
+    expect(before!.question!.chips.map((c) => c.value)).toContain(
+      "festival:2027-09-04:2027-09-14",
+    );
+    // After it, the table has no later Ganeshotsav, so Q3 asks plainly. The
+    // Event was created in 2026, so a day read from the creation date would
+    // still propose September 2027.
+    const after = await on("2027-10-01");
+    expect(after!.question!.prompt).toBe("When is it?");
+    expect(
+      after!.question!.chips.some((c) => c.value.startsWith("festival:")),
+    ).toBe(false);
+  });
+
+  it("falls back to the Event's creation day for a day that isn't ISO", async () => {
+    const s = await setUp("community");
+    await s.asMeera.mutation(api.brief.submitText, {
+      eventId: s.eventId,
+      text: puneGaneshUtsav.text,
+    });
+    await untilQuestion(s, "date");
+    const brief = await s.asMeera.query(api.brief.summary, {
+      eventId: s.eventId,
+      today: "1 Oct 2027",
+    });
+    expect(brief!.question!.chips.map((c) => c.value)).toContain(
+      "festival:2027-09-04:2027-09-14",
+    );
+  });
+});
+
 describe("the Budget check", () => {
   async function hinglishAtSummary() {
     const s = await setUp("wedding");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueries } from "convex/react";
+import { useQueries } from "convex/react";
 import { MessageSquare } from "lucide-react";
 import {
   createContext,
@@ -23,6 +23,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { CommentComposer } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
+import { AskNoticeLine } from "./AskNoticeLine";
+import { sheetEntryLabel } from "./sheetLabel";
+import { useAddComment, type PendingAsk } from "./useAddComment";
 import {
   isOn,
   openCount,
@@ -47,8 +50,8 @@ export type ItemCommentsState = {
   itemCount: number | undefined;
   /** Comments in open threads on one Entry. */
   entryCount: (entryId: Id<"entries">) => number;
-  /** Opens the thread sheet on the Item, or on one of its Entries. */
-  open: (target?: CommentViewTarget) => void;
+  /** Opens the thread sheet on the Item, or on one of its Entries (named, e.g. "Caterer"). */
+  open: (target?: CommentViewTarget, entryLabel?: string) => void;
 };
 
 /** An Item's Comments: undefined while loading; `failed` when the query threw. */
@@ -105,15 +108,18 @@ export function ItemComments({
 }) {
   const { comments } = useCommentList(itemId);
   const [openOn, setOpenOn] = useState<CommentViewTarget | null>(null);
+  const [openLabel, setOpenLabel] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
   const open = useCallback(
-    (target?: CommentViewTarget) => {
+    (target?: CommentViewTarget, entryLabel?: string) => {
       setOpenOn(target ?? { kind: "item", itemId });
+      setOpenLabel(entryLabel ?? null);
       setIsOpen(true);
     },
     [itemId],
   );
+  const openEntryLabel = sheetEntryLabel(openOn, openLabel, comments);
 
   const state = useMemo<ItemCommentsState>(
     () => ({
@@ -138,7 +144,7 @@ export function ItemComments({
             title="Comments"
             description={
               openOn.kind === "entry"
-                ? `On an Entry in the ${itemLabel}`
+                ? `On ${openEntryLabel ? `“${openEntryLabel}”` : "an Entry"} in the ${itemLabel}`
                 : `On the ${itemLabel}`
             }
             bodyClassName="flex flex-col p-0"
@@ -165,7 +171,8 @@ function CommentsSheetBody({
   on: CommentViewTarget;
 }) {
   const { comments, failed } = useCommentList(itemId);
-  const add = useMutation(api.comments.add);
+  const add = useAddComment();
+  const [notice, setNotice] = useState<PendingAsk | null>(null);
 
   // Opened on an Entry: that Entry's threads. On the Item: every thread on
   // the Item and its Entries, each labelled with what it is on.
@@ -177,10 +184,10 @@ function CommentsSheetBody({
   const mixed =
     on.kind === "item" &&
     (threads ?? []).some((t) => t.root.target.kind === "entry");
-  const labelOf = (target: CommentViewTarget) =>
+  const labelOf = (root: CommentView) =>
     mixed
-      ? target.kind === "entry"
-        ? "On an Entry"
+      ? root.target.kind === "entry"
+        ? `On ${root.entryLabel ? `“${root.entryLabel}”` : "an Entry"}`
         : "On this Item"
       : undefined;
 
@@ -213,7 +220,7 @@ function CommentsSheetBody({
                     <CommentThread
                       itemId={itemId}
                       rootId={t.root._id}
-                      label={labelOf(t.root.target)}
+                      label={labelOf(t.root)}
                     />
                   </li>
                 ))}
@@ -232,7 +239,7 @@ function CommentsSheetBody({
                           <CommentThread
                             itemId={itemId}
                             rootId={t.root._id}
-                            label={labelOf(t.root.target)}
+                            label={labelOf(t.root)}
                           />
                         </li>
                       ))}
@@ -245,14 +252,21 @@ function CommentsSheetBody({
         )}
       </div>
       <div className="border-t border-rule bg-surface-raised px-5 pt-3 pb-4">
+        {notice ? (
+          <AskNoticeLine
+            pending={notice}
+            onChange={setNotice}
+            className="mb-2"
+          />
+        ) : null}
         <CommentComposer
           label={
             on.kind === "entry" ? "Comment on this Entry" : "Add a Comment"
           }
-          placeholder="Everyone in the Event sees it"
+          placeholder="Everyone in the Event sees it. Mention @Utsavvy to ask it"
           submitLabel="Comment"
           onSubmit={async (body) => {
-            await add({ target: on, body, rootId: null });
+            setNotice(await add({ target: on, body, rootId: null }));
           }}
         />
       </div>
@@ -284,9 +298,12 @@ function EmptyComments() {
  */
 export function EntryCommentCount({
   entryId,
+  entryLabel,
   className,
 }: {
   entryId: Id<"entries">;
+  /** What the row is called ("Caterer"), so the sheet says which Entry it is on. */
+  entryLabel?: string;
   className?: string;
 }) {
   const comments = useItemComments();
@@ -304,7 +321,10 @@ export function EntryCommentCount({
       data-entry-comments={count}
       onClick={(event) => {
         event.stopPropagation();
-        comments.open({ kind: "entry", itemId: comments.itemId, entryId });
+        comments.open(
+          { kind: "entry", itemId: comments.itemId, entryId },
+          entryLabel,
+        );
       }}
       className={cn(
         "state-layer inline-flex h-7 shrink-0 items-center gap-1 rounded-xs px-1.5 text-caption font-medium",

@@ -52,7 +52,11 @@ import { AccountButton } from "./AccountButton";
 import { EventHeading } from "./EventHeading";
 import { initialPhoneView, phoneView } from "./phoneView";
 import { PointingChip } from "./PointingChip";
-import { SelectionProvider, useSetSelection } from "./selection";
+import {
+  SelectionProvider,
+  useRequestReveal,
+  useSetSelection,
+} from "./selection";
 import { ShowItemProvider, useIsDesktop } from "./showItem";
 
 /**
@@ -155,6 +159,7 @@ function DesktopBody({
 }) {
   const prefs = useViewPrefs(eventId);
   const setSelection = useSetSelection();
+  const requestReveal = useRequestReveal();
   // This browser's last choice, else the Event's default view.
   const [chosen, setChosen] = useState<DesktopView | null>(() =>
     readSavedView(eventId),
@@ -172,9 +177,13 @@ function DesktopBody({
     [eventId],
   );
   const show = useCallback(
-    // The whole target, so an Entry or a passage stays what is selected.
-    (target: Selection) => setSelection(target),
-    [setSelection],
+    // The whole target, so an Entry or a passage stays what is selected. The
+    // Canvas pans to it every time, even when it is already selected.
+    (target: Selection) => {
+      setSelection(target);
+      if (target !== null) requestReveal(target.itemId);
+    },
+    [setSelection, requestReveal],
   );
 
   useEffect(() => {

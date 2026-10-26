@@ -616,6 +616,75 @@ describe("The propose tool", () => {
     expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
   });
 
+  it("refuses the caterer's quote on a new DJ line, and on the Decor line", async () => {
+    // Second review of #116, M1: a large stated amount goes through propose,
+    // so propose must tie it to the line it names, like addEntry does.
+    const s = await setUp();
+    await s.t.run((ctx) =>
+      ctx.db.patch("events", s.eventId, { budgetTotal: null }),
+    );
+    const runId = await ask(s, "Rohan", "caterer quoted 2.4L, add a DJ too");
+    const dj = await propose(s, runId, s.people.Rohan, {
+      summary: "Add a DJ",
+      changes: [
+        {
+          op: "addEntry",
+          entry: {
+            kind: "budget",
+            label: "DJ",
+            functionKey: null,
+            amountSource: { memberStated: 240_000 },
+          },
+        },
+      ],
+    });
+    expect(dj).toMatchObject({ ok: false, reason: "amountNotStated" });
+
+    const decor = await propose(
+      s,
+      runId,
+      s.people.Rohan,
+      {
+        summary: "Decor to ₹2,40,000",
+        changes: [
+          {
+            op: "updateEntry",
+            entryId: s.decor,
+            expectedVersion: 1,
+            patch: { kind: "budget", amount: { memberStated: 240_000 } },
+          },
+        ],
+      },
+      "toolu_m1_decor",
+    );
+    expect(decor).toMatchObject({ ok: false, reason: "amountNotStated" });
+    expect(await s.t.run((ctx) => ctx.db.query("proposals").collect())).toEqual(
+      [],
+    );
+  });
+
+  it("refuses an amount the message gives another line of the Event", async () => {
+    // "Drone shoot" is a line of this Event, not a category word, so propose
+    // must pass the Event's other lines (orchestrator check of PR 116).
+    const s = await setUp();
+    const runId = await ask(s, "Rohan", "drone shoot quoted 50k, add a DJ too");
+    const result = await propose(s, runId, s.people.Rohan, {
+      summary: "Add Entertainment",
+      changes: [
+        {
+          op: "addEntry",
+          entry: {
+            kind: "budget",
+            label: "Entertainment",
+            functionKey: null,
+            amountSource: { memberStated: 50_000 },
+          },
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "amountNotStated" });
+  });
+
   it("refuses a version the model didn't read, and another Event's Item", async () => {
     const s = await setUp();
     const runId = await ask(s, "Rohan", "Drop the drone shoot.");

@@ -245,7 +245,9 @@ test.describe("comments", () => {
       .click();
     const papaSheet = sheet(papa.page);
     await expect(
-      papaSheet.getByText("On an Entry in the Vendor checklist"),
+      papaSheet.getByText(
+        "On “Caterer for the sangeet” in the Vendor checklist",
+      ),
     ).toBeVisible();
     await papaSheet
       .getByRole("textbox", { name: "Comment on this Entry" })
@@ -262,5 +264,36 @@ test.describe("comments", () => {
     ).toHaveAttribute("aria-label", "1 Comment on this Entry", {
       timeout: 5_000,
     });
+    await papa.page.keyboard.press("Escape");
+  });
+
+  test("a Viewer pans the Canvas by dragging over an Item (review of #91)", async () => {
+    const { page } = papa;
+    await expect(sheet(page)).toBeHidden();
+    const viewport = () =>
+      page
+        .locator(".react-flow__viewport")
+        .evaluate((el) => (el as HTMLElement).style.transform);
+    // Nothing selected to start with: Escape on the Budget's node clears it.
+    await page.locator(".react-flow__node-item", { has: budget(page) }).focus();
+    await page.keyboard.press("Escape");
+    await expect(
+      budget(page).locator("[data-item-id][data-selected]"),
+    ).toHaveCount(0);
+    const before = await viewport();
+    const box = (await budget(page).boundingBox())!;
+    // From the middle of the Budget's text, away from its buttons.
+    await page.mouse.move(box.x + box.width / 2, box.y + 60);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 160, box.y + 140, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    await expect.poll(viewport).not.toBe(before);
+    // The drag moved the view; it neither selected text nor the Budget.
+    expect(await page.evaluate(() => String(window.getSelection()))).toBe("");
+    await expect(
+      budget(page).locator("[data-item-id][data-selected]"),
+    ).toHaveCount(0);
   });
 });
