@@ -1,6 +1,7 @@
 import { coreTools } from "./core";
 import { imageTools } from "./images";
 import { proposeTools } from "./propose";
+import { quoteTools } from "./quotes";
 import { vendorTools } from "./vendors";
 
 /**
@@ -14,6 +15,7 @@ export const ASSISTANT_TOOLS = {
   ...proposeTools,
   ...vendorTools,
   ...imageTools,
+  ...quoteTools,
 };
 
 export type AssistantToolName = keyof typeof ASSISTANT_TOOLS;
