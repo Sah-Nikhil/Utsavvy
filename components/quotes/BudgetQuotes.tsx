@@ -65,15 +65,20 @@ export function BudgetQuotes({
               key={`${price.sourceUrl}\n${price.label}`}
               className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5"
             >
-              <span className="num text-caption text-price-listed">
-                {price.label}
-              </span>
               <PriceBadge
                 kind="listed"
                 source={siteOf(price.sourceUrl)}
                 seenOn={formatSeenDay(price.seenAt)}
-                detail="inline"
+                detail="none"
               />
+              <span className="num text-caption text-price-listed">
+                {price.label}
+              </span>
+              {/* Its own line that wraps, so a long site name stays inside a narrow card. */}
+              <span className="min-w-0 text-caption text-ink-3 [overflow-wrap:anywhere]">
+                from {siteOf(price.sourceUrl)} · seen{" "}
+                {formatSeenDay(price.seenAt)}
+              </span>
             </span>
           ))}
 
@@ -167,12 +172,12 @@ function Verdict({
     <span
       data-verdict={comparison.kind}
       className={cn(
-        "num inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption font-medium",
+        "num inline-flex max-w-full items-start gap-1 rounded-sm px-2 py-0.5 text-caption font-medium",
         className,
       )}
     >
-      <Icon aria-hidden className="size-3 shrink-0" />
-      {children}
+      <Icon aria-hidden className="mt-0.5 size-3 shrink-0" />
+      <span className="min-w-0">{children}</span>
     </span>
   );
 }

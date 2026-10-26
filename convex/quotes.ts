@@ -17,6 +17,8 @@ import {
 import { comparableForFunction } from "../components/vendors/comparable";
 import { can } from "../lib/access/permissions";
 import { formatINR } from "../lib/format";
+import { referenceTableBasis } from "../lib/pricing";
+import type { EntryFields } from "../lib/types/canvas";
 import type { MemberActor } from "../lib/types/actors";
 import type { ProposedChange } from "../lib/types/proposals";
 import { quoteUnitValidator } from "../lib/types/estimates";
@@ -52,6 +54,7 @@ import { requireAccess, requireAccessFor } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { once } from "./lib/idempotency";
 import { memberInsert, memberWrite } from "./lib/write";
+import { planItemOf } from "./entries";
 import { createProposal } from "./proposals";
 import { linkStatusValidator } from "./vendors";
 
@@ -1046,6 +1049,111 @@ export const endRunForLocalCheck = internalMutation({
   handler: async (ctx, { runId }) => {
     refuseOutsideLocal();
     await ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() });
+    return null;
+  },
+});
+
+/**
+ * The Budget for e2e/quotes.spec.ts, on an Event that
+ * `assistant/tools/vendors:cardsForLocalCheck` has given a 300-Guest sangeet
+ * and a caterer checklist Entry: a ₹12L total, a ₹9,55,000 Venue line and the
+ * sangeet catering line (300 plates, Estimate ₹3L to ₹6L, planned ₹2,45,000)
+ * that the caterer Entry pays for. Using the ₹2.85L Quote then puts the Budget
+ * ₹40,000 over, as in the demo. Refuses anything but a local deployment.
+ */
+export const budgetForLocalCheck = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.null(),
+  handler: async (ctx, { eventId }) => {
+    refuseOutsideLocal();
+    const owner = (
+      await ctx.db
+        .query("memberships")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .take(50)
+    ).find((m) => m.role === "owner" && m.status === "active");
+    if (owner === undefined) throw new Error("That Event has no Owner");
+    const budget = await planItemOf(ctx, eventId, "budget");
+    const checklist = await planItemOf(ctx, eventId, "checklist");
+    if (!budget || !checklist) throw new Error("That Event has no plan Items");
+    const caterer = (
+      await ctx.db
+        .query("entries")
+        .withIndex("by_item", (q) => q.eq("itemId", checklist._id))
+        .take(100)
+    ).find(
+      (row) =>
+        row.kind === "checklist" &&
+        row.deletedAt === null &&
+        row.fields.vendorCategory === "caterer",
+    );
+    if (!caterer || caterer.kind !== "checklist")
+      throw new Error("Run assistant/tools/vendors:cardsForLocalCheck first");
+
+    await ctx.db.patch("events", eventId, {
+      budgetTotal: 1_200_000,
+      briefState: "planned",
+    });
+    const createdBy = { kind: "member" as const, membershipId: owner._id };
+    const line = (
+      order: number,
+      functionKey: string | null,
+      fields: EntryFields<"budget">,
+    ) =>
+      ctx.db.insert("entries", {
+        eventId,
+        itemId: budget._id,
+        kind: "budget",
+        order,
+        functionKey,
+        fields,
+        assumed: [],
+        createdBy,
+        version: 1,
+        deletedAt: null,
+      });
+    const base = {
+      role: "line" as const,
+      belowUsualRange: false,
+      editedByMember: true,
+    };
+    await line(0, null, {
+      ...base,
+      label: "Venue",
+      category: null,
+      quantity: 1,
+      unit: "per_event",
+      estimate: null,
+      plannedAmount: 955_000,
+    });
+    const catering = await line(1, "sangeet", {
+      ...base,
+      label: "Catering",
+      category: "catering_main",
+      quantity: 300,
+      unit: "per_plate",
+      estimate: {
+        low: 300_000,
+        high: 600_000,
+        amount: 360_000,
+        label: "Estimate",
+        basis: referenceTableBasis({
+          unit: "per_plate",
+          unitLow: 1_000,
+          unitHigh: 2_000,
+          tier: "Y",
+        }),
+      },
+      plannedAmount: 245_000,
+    });
+    await ctx.db.patch("entries", caterer._id, {
+      fields: {
+        ...caterer.fields,
+        functionKeys: ["sangeet"],
+        budgetEntryIds: [catering],
+      },
+      version: caterer.version + 1,
+    });
     return null;
   },
 });
