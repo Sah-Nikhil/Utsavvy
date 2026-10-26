@@ -14,6 +14,7 @@ import {
   Citations,
   type CitationSource,
 } from "@/components/chat/cards/citations/Citations";
+import { SystemNoticeAction } from "@/components/chat/cards/system/SystemNoticeAction";
 import { CHAT_CARDS } from "@/components/chat/cards/registry";
 import { UndoAllButton } from "@/components/history/UndoAllButton";
 import { AssistantOrb } from "@/components/shell/AssistantOrb";
@@ -319,6 +320,9 @@ function SystemMessage({
             cardId={card.id}
             annotation={row.annotation}
           />
+        ) : null}
+        {card.kind === "system" ? (
+          <SystemNoticeAction eventId={eventId} cardId={card.id} />
         ) : null}
       </div>
     </li>
