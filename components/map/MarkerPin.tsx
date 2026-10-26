@@ -17,12 +17,15 @@ export function MarkerPin({
   tone,
   approximate,
   selected = false,
+  labelled = true,
   className,
 }: {
   category: string;
   tone: MarkerTone;
   approximate: boolean;
   selected?: boolean;
+  /** Shows "approximate" under the pin; a list row says it in its own badge. */
+  labelled?: boolean;
   className?: string;
 }) {
   const faint = tone === "other";
@@ -74,7 +77,7 @@ export function MarkerPin({
           )}
         />
       </span>
-      {approximate ? (
+      {approximate && labelled ? (
         // Below the tip, out of the layout, so the pin's tip stays the anchor.
         <span className="absolute top-full left-1/2 mt-0.5 -translate-x-1/2 rounded-full border border-current bg-surface px-1.5 text-[10px] leading-[14px] font-semibold tracking-[0.01em] whitespace-nowrap">
           approximate

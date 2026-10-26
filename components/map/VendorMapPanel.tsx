@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
 import { CategoryIllustration } from "@/components/vendors/CategoryIllustration";
@@ -17,6 +17,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { MapVendor, MapView } from "@/convex/map";
 import { cn } from "@/lib/utils";
 import { budgetLineFor, filterForFunction } from "./filter";
+import { placeVendors } from "./placement";
 import type { MapVendorShown } from "./MapCanvas";
 import { LEGEND, TONE_CLASS, TONE_LABELS, toneOf } from "./markers";
 import { MarkerPin } from "./MarkerPin";
@@ -94,10 +95,13 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     () => (view ? applyFilters(view, category, functionKey) : []),
     [view, category, functionKey],
   );
-  const onMap = listed.filter((v): v is MapVendorShown => v.marker !== null);
+  // Held to the Event's city: a Vendor shortlisted from elsewhere is listed, not drawn.
+  const { onMap, outside, noAddress } = placeVendors(
+    listed,
+    view?.city != null,
+  );
   const shortlisted = onMap.filter((v) => v.shortlist !== null);
   const others = onMap.filter((v) => v.shortlist === null);
-  const noAddress = listed.filter((v) => v.marker === null);
 
   if (view === undefined)
     return (
@@ -193,39 +197,17 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
           selectedId={selectedId}
           onShow={show}
         />
-        {noAddress.length > 0 ? (
-          <section aria-labelledby="map-no-address" className="grid gap-1.5">
-            <h3
-              id="map-no-address"
-              className="text-label font-semibold text-ink-2"
-            >
-              Without an address
-            </h3>
-            <ul className="grid gap-1">
-              {noAddress.map((v) => (
-                <li
-                  key={v._id}
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-label text-ink-2"
-                >
-                  <CategoryIllustration
-                    category={v.category}
-                    className="size-6 shrink-0 text-ink-3"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-ink">
-                      {v.name}
-                    </span>
-                    <span className="block truncate text-caption text-ink-3">
-                      {CATEGORY_LABELS[v.category]}
-                      {v.areaServed ? ` · serves ${v.areaServed}` : ""}
-                    </span>
-                  </span>
-                  {v.noPrice ? <Badge tone="outline">no price</Badge> : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
+        <PlainList
+          title={`Shortlisted outside ${cityName}`}
+          vendors={outside}
+          detail={(v) => v.locality}
+          note={`outside ${cityName}`}
+        />
+        <PlainList
+          title="Without an address"
+          vendors={noAddress}
+          detail={(v) => (v.areaServed ? `serves ${v.areaServed}` : null)}
+        />
       </div>
 
       <div className="relative order-1 h-[52dvh] shrink-0 overflow-hidden border-b border-rule md:order-2 md:h-auto md:flex-1 md:border-b-0">
@@ -293,7 +275,8 @@ function VendorList({
                   <MarkerPin
                     category={v.category}
                     tone={tone}
-                    approximate={false}
+                    approximate={v.marker.approximate}
+                    labelled={false}
                     className="shrink-0 scale-75"
                   />
                   <span className="min-w-0 flex-1">
@@ -328,6 +311,70 @@ function VendorList({
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** Vendors listed beside the map but not drawn on it. */
+function PlainList({
+  title,
+  vendors,
+  detail,
+  note,
+}: {
+  title: string;
+  vendors: Listed[];
+  detail: (vendor: Listed) => string | null;
+  note?: string;
+}) {
+  const id = useId();
+  if (vendors.length === 0) return null;
+  return (
+    <section aria-labelledby={id} className="grid gap-1.5">
+      <h3 id={id} className="text-label font-semibold text-ink-2">
+        {title}
+      </h3>
+      <ul className="grid gap-1">
+        {vendors.map((v) => {
+          const tone = toneOf(v);
+          const more = detail(v);
+          return (
+            <li
+              key={v._id}
+              data-plain-vendor={v._id}
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-label text-ink-2"
+            >
+              <CategoryIllustration
+                category={v.category}
+                className="size-6 shrink-0 text-ink-3"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-ink">
+                  {v.name}
+                </span>
+                <span className="block truncate text-caption text-ink-3">
+                  {CATEGORY_LABELS[v.category]}
+                  {more ? ` · ${more}` : ""}
+                </span>
+              </span>
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                {tone !== "other" ? (
+                  <span
+                    className={cn(
+                      "text-caption font-semibold",
+                      TONE_CLASS[tone],
+                    )}
+                  >
+                    {TONE_LABELS[tone]}
+                  </span>
+                ) : null}
+                {note ? <Badge tone="outline">{note}</Badge> : null}
+                {v.noPrice ? <Badge tone="outline">no price</Badge> : null}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

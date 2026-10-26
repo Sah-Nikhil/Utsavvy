@@ -14,6 +14,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { MapVendor, MapView } from "@/convex/map";
 import { markerLabel, toneOf } from "./markers";
 import { MarkerPin } from "./MarkerPin";
+import { cityBounds, openingFit } from "./placement";
 import { buildMapStyle, readMapColours } from "./style";
 
 /*
@@ -50,8 +51,6 @@ const STREET_ZOOM = 15;
 /** The opening view never comes closer than this, so it reads as the city. */
 const CITY_MAX_ZOOM = 12.5;
 const FIT = { padding: 48, maxZoom: CITY_MAX_ZOOM };
-/** How far from the city the map may pan, in degrees. */
-const CITY_REACH = { lat: 0.45, lng: 0.55 };
 
 const GEOAPIFY_ATTRIBUTION =
   'Geocoding by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a>';
@@ -68,49 +67,6 @@ function centreOf(
     { lat: 0, lng: 0 },
   );
   return { lat: sum.lat / vendors.length, lng: sum.lng / vendors.length };
-}
-
-/**
- * The opening view: centred on the city and wide enough for every Marker near
- * it (a Marker further than the city's reach doesn't widen it).
- */
-function fitOf(
-  centre: { lat: number; lng: number },
-  vendors: MapVendorShown[],
-): [number, number, number, number] {
-  let lat = 0.04;
-  let lng = 0.04;
-  for (const { marker } of vendors) {
-    const dLat = Math.abs(marker.lat - centre.lat);
-    const dLng = Math.abs(marker.lng - centre.lng);
-    if (dLat > CITY_REACH.lat || dLng > CITY_REACH.lng) continue;
-    lat = Math.max(lat, dLat);
-    lng = Math.max(lng, dLng);
-  }
-  return [
-    centre.lng - lng,
-    centre.lat - lat,
-    centre.lng + lng,
-    centre.lat + lat,
-  ];
-}
-
-/** The city's reach, grown to take in every Marker (a Vendor shortlisted from elsewhere). */
-function boundsOf(
-  centre: { lat: number; lng: number },
-  vendors: MapVendorShown[],
-): [number, number, number, number] {
-  let west = centre.lng - CITY_REACH.lng;
-  let east = centre.lng + CITY_REACH.lng;
-  let south = centre.lat - CITY_REACH.lat;
-  let north = centre.lat + CITY_REACH.lat;
-  for (const { marker } of vendors) {
-    west = Math.min(west, marker.lng - 0.1);
-    east = Math.max(east, marker.lng + 0.1);
-    south = Math.min(south, marker.lat - 0.1);
-    north = Math.max(north, marker.lat + 0.1);
-  }
-  return [west, south, east, north];
 }
 
 export default function MapCanvas({
@@ -147,8 +103,8 @@ export default function MapCanvas({
   const [initial] = useState(() =>
     centre
       ? {
-          fit: fitOf(centre, vendors),
-          bounds: boundsOf(centre, vendors),
+          fit: openingFit(centre, vendors),
+          bounds: cityBounds(centre),
         }
       : null,
   );

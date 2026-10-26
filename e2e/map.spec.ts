@@ -119,6 +119,18 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       sheet.locator('[data-marker-id][aria-label^="Wedding Velvet,"]'),
     ).not.toContainText("approximate");
 
+    // The list draws each Marker as the map does: hollow when approximate.
+    const roodRow = sheet
+      .locator("[data-list-vendor]")
+      .filter({ hasText: "Rood Mahal" });
+    await expect(roodRow.locator("[data-approximate]")).toHaveCount(1);
+    await expect(
+      sheet
+        .locator("[data-list-vendor]")
+        .filter({ hasText: "Wedding Velvet" })
+        .locator("[data-approximate]"),
+    ).toHaveCount(0);
+
     const noAddress = sheet.getByRole("region", { name: "Without an address" });
     await expect(noAddress).toContainText("Vinayak Foods & Catering");
     await expect(noAddress).toContainText("Ganesh Dal Bati Churma");

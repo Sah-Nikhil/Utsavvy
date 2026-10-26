@@ -45,6 +45,34 @@ const MAX_LINKS_PER_ITEM = 50;
 const MAX_FUNCTIONS = 50;
 const MAX_BUDGET_ROWS = 500;
 
+/*
+ * How far a Member may move a Marker (review of #123). The Marker is shared by
+ * every Event, so a point far from the Vendor must never reach it:
+ * - within MAX_MOVE_KM of the Marker it replaces: an approximate Marker is a
+ *   city- or locality-level geocode, which can sit a suburb or two away from
+ *   the Vendor, never further;
+ * - and, for a Vendor in the Event's city, within MAX_FROM_CITY_KM of the
+ *   city's centre, the same area the map is held to.
+ * Only an approximate Marker moves, and a moved one is no longer approximate,
+ * so moves can't chain a Marker away step by step.
+ */
+export const MAX_MOVE_KM = 15;
+export const MAX_FROM_CITY_KM = 25;
+
+/** The great-circle distance between two points, in kilometres. */
+function kmBetween(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** The furthest-along status first: a Shortlisted Vendor takes its links' best. */
 const STATUS_ORDER: readonly LinkStatus[] = [
   "booked",
@@ -67,6 +95,8 @@ export type MapVendor = {
   prices: ListedPriceLike[];
   /** This Event's Shortlisted Vendor, or null for a faint Marker. */
   shortlist: { itemId: Id<"items">; status: LinkStatus | null } | null;
+  /** In the Event's city; false for a Vendor shortlisted from elsewhere, listed but not drawn. */
+  inCity: boolean;
 };
 
 export type MapBudgetLine = {
@@ -236,6 +266,7 @@ export const view = query({
           : null,
         prices: await pricesOf(ctx, vendor._id),
         shortlist: shortlisted.get(vendor._id) ?? null,
+        inCity: event.city !== null && inCity(vendor, event.city.name),
       });
     }
 
@@ -300,6 +331,21 @@ export const moveMarker = mutation({
       Math.abs(args.lng) > 180
     )
       invalid("That point isn't on the map.");
+    if (!vendor.marker.approximate)
+      invalid(
+        "This Marker is already in place; only an approximate one moves.",
+      );
+    const to = { lat: args.lat, lng: args.lng };
+    if (kmBetween(vendor.marker, to) > MAX_MOVE_KM)
+      invalid(
+        `A Marker moves at most ${MAX_MOVE_KM} km from where it was; that point is too far from this Vendor.`,
+      );
+    if (
+      nearby &&
+      event.city!.centre !== null &&
+      kmBetween(event.city!.centre, to) > MAX_FROM_CITY_KM
+    )
+      invalid(`That point is outside ${event.city!.name}.`);
 
     const actor: MemberActor = { kind: "member", membershipId: membership._id };
     return await memberWrite(ctx, {
