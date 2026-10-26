@@ -35,12 +35,11 @@ function literals(value: unknown): string[] {
 /** Every value a layer paints with, by property name. */
 function paintColours() {
   return style.layers.flatMap((layer) =>
-    Object.entries(
-      ("paint" in layer ? layer.paint : undefined) ?? {},
-    ).flatMap(([property, value]) =>
-      property.endsWith("color")
-        ? literals(value).map((colour) => ({ layer: layer.id, colour }))
-        : [],
+    Object.entries(("paint" in layer ? layer.paint : undefined) ?? {}).flatMap(
+      ([property, value]) =>
+        property.endsWith("color")
+          ? literals(value).map((colour) => ({ layer: layer.id, colour }))
+          : [],
     ),
   );
 }
@@ -57,7 +56,9 @@ describe("buildMapStyle", () => {
     const paintOf = (id: string) => {
       const layer = style.layers.find((l) => l.id === id);
       expect(layer, id).toBeDefined();
-      return literals(Object.values(("paint" in layer! && layer!.paint) || {}));
+      return Object.values(("paint" in layer! && layer!.paint) || {}).flatMap(
+        literals,
+      );
     };
     expect(paintOf("land")).toContain(COLOURS.land);
     expect(paintOf("water")).toContain(COLOURS.water);
@@ -121,9 +122,7 @@ describe("buildMapStyle", () => {
   });
 
   it("names a --map-* token for every colour", () => {
-    expect(Object.keys(MAP_TOKENS).sort()).toEqual(
-      Object.keys(COLOURS).sort(),
-    );
+    expect(Object.keys(MAP_TOKENS).sort()).toEqual(Object.keys(COLOURS).sort());
     for (const token of Object.values(MAP_TOKENS))
       expect(token).toMatch(/^--map-[a-z-]+$/);
   });

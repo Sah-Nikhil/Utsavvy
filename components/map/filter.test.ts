@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { budgetLineFor, filterForFunction, type FilterableVendor } from "./filter";
+import {
+  budgetLineFor,
+  filterForFunction,
+  type FilterableVendor,
+} from "./filter";
 
 // S15 (issue #48): filtering the map by a Function's needs.
 
@@ -58,7 +62,10 @@ describe("filterForFunction", () => {
         // ₹800 a plate × 300 = ₹2,40,000.
         venue("Fits", { max: 400 }, [perPlate(800)]),
         // One package over, one under: the cheaper one fits.
-        venue("Mixed", { max: 400 }, [perFunction(450_000), perFunction(280_000)]),
+        venue("Mixed", { max: 400 }, [
+          perFunction(450_000),
+          perFunction(280_000),
+        ]),
         // Exactly on the line fits.
         venue("On the line", { max: 400 }, [perFunction(300_000)]),
       ],
@@ -109,7 +116,14 @@ describe("filterForFunction", () => {
 
   it("only checks capacity for Venues", () => {
     const kept = filterForFunction(
-      [{ name: "Caterer", category: "caterer", capacity: { max: 100 }, prices: [] }],
+      [
+        {
+          name: "Caterer",
+          category: "caterer",
+          capacity: { max: 100 },
+          prices: [],
+        },
+      ],
       SANGEET,
       null,
     );
@@ -119,15 +133,36 @@ describe("filterForFunction", () => {
 
 describe("budgetLineFor", () => {
   const entries = [
-    { functionKey: "sangeet", category: "venue_large", plannedAmount: 300_000, estimate: null },
-    { functionKey: "sangeet", category: "catering_main", plannedAmount: null, estimate: { amount: 420_000 } },
-    { functionKey: "wedding", category: "venue_large", plannedAmount: 900_000, estimate: null },
+    {
+      functionKey: "sangeet",
+      category: "venue_large",
+      plannedAmount: 300_000,
+      estimate: null,
+    },
+    {
+      functionKey: "sangeet",
+      category: "catering_main",
+      plannedAmount: null,
+      estimate: { amount: 420_000 },
+    },
+    {
+      functionKey: "wedding",
+      category: "venue_large",
+      plannedAmount: 900_000,
+      estimate: null,
+    },
   ];
 
   it("finds the Function's budget line for a Vendor category", () => {
-    expect(budgetLineFor(entries, "sangeet", "venue")?.plannedAmount).toBe(300_000);
-    expect(budgetLineFor(entries, "sangeet", "caterer")?.estimate?.amount).toBe(420_000);
-    expect(budgetLineFor(entries, "wedding", "venue")?.plannedAmount).toBe(900_000);
+    expect(budgetLineFor(entries, "sangeet", "venue")?.plannedAmount).toBe(
+      300_000,
+    );
+    expect(budgetLineFor(entries, "sangeet", "caterer")?.estimate?.amount).toBe(
+      420_000,
+    );
+    expect(budgetLineFor(entries, "wedding", "venue")?.plannedAmount).toBe(
+      900_000,
+    );
   });
 
   it("is null when the Function has no line for the category", () => {

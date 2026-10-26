@@ -181,9 +181,9 @@ describe("api.map.moveMarker", () => {
       op: "update",
       actor: { kind: "member", membershipId: meera.membershipId },
     });
-    expect(
-      (changes[0]!.before as Doc<"vendors">).marker?.approximate,
-    ).toBe(true);
+    expect((changes[0]!.before as Doc<"vendors">).marker?.approximate).toBe(
+      true,
+    );
     expect((changes[0]!.after as Doc<"vendors">).marker).toMatchObject({
       lat: 26.9301,
       lng: 75.7712,
