@@ -8,6 +8,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import type { Doc } from "@/convex/_generated/dataModel";
 import type { EventLayer, ListedPriceView, VendorView } from "@/convex/vendors";
 import { formatINR } from "@/lib/format";
+import { safeHttpUrl } from "@/lib/url";
 import { cn } from "@/lib/utils";
 import {
   CATEGORY_LABELS,
@@ -184,6 +185,9 @@ export function VendorCard({
     ? CATEGORY_LABELS[vendor.category]
     : vendor.category;
   const site = vendor.website ? siteOf(vendor.website) : null;
+  // Only an http or https URL becomes a link; anything else stays text.
+  const siteHref = safeHttpUrl(vendor.website);
+  const profileHref = safeHttpUrl(vendor.profileUrl);
   const hasContact = Boolean(vendor.address || vendor.phone || vendor.email);
 
   return (
@@ -205,11 +209,16 @@ export function VendorCard({
           </h3>
           <p className="text-label text-ink-2">
             {categoryLabel}
-            {site ? (
+            {site && siteHref === null ? (
+              <>
+                {" · "}
+                {site}
+              </>
+            ) : site ? (
               <>
                 {" · "}
                 <a
-                  href={vendor.website!}
+                  href={siteHref!}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-action underline-offset-2 hover:underline"
@@ -217,11 +226,11 @@ export function VendorCard({
                   {site}
                 </a>
               </>
-            ) : vendor.profileUrl ? (
+            ) : profileHref ? (
               <>
                 {" · "}
                 <a
-                  href={vendor.profileUrl}
+                  href={profileHref}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-action underline-offset-2 hover:underline"

@@ -12,6 +12,7 @@ import {
 import { ExactSentence } from "@/components/vendors/VendorCard";
 import type { LineComparison } from "@/convex/quotes";
 import { formatINR } from "@/lib/format";
+import { safeHttpUrl } from "@/lib/url";
 import { cn } from "@/lib/utils";
 import { compareWithPlanned, type Comparison } from "./quotes";
 
@@ -80,17 +81,8 @@ export function BudgetQuotes({
               </span>
               {/* Its own line that wraps, so a long site name stays inside a narrow card. */}
               <span className="min-w-0 text-caption text-ink-3 [overflow-wrap:anywhere]">
-                from{" "}
-                <a
-                  href={price.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-xs text-action underline underline-offset-2 hover:text-action-strong focus-visible:outline-2 focus-visible:outline-focus"
-                >
-                  {siteOf(price.sourceUrl)}
-                  <span className="sr-only"> (opens in a new tab)</span>
-                </a>{" "}
-                · seen {formatSeenDay(price.seenAt)}
+                from <SourceLink url={price.sourceUrl} /> · seen{" "}
+                {formatSeenDay(price.seenAt)}
               </span>
               <ExactSentence
                 sentences={[{ sentence: price.sentence, url: price.sourceUrl }]}
@@ -110,6 +102,24 @@ export function BudgetQuotes({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** The page a Listed price was read on: a link only for an http or https URL, else plain text. */
+function SourceLink({ url }: { url: string }) {
+  const href = safeHttpUrl(url);
+  const site = siteOf(url) || url;
+  if (href === null) return <span>{site}</span>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-xs text-action underline underline-offset-2 hover:text-action-strong focus-visible:outline-2 focus-visible:outline-focus"
+    >
+      {site}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
   );
 }
 
