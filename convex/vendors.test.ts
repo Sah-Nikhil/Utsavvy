@@ -165,7 +165,7 @@ describe("internal.vendors.loadStarterSet", () => {
   it("inserts the 16 starter Vendors and their Listed prices", async () => {
     const t = newTest();
     const result = await t.mutation(internal.vendors.loadStarterSet, {});
-    expect(result).toEqual({ inserted: 16, existing: 0 });
+    expect(result).toEqual({ inserted: 16, existing: 0, pricesAdded: 0 });
     const vendors = await t.run((ctx) => ctx.db.query("vendors").collect());
     expect(vendors).toHaveLength(16);
     expect(vendors.every((v) => v.source === "starterSet")).toBe(true);
@@ -196,7 +196,7 @@ describe("internal.vendors.loadStarterSet", () => {
 
     const result = await t.mutation(internal.vendors.loadStarterSet, {});
 
-    expect(result).toEqual({ inserted: 1, existing: 15 });
+    expect(result).toEqual({ inserted: 1, existing: 15, pricesAdded: 0 });
     const after = await t.run((ctx) => ctx.db.query("vendors").collect());
     for (const vendor of before)
       expect(after.find((v) => v._id === vendor._id)).toEqual(vendor);
@@ -207,6 +207,47 @@ describe("internal.vendors.loadStarterSet", () => {
       ctx.db.query("listedPrices").collect(),
     );
     expect(pricesAfter).toHaveLength(pricesBefore.length + 1);
+  });
+
+  // Review of #122, Medium 2: an existing Vendor missing a seed Listed price
+  // gets it back; its other rows (and the Vendor row) stay as they are.
+  it("adds an existing Vendor's missing seed Listed price, once, without touching the rest", async () => {
+    const t = newTest();
+    await t.mutation(internal.vendors.loadStarterSet, {});
+    const ml = await vendorByDomain(t, "mlcaterers.com");
+    const pricesOf = () =>
+      t.run((ctx) =>
+        ctx.db
+          .query("listedPrices")
+          .withIndex("by_vendor", (q) => q.eq("vendorId", ml._id))
+          .collect(),
+      );
+    const [gone, ...kept] = await pricesOf();
+    await t.run((ctx) => ctx.db.delete("listedPrices", gone!._id));
+
+    const result = await t.mutation(internal.vendors.loadStarterSet, {});
+
+    expect(result).toEqual({ inserted: 0, existing: 16, pricesAdded: 1 });
+    const after = await pricesOf();
+    expect(after).toHaveLength(kept.length + 1);
+    for (const row of kept)
+      expect(after.find((p) => p._id === row._id)).toEqual(row);
+    const restored = after.find((p) => !kept.some((k) => k._id === p._id))!;
+    expect(restored).toMatchObject({
+      sourceUrl: gone!.sourceUrl,
+      sentence: gone!.sentence,
+      amount: gone!.amount,
+      unit: gone!.unit,
+      supersededAt: null,
+    });
+    expect(await vendorByDomain(t, "mlcaterers.com")).toEqual(ml);
+
+    // A second run finds nothing missing.
+    expect(await t.mutation(internal.vendors.loadStarterSet, {})).toEqual({
+      inserted: 0,
+      existing: 16,
+      pricesAdded: 0,
+    });
   });
 });
 
