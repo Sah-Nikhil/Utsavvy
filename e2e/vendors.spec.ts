@@ -111,6 +111,9 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
     );
 
     await expectNoSeriousA11yViolations(page);
+    await cards
+      .first()
+      .evaluate((card) => card.scrollIntoView({ block: "start" }));
     await page.screenshot({
       path: testInfo.outputPath("vendor-cards-desktop.png"),
     });
@@ -137,17 +140,31 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
     ).toContainText("Booked", { timeout: 10_000 });
     await expect(second).toContainText("Booked", { timeout: 10_000 });
     await expectNoSeriousA11yViolations(page);
+    await page.getByRole("button", { name: "Show the whole Canvas" }).click();
+    await page.waitForTimeout(800);
     await page.screenshot({
       path: testInfo.outputPath("shortlisted-vendor-desktop.png"),
     });
 
-    // At 390 px the cards stay readable in the Chat.
+    // At 390 px the cards stay readable in the Chat, and the Canvas tab's
+    // Compact mode shows the Shortlisted Vendor with its status.
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(cardList(page)).toBeVisible({ timeout: 20_000 });
-    await cardList(page).scrollIntoViewIfNeeded();
     await expectNoSeriousA11yViolations(page);
     await page.screenshot({
       path: testInfo.outputPath("vendor-cards-390.png"),
+    });
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: "Canvas" })
+      .click();
+    const compact = page.locator('[data-compact-item="shortlistedVendor"]');
+    await expect(compact).toBeVisible({ timeout: 20_000 });
+    await expect(compact).toContainText("Booked");
+    await compact.scrollIntoViewIfNeeded();
+    await expectNoSeriousA11yViolations(page);
+    await compact.screenshot({
+      path: testInfo.outputPath("shortlisted-vendor-390.png"),
     });
     expect(cspViolations).toEqual([]);
   });
