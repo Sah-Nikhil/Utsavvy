@@ -325,6 +325,15 @@ export const listForLink = query({
     current: v.union(quoteViewValidator, v.null()),
     ask: v.union(askValidator, v.null()),
     canManage: v.boolean(),
+    /** The Event's Functions, for the form; `served` are the ones the link's Entry serves. */
+    functions: v.array(
+      v.object({
+        key: v.string(),
+        name: v.string(),
+        guests: v.union(v.number(), v.null()),
+      }),
+    ),
+    served: v.array(v.string()),
   }),
   handler: async (ctx, { linkId }) => {
     const link = await loadLink(ctx, linkId);
@@ -340,11 +349,16 @@ export const listForLink = query({
     for (const row of rows) quotes.push(await quoteView(ctx, row, lines));
     const canManage = can(membership.role, "vendor.manage");
     const canEdit = can(membership.role, "canvas.edit");
+    const functions = (await functionsOf(ctx, link.eventId))
+      .sort((a, b) => a.order - b.order)
+      .map((fn) => ({ key: fn.key, name: fn.name, guests: fn.guests }));
     return {
       quotes,
       current: quotes[0] ?? null,
       ask: canEdit ? await bookingAsk(ctx, link, rows[0] ?? null, lines) : null,
       canManage,
+      functions,
+      served: entry?.fields.functionKeys ?? [],
     };
   },
 });
