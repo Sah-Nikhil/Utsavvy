@@ -224,6 +224,117 @@ describe("politeFetch", () => {
     ).rejects.toThrow(/2 MB/);
   });
 
+  it("asks beforeHop about every hop before looking it up or requesting it", async () => {
+    routes["a.example/"] = redirect("http://b.example/next");
+    routes["b.example/next"] = (_req, res) => res.writeHead(200).end("done");
+    const lookup = dns({ "a.example": PUBLIC_IP, "b.example": PUBLIC_IP });
+    const order: string[] = [];
+    lookup.mockImplementation(async (hostname: string) => {
+      order.push(`lookup ${hostname}`);
+      return [{ address: PUBLIC_IP, family: 4 }];
+    });
+
+    const result = await politeFetch("http://a.example/", {
+      userAgent,
+      lookup,
+      beforeHop: (url) => {
+        order.push(`hop ${url.href}`);
+      },
+    });
+
+    expect(result.text).toBe("done");
+    expect(order).toEqual([
+      "hop http://a.example/",
+      "lookup a.example",
+      "hop http://b.example/next",
+      "lookup b.example",
+    ]);
+  });
+
+  it("makes no request for a hop that beforeHop refuses", async () => {
+    routes["a.example/"] = redirect("https://www.instagram.com/vendor/");
+    const lookup = dns({
+      "a.example": PUBLIC_IP,
+      "www.instagram.com": PUBLIC_IP,
+    });
+
+    await expect(
+      politeFetch("http://a.example/", {
+        userAgent,
+        lookup,
+        beforeHop: async (url) => {
+          if (url.hostname !== "a.example") throw new Error("refused");
+        },
+      }),
+    ).rejects.toThrow("refused");
+    expect(lookup).not.toHaveBeenCalledWith("www.instagram.com");
+    expect(dialled.map((d) => d.hostHeader)).toEqual(["a.example"]);
+  });
+
+  it("still applies the SSRF guard to a hop beforeHop allows", async () => {
+    routes["vendor.example/"] = redirect("http://127.0.0.1/admin");
+    const beforeHop = vi.fn();
+    await expect(
+      politeFetch("http://vendor.example/", {
+        userAgent,
+        lookup: dns({ "vendor.example": PUBLIC_IP }),
+        beforeHop,
+      }),
+    ).rejects.toThrow(/blocked address 127\.0\.0\.1/);
+    expect(beforeHop).toHaveBeenCalledTimes(2);
+    expect(dialled.map((d) => d.hostHeader)).toEqual(["vendor.example"]);
+  });
+
+  it("stops at about 8 seconds when DNS never answers", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const lookup = vi.fn(() => new Promise<never>(() => {}));
+      const settled = vi.fn();
+      const fetching = politeFetch("http://vendor.example/", {
+        userAgent,
+        lookup,
+      }).catch((error: Error) => {
+        settled();
+        throw error;
+      });
+      const assertion = expect(fetching).rejects.toThrow(/timed out/);
+
+      await vi.advanceTimersByTimeAsync(7_900);
+      expect(settled).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      await assertion;
+      expect(dialled).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts beforeHop time toward the whole-call deadline", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const lookup = vi.fn(() => new Promise<never>(() => {}));
+      const settled = vi.fn();
+      const fetching = politeFetch("http://vendor.example/", {
+        userAgent,
+        lookup,
+        beforeHop: () =>
+          new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      }).catch((error: Error) => {
+        settled();
+        throw error;
+      });
+      const assertion = expect(fetching).rejects.toThrow(/timed out/);
+
+      await vi.advanceTimersByTimeAsync(7_900);
+      expect(settled).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      await assertion;
+      expect(dialled).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops at about 8 seconds", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {

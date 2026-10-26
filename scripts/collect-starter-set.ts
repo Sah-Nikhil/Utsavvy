@@ -5,7 +5,8 @@
  *      bun scripts/collect-starter-set.ts fetch <candidates.txt> <cacheDir>
  *    <candidates.txt> holds one page URL per line (`#` starts a comment), at most 4 per
  *    site. Every request goes through politeFetch with our User-Agent, obeys robots.txt
- *    and waits about a second between requests to the same host.
+ *    and waits about a second between requests to the same host, redirect hops
+ *    included; a redirect off the Vendor's site is refused before it is requested.
  *
  *    The agent fills this file from its own web search, keeping only the result URLs of
  *    Vendors' own sites. Directories, Google Places and social sites are never read
@@ -22,7 +23,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { politeFetch } from "../lib/fetch/politeFetch";
+import { politeFetch, type Lookup } from "../lib/fetch/politeFetch";
 
 export const UNITS = [
   "per_plate",
@@ -185,7 +186,9 @@ export function quoteCheck(draft: Vendor, pages: Map<string, string>) {
   const dropped: string[] = [];
   const onPage = (url: string, sentence: string) => {
     const text = pages.get(url);
-    return text !== undefined && normalise(text).includes(normalise(sentence));
+    // An empty sentence is "on" every page, so it proves nothing.
+    if (text === undefined || normalise(sentence) === "") return false;
+    return normalise(text).includes(normalise(sentence));
   };
   const vendor: Vendor = { ...draft };
   for (const field of FACT_FIELDS) {
@@ -217,8 +220,27 @@ export const USER_AGENT =
 const ROBOTS_TOKEN = "utsavvybot";
 
 /**
+ * Puts a URL path or robots.txt rule in the form RFC 9309 section 2.2.2 compares:
+ * percent-encoded unreserved ASCII (letters, digits, `-._~`) is decoded, other
+ * encodings are kept with upper-case hex, and non-ASCII is encoded as UTF-8.
+ */
+export function normaliseRobotsPath(path: string) {
+  return path
+    .replace(/[\u0080-\u{10ffff}]/gu, (char) =>
+      [...Buffer.from(char)]
+        .map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+        .join(""),
+    )
+    .replace(/%([\da-f]{2})/gi, (_, hex: string) => {
+      const char = String.fromCharCode(parseInt(hex, 16));
+      return /^[\w.~-]$/.test(char) ? char : `%${hex.toUpperCase()}`;
+    });
+}
+
+/**
  * A minimal RFC 9309 robots.txt reader: our group (else `*`), `*` and `$` in paths,
- * the longest matching rule wins and Allow wins a tie. Returns `allowed(pathAndQuery)`.
+ * the longest matching rule wins and Allow wins a tie, paths and rules compared
+ * after `normaliseRobotsPath`. Returns `allowed(pathAndQuery)`.
  */
 export function parseRobots(text: string) {
   type Group = {
@@ -243,7 +265,10 @@ export function parseRobots(text: string) {
       (field === "allow" || field === "disallow") &&
       value !== ""
     ) {
-      current.rules.push({ allow: field === "allow", pattern: value });
+      current.rules.push({
+        allow: field === "allow",
+        pattern: normaliseRobotsPath(value),
+      });
     }
   }
   const ours = groups.filter((g) => g.agents.includes(ROBOTS_TOKEN));
@@ -259,7 +284,8 @@ export function parseRobots(text: string) {
       .join(".*");
     return new RegExp(`^${body}${anchored ? "$" : ""}`);
   };
-  return (path: string) => {
+  return (rawPath: string) => {
+    const path = normaliseRobotsPath(rawPath);
     if (path === "/robots.txt") return true;
     let best: { allow: boolean; pattern: string } | undefined;
     for (const rule of rules) {
@@ -376,29 +402,82 @@ export async function geocode(text: string, apiKey: string) {
 
 const PAGES_PER_SITE = 4;
 const HOST_DELAY_MS = 1_000;
-const lastRequest = new Map<string, number>();
-
-/** politeFetch with our User-Agent, one request at a time per host, about a second apart. */
-async function paced(url: string) {
-  const host = new URL(url).host;
-  const wait = (lastRequest.get(host) ?? 0) + HOST_DELAY_MS - Date.now();
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  try {
-    return await politeFetch(url, { userAgent: USER_AGENT });
-  } finally {
-    lastRequest.set(host, Date.now());
+/** A request the reader refused to make; `redirected` is false for the first URL. */
+export class Refused extends Error {
+  reason: string;
+  redirected: boolean;
+  constructor(reason: string, url: URL, redirected: boolean) {
+    super(`${reason}: ${url.href}`);
+    this.reason = reason;
+    this.redirected = redirected;
   }
 }
 
-async function robotsFor(origin: string): Promise<(path: string) => boolean> {
-  try {
-    const res = await paced(`${origin}/robots.txt`);
-    if (res.status >= 200 && res.status < 300) return parseRobots(res.text);
-    if (res.status >= 400 && res.status < 500) return () => true; // RFC 9309: no robots.txt, no limits
-  } catch {
-    // unreachable: fall through
+/**
+ * Reads pages through politeFetch with our User-Agent. Every request, each redirect
+ * hop included, is checked before it is made: it must stay on the page's own site
+ * (so never a directory or social site), its host's robots.txt must allow it, and
+ * requests to one host start about a second after the last one finished.
+ */
+export function createReader({
+  lookup,
+  delayMs = HOST_DELAY_MS,
+}: { lookup?: Lookup; delayMs?: number } = {}) {
+  const lastRequest = new Map<string, number>();
+  const robots = new Map<string, Promise<(path: string) => boolean>>();
+
+  async function onSite(url: string, checkRobots: boolean) {
+    const site = domainOf(url);
+    let previous: string | undefined;
+    const finished = () => {
+      if (previous) lastRequest.set(previous, Date.now());
+    };
+    try {
+      return await politeFetch(url, {
+        userAgent: USER_AGENT,
+        lookup,
+        beforeHop: async (hop) => {
+          finished();
+          const redirected = previous !== undefined;
+          if (domainOf(hop.href) !== site || isDirectory(hop.href))
+            throw new Refused("redirected off the site", hop, redirected);
+          if (
+            checkRobots &&
+            !(await robotsFor(hop.origin))(hop.pathname + hop.search)
+          )
+            throw new Refused("disallowed by robots.txt", hop, redirected);
+          const wait = (lastRequest.get(hop.host) ?? 0) + delayMs - Date.now();
+          if (wait > 0)
+            await new Promise((resolve) => setTimeout(resolve, wait));
+          previous = hop.host;
+        },
+      });
+    } finally {
+      finished();
+    }
   }
-  return () => false; // RFC 9309: unreachable robots.txt means fully disallowed
+
+  function robotsFor(origin: string) {
+    let allowed = robots.get(origin);
+    if (!allowed) robots.set(origin, (allowed = readRobots(origin)));
+    return allowed;
+  }
+
+  async function readRobots(
+    origin: string,
+  ): Promise<(path: string) => boolean> {
+    try {
+      // Its redirects must stay on the site too; a refused one counts as unreachable.
+      const res = await onSite(`${origin}/robots.txt`, false);
+      if (res.status >= 200 && res.status < 300) return parseRobots(res.text);
+      if (res.status >= 400 && res.status < 500) return () => true; // RFC 9309: no robots.txt, no limits
+    } catch {
+      // unreachable: fall through
+    }
+    return () => false; // RFC 9309: unreachable robots.txt means fully disallowed
+  }
+
+  return { read: (url: string) => onSite(url, true) };
 }
 
 type PageEntry = {
@@ -447,7 +526,7 @@ async function fetchStep(candidatesPath: string, cacheDir: string) {
   }
   let directorySites = 0;
   let pagesOverLimit = 0;
-  const robots = new Map<string, (path: string) => boolean>();
+  const reader = createReader();
 
   for (const [domain, urls] of sites) {
     if (isDirectory(domain)) {
@@ -461,18 +540,12 @@ async function fetchStep(candidatesPath: string, cacheDir: string) {
     const room = Math.max(0, PAGES_PER_SITE - read.length);
     pagesOverLimit += Math.max(0, fresh.length - room);
     for (const url of fresh.slice(0, room)) {
-      const { origin, pathname, search } = new URL(url);
-      if (!robots.has(origin)) robots.set(origin, await robotsFor(origin));
-      if (!robots.get(origin)!(pathname + search)) {
-        pages[url] = { url, skipped: "disallowed by robots.txt" };
-        continue;
-      }
       try {
-        const res = await paced(url);
+        // The reader keeps every hop on this site, so the final page is its own.
+        const res = await reader.read(url);
         const html = /html/i.test(res.contentType);
         const readable = html || /text\/plain/i.test(res.contentType);
-        const ownSite = domainOf(res.finalUrl) === domain;
-        const ok = res.status >= 200 && res.status < 300 && readable && ownSite;
+        const ok = res.status >= 200 && res.status < 300 && readable;
         pages[url] = {
           url,
           finalUrl: res.finalUrl,
@@ -484,16 +557,16 @@ async function fetchStep(candidatesPath: string, cacheDir: string) {
               : normalise(res.text)
             : undefined,
           links: ok && html ? sameSiteLinks(res.text, res.finalUrl) : undefined,
-          skipped: ok
-            ? undefined
-            : !ownSite
-              ? "redirected off the site"
-              : `HTTP ${res.status} ${res.contentType}`,
+          skipped: ok ? undefined : `HTTP ${res.status} ${res.contentType}`,
         };
         // shortcut: no Jina Reader retry for JavaScript-only pages yet; add it if Phase B needs it.
         if (res.status === 403 || res.status === 429) break; // the site refused us: leave it alone
       } catch (error) {
-        pages[url] = { url, status: 0, skipped: (error as Error).message };
+        // Refused before any request: the page wasn't attempted.
+        pages[url] =
+          error instanceof Refused && !error.redirected
+            ? { url, skipped: error.reason }
+            : { url, status: 0, skipped: (error as Error).message };
       }
     }
   }
@@ -507,8 +580,8 @@ async function fetchStep(candidatesPath: string, cacheDir: string) {
         directorySitesSkipped: directorySites,
         pagesOverLimit,
         sites: new Set(entries.map((p) => domainOf(p.url))).size,
-        robotsDisallowed: entries.filter(
-          (p) => p.skipped === "disallowed by robots.txt",
+        robotsDisallowed: entries.filter((p) =>
+          p.skipped?.startsWith("disallowed by robots.txt"),
         ).length,
         pagesAttempted: attempted.length,
         pagesFetched: attempted.filter((p) => p.text !== undefined).length,

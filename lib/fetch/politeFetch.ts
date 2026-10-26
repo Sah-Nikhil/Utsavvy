@@ -52,13 +52,30 @@ export type Lookup = (hostname: string) => Promise<LookupAddress[]>;
 
 const systemLookup: Lookup = (hostname) => lookupHost(hostname, { all: true });
 
+/** Rejects with the signal's reason if it aborts before `promise` settles. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal) {
+  if (signal.aborted) return Promise.reject(signal.reason as Error);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason as Error);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise
+      .finally(() => signal.removeEventListener("abort", onAbort))
+      .then(resolve, reject);
+  });
+}
+
 /** Resolves the host once and returns an address that passed the guard. */
-async function resolvePublic(hostname: string, lookup: Lookup) {
+async function resolvePublic(
+  hostname: string,
+  lookup: Lookup,
+  signal: AbortSignal,
+) {
   if (isIP(hostname)) {
     assertPublic(hostname);
     return hostname;
   }
-  const addresses = await lookup(hostname);
+  // A resolver that stalls must not hold the call past its deadline.
+  const addresses = await untilAborted(lookup(hostname), signal);
   if (addresses.length === 0)
     throw new Error(`politeFetch: ${hostname} did not resolve`);
   // Refuse if any address is internal, so a mixed answer can't be raced.
@@ -70,14 +87,13 @@ const MAX_REDIRECTS = 3;
 const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 8_000; // for the whole call, redirects included
 
-/** Checks one URL against the guard and returns the address to dial. */
-async function checkHop(target: URL, lookup: Lookup) {
+/** Refuses a URL whose scheme or port the guard doesn't allow. */
+function checkScheme(target: URL) {
   if (target.protocol !== "http:" && target.protocol !== "https:")
     throw new Error(`politeFetch: scheme ${target.protocol} not allowed`);
   // URL drops a port that is the scheme's default, so any port left is refused.
   if (target.port !== "")
     throw new Error(`politeFetch: port ${target.port} not allowed`);
-  return resolvePublic(target.hostname.replace(/^\[|\]$/g, ""), lookup);
 }
 
 function get(
@@ -128,6 +144,19 @@ function get(
   );
 }
 
+export type PoliteFetchOptions = {
+  userAgent: string;
+  lookup?: Lookup;
+  /**
+   * Called before every request, the first URL and each redirect hop, after the
+   * scheme and port checks and before the host is looked up. Throw to refuse the
+   * hop: no request is made and politeFetch rejects with that error. Callers use it
+   * for their own source rules, robots.txt and pacing; the SSRF guard still runs
+   * at every hop after it. This callback shares the whole-call 8 s deadline.
+   */
+  beforeHop?: (url: URL) => void | Promise<void>;
+};
+
 /**
  * GET a public web page with the SSRF guard from IMPLEMENTATION_PLAN.md section 4.9
  * applied to the URL and every redirect hop. Throws when a guard or limit trips;
@@ -135,46 +164,45 @@ function get(
  */
 export async function politeFetch(
   url: string,
-  { userAgent, lookup = systemLookup }: { userAgent: string; lookup?: Lookup },
+  { userAgent, lookup = systemLookup, beforeHop }: PoliteFetchOptions,
 ): Promise<FetchResult> {
+  const timedOut = () =>
+    new Error(`politeFetch: ${url} timed out after ${TIMEOUT_MS / 1000} s`);
   const controller = new AbortController();
-  const timer = setTimeout(
-    () =>
-      controller.abort(
-        new Error(`politeFetch: ${url} timed out after ${TIMEOUT_MS / 1000} s`),
-      ),
-    TIMEOUT_MS,
-  );
+  const timer = setTimeout(() => controller.abort(timedOut()), TIMEOUT_MS);
+  let target = new URL(url);
   try {
-    return await follow(new URL(url), userAgent, lookup, controller.signal);
+    for (let redirects = 0; ; redirects++) {
+      checkScheme(target);
+      if (beforeHop)
+        await untilAborted(
+          Promise.resolve().then(() => beforeHop(new URL(target))),
+          controller.signal,
+        );
+      const hostname = target.hostname.replace(/^\[|\]$/g, "");
+      const address = await resolvePublic(hostname, lookup, controller.signal);
+      const { res, body } = await get(
+        target,
+        address,
+        userAgent,
+        controller.signal,
+      );
+      const status = res.statusCode ?? 0;
+      const location = res.headers.location;
+      if (status >= 300 && status < 400 && location) {
+        if (redirects === MAX_REDIRECTS)
+          throw new Error(`politeFetch: too many redirects from ${url}`);
+        target = new URL(location, target);
+        continue;
+      }
+      return {
+        finalUrl: target.href,
+        status,
+        contentType: res.headers["content-type"] ?? "",
+        text: body.toString("utf8"),
+      };
+    }
   } finally {
     clearTimeout(timer);
-  }
-}
-
-async function follow(
-  target: URL,
-  userAgent: string,
-  lookup: Lookup,
-  signal: AbortSignal,
-): Promise<FetchResult> {
-  const start = target.href;
-  for (let redirects = 0; ; redirects++) {
-    const address = await checkHop(target, lookup);
-    const { res, body } = await get(target, address, userAgent, signal);
-    const status = res.statusCode ?? 0;
-    const location = res.headers.location;
-    if (status >= 300 && status < 400 && location) {
-      if (redirects === MAX_REDIRECTS)
-        throw new Error(`politeFetch: too many redirects from ${start}`);
-      target = new URL(location, target);
-      continue;
-    }
-    return {
-      finalUrl: target.href,
-      status,
-      contentType: res.headers["content-type"] ?? "",
-      text: body.toString("utf8"),
-    };
   }
 }

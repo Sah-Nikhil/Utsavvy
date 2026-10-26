@@ -265,6 +265,21 @@ describe("the quote check", () => {
     expect(dropped).toEqual([]);
   });
 
+  it("drops a fact whose recorded sentence is empty or only whitespace", () => {
+    const { vendor, dropped } = quoteCheck(
+      {
+        ...draft,
+        name: "Invented Caterers",
+        provenance: [ownSite("name", ""), ownSite("phone", " \n\t ")],
+        email: undefined,
+        listedPrices: [],
+      },
+      new Map([[page.url, page.text]]),
+    );
+    expect(vendor).toBeUndefined();
+    expect(dropped).toEqual(["vendor.example name", "vendor.example phone"]);
+  });
+
   it("drops the whole Vendor when its name can't be checked", () => {
     const { vendor, dropped } = quoteCheck(draft, new Map());
     expect(vendor).toBeUndefined();
@@ -301,6 +316,31 @@ Disallow: /*.pdf
     expect(star("/private/menu")).toBe(true);
     expect(star("/a")).toBe(true);
     expect(star("/")).toBe(true);
+  });
+
+  // RFC 9309 section 2.2.2: percent-encoded unreserved ASCII is decoded before
+  // matching, in the URL path and the rule alike; reserved characters stay encoded.
+  it("matches percent-encoded unreserved characters as the characters themselves", () => {
+    const rules = parseRobots(
+      "User-agent: *\nDisallow: /private/foo\nDisallow: /menu/%62%61%7A\n",
+    );
+    expect(rules("/private/%66oo")).toBe(false);
+    expect(rules("/private/%66%6F%6f")).toBe(false);
+    expect(rules("/%70rivate/foo")).toBe(false);
+    expect(rules("/menu/baz")).toBe(false);
+    expect(rules("/menu/%62az")).toBe(false);
+  });
+
+  it("keeps reserved characters encoded, and compares non-ASCII as UTF-8 encoded", () => {
+    const rules = parseRobots(
+      "User-agent: *\nDisallow: /a%2Fb\nDisallow: /q?x=1\nDisallow: /foo/ツ\n",
+    );
+    expect(rules("/a/b")).toBe(true); // %2F is a reserved "/", not a path separator
+    expect(rules("/a%2Fb")).toBe(false);
+    expect(rules("/a%2fb")).toBe(false); // hex digits are case-insensitive
+    expect(rules("/q%3Fx=1")).toBe(true); // an encoded "?" isn't the query
+    expect(rules("/q?x=1")).toBe(false);
+    expect(rules("/foo/%E3%83%84")).toBe(false);
   });
 
   it("allows everything when no group applies or a Disallow is empty", () => {
