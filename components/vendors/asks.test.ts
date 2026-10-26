@@ -124,7 +124,7 @@ describe("name references, deferral and romanized Hindi", () => {
   it.each([
     ["shortlist Ganesh Dal Bati Churma", GANESH],
     ["add Ganesh Dal Bati please", GANESH],
-    ["add Vinayak Foods", VINAYAK],
+    ["add Vinayak Foods & Catering", VINAYAK],
     ["dusra wala add karo", ML],
     ["doosra vala shortlist kar do", ML],
     ["add card 2", ML],
@@ -147,9 +147,13 @@ describe("name references, deferral and romanized Hindi", () => {
     expect(asksToShortlist(text, target)).toBe(false);
   });
 
-  it("accepts book Vinayak Foods for the sangeet", () => {
+  it("accepts book Vinayak Foods & Catering for the sangeet", () => {
     expect(
-      asksForStatus("book Vinayak Foods for the sangeet", "booked", VINAYAK),
+      asksForStatus(
+        "book Vinayak Foods & Catering for the sangeet",
+        "booked",
+        VINAYAK,
+      ),
     ).toBe(true);
   });
 
@@ -196,24 +200,60 @@ describe("starter Vendors by their displayed names", () => {
     expect(asksToShortlist("Which is cheapest? Add it later.", ML)).toBe(false);
   });
 
+  // Round 4: a name reference needs two distinctive words in order, or the
+  // whole displayed name. One word ("Viresh") could be about anything:
+  // "Add Viresh to the Guest list".
   it.each([
-    ["add Viresh", "Viresh Studio", "photographer"],
-    ["add Sapphire", "Sapphire Inn", "venue"],
-    ["add Vinayak", "Vinayak Foods & Catering", "caterer"],
-    ["add Umaid", "Umaid Haveli", "venue"],
+    ["add Viresh Studio", "Viresh Studio", "photographer"],
+    ["add Sapphire Inn", "Sapphire Inn", "venue"],
+    ["add Umaid Haveli", "Umaid Haveli", "venue"],
+    ["add Bhanwar Singh Palace", "Bhanwar Singh Palace", "venue"],
     ["add Bhanwar Singh", "Bhanwar Singh Palace", "venue"],
+    ["shortlist Ganesh Dal Bati", "Ganesh Dal Bati Churma", "caterer"],
+    [
+      "add The Prince Group of Events",
+      "The Prince Group of Events",
+      "decorator",
+    ],
+    ["add Prince Group of Events", "The Prince Group of Events", "decorator"],
   ])("%s names %s", (text, name, category) => {
     expect(asksToShortlist(text, bare(name, category))).toBe(true);
   });
 
   it.each([
     ["add Ganesh", "Ganesh Dal Bati Churma", "caterer"],
+    ["add Viresh", "Viresh Studio", "photographer"],
+    ["add Sapphire", "Sapphire Inn", "venue"],
+    ["add Umaid", "Umaid Haveli", "venue"],
+    ["add Vinayak", "Vinayak Foods & Catering", "caterer"],
+    ["add Vinayak Foods", "Vinayak Foods & Catering", "caterer"],
+    [
+      "Add Vinayak aarti to the Timeline",
+      "Vinayak Foods & Catering",
+      "caterer",
+    ],
+    ["Add Viresh to the Guest list", "Viresh Studio", "photographer"],
+    [
+      "Add the prince to the Guest list",
+      "The Prince Group of Events",
+      "decorator",
+    ],
     ["add Candid", "Candid Life Photography", "photographer"],
     ["add Bhanwar", "Bhanwar Singh Palace", "venue"],
     ["add the photographer", "Add", "caterer"],
     ["add it", "Add", "caterer"],
   ])("%s does not name %s", (text, name, category) => {
     expect(asksToShortlist(text, bare(name, category))).toBe(false);
+  });
+
+  it("We booked Vinayak for the aarti tomorrow books nothing", () => {
+    expect(
+      asksForStatus(
+        "We booked Vinayak for the aarti tomorrow",
+        "booked",
+        bare("Vinayak Foods & Catering", "caterer"),
+      ),
+    ).toBe(false);
   });
 
   it("no starter Vendor's name names another", () => {

@@ -12,6 +12,7 @@ import {
   newTest,
   seedMembership,
 } from "../../lib/test.helpers";
+import starterSet from "../../../seed/jaipur-vendors.json";
 import { ASSISTANT_TOOLS } from ".";
 import type { ToolResult } from "./core";
 import { vendorTools } from "./vendors";
@@ -617,10 +618,10 @@ describe("the ask has to name this Vendor, now", () => {
     expect(await privateLayer(s)).toEqual({ items: 1, links: ["considering"] });
   });
 
-  it("books a Vendor named without its trailing generic words: book Vinayak Foods for the sangeet", async () => {
+  it("books a Vendor named in full: book Vinayak Foods & Catering for the sangeet", async () => {
     const s = await setUp();
     const { linkId } = await shortlistedLink(s, "vinayakfoodsncatering.in");
-    const runId = await ask(s, "book Vinayak Foods for the sangeet");
+    const runId = await ask(s, "book Vinayak Foods & Catering for the sangeet");
     const result = await call(s, runId, "setVendorStatus", {
       linkId,
       expectedVersion: 1,
@@ -629,6 +630,111 @@ describe("the ask has to name this Vendor, now", () => {
     expect(result).toMatchObject({ ok: true });
     expect((await privateLayer(s)).links).toEqual(["booked"]);
   });
+});
+
+// Review of #122 round 4: one word of a Vendor's name is never a reference,
+// so a request about something else ("Add Viresh to the Guest list") can't
+// write. The refusal tells the model to ask for the full name or the card.
+describe("one-word names write nothing", () => {
+  async function linkFor(s: Setup, domain: string) {
+    const vendor = await vendorByDomain(s, domain);
+    return await s.asMeera.mutation(api.vendors.shortlist, {
+      eventId: s.eventId,
+      vendorId: vendor._id,
+      checklistEntryId: s.catererEntry,
+    });
+  }
+
+  const entryState = (s: Setup) =>
+    s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("entries")
+          .withIndex("by_event_kind", (q) => q.eq("eventId", s.eventId))
+          .collect()
+      ).map((e) => [e._id, e.version, e.fields]),
+    );
+
+  it.each([
+    ["Add Vinayak aarti to the Timeline", "vinayakfoodsncatering.in"],
+    ["Add Viresh to the Guest list", "vireshstudio.com"],
+    ["Add the prince to the Guest list", "theprinceevents.com"],
+    ["add Viresh", "vireshstudio.com"],
+    ["add Sapphire", "sapphireinnjaipur.com"],
+    ["add Umaid", "umaidhaveli.com"],
+    ["add Vinayak", "vinayakfoodsncatering.in"],
+  ])("shortlistVendor refuses %s", async (text, domain) => {
+    const s = await setUp();
+    const vendor = await vendorByDomain(s, domain);
+    const before = await entryState(s);
+    const runId = await ask(s, text);
+    const result = await call(s, runId, "shortlistVendor", {
+      vendorId: vendor._id,
+    });
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect(String((result as { message: string }).message)).toMatch(
+      /in full.*card|card.*in full/i,
+    );
+    expect(await privateLayer(s)).toEqual({ items: 0, links: [] });
+    expect(await entryState(s)).toEqual(before);
+  });
+
+  it("setVendorStatus refuses We booked Vinayak for the aarti tomorrow, ticking no deadline", async () => {
+    const s = await setUp();
+    const { linkId } = await linkFor(s, "vinayakfoodsncatering.in");
+    const before = await entryState(s);
+    const runId = await ask(s, "We booked Vinayak for the aarti tomorrow");
+    const result = await call(s, runId, "setVendorStatus", {
+      linkId,
+      expectedVersion: 1,
+      status: "booked",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "notAsked" });
+    expect(String((result as { message: string }).message)).toMatch(
+      /in full.*card|card.*in full/i,
+    );
+    expect((await privateLayer(s)).links).toEqual(["considering"]);
+    expect(await entryState(s)).toEqual(before);
+  });
+
+  it.each([
+    ["add Viresh Studio", "vireshstudio.com"],
+    ["add Sapphire Inn", "sapphireinnjaipur.com"],
+    ["add Bhanwar Singh Palace", "bspjaipur.com"],
+    ["shortlist Ganesh Dal Bati", "ganeshdalbati.com"],
+    ["add G.D. Caterer", "gdcaterer.com"],
+  ])("shortlistVendor accepts %s", async (text, domain) => {
+    const s = await setUp();
+    const vendor = await vendorByDomain(s, domain);
+    const runId = await ask(s, text);
+    const result = await call(s, runId, "shortlistVendor", {
+      vendorId: vendor._id,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(await privateLayer(s)).toEqual({ items: 1, links: ["considering"] });
+  });
+
+  it.each(
+    (starterSet as { domain: string; name: string }[]).map((v) => [
+      v.name,
+      v.domain,
+    ]),
+  )(
+    "shortlistVendor accepts add %s, its full displayed name",
+    async (name, domain) => {
+      const s = await setUp();
+      const vendor = await vendorByDomain(s, domain);
+      const runId = await ask(s, `add ${name}`);
+      const result = await call(s, runId, "shortlistVendor", {
+        vendorId: vendor._id,
+      });
+      expect(result).toMatchObject({ ok: true });
+      expect(await privateLayer(s)).toEqual({
+        items: 1,
+        links: ["considering"],
+      });
+    },
+  );
 });
 
 describe("propose", () => {
