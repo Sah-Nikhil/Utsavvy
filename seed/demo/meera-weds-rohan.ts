@@ -510,21 +510,73 @@ export const ADITI_NOTE =
   "Mehendi playlist: ask Rohan's cousins which dhol tracks they want, and keep the last hour slow.";
 
 // ---------------------------------------------------------------------------
-// Vendors (S9): applied by `seedVendors` once S9's starter set has merged
+// Vendors (S9): applied by `seedVendors` on top of the starter set
 
 /**
  * The five Shortlisted Vendors (section 9.1): two Venues, a caterer for the
  * sangeet and the wedding, a decorator with one Quote and a photographer. They
  * are picked from the starter set by category in `seed/jaipur-vendors.json`'s
- * order, so no Vendor's name is repeated here.
+ * order, so no Vendor's name is repeated here. Each links to the checklist
+ * Entry for its category; a Venue to the one for its Function.
  */
 export const DEMO_SHORTLIST = [
-  { category: "venue", nth: 0, status: "considering" },
-  { category: "venue", nth: 1, status: "contacted" },
-  { category: "caterer", nth: 0, status: "contacted" },
-  { category: "decorator", nth: 0, status: "quoted" },
-  { category: "photographer", nth: 0, status: "booked" },
-] as const;
+  {
+    category: "venue",
+    nth: 0,
+    functionKey: "wedding",
+    status: "considering",
+    by: "meera",
+  },
+  {
+    category: "venue",
+    nth: 1,
+    functionKey: "sangeet",
+    status: "contacted",
+    by: "rohan",
+  },
+  {
+    category: "caterer",
+    nth: 0,
+    functionKey: null,
+    status: "contacted",
+    by: "rohan",
+  },
+  {
+    category: "decorator",
+    nth: 0,
+    functionKey: null,
+    status: "quoted",
+    by: "meera",
+  },
+  {
+    category: "photographer",
+    nth: 0,
+    functionKey: null,
+    status: "booked",
+    by: "meera",
+  },
+] as const satisfies readonly {
+  category: "venue" | "caterer" | "decorator" | "photographer";
+  nth: number;
+  functionKey: string | null;
+  status: "considering" | "contacted" | "quoted" | "booked";
+  by: PersonaKey;
+}[];
+
+/** The decorator's one Quote, typed in by Meera from the decorator's email. */
+export const DECORATOR_QUOTE = {
+  amount: 480_000,
+  unit: "total",
+  functionKeys: ["haldi", "mehendi", "sangeet", "wedding", "reception"],
+  note: "Marigold and pastel pink across all five Functions; fresh flowers at the market rate on the day.",
+  by: "meera",
+} as const satisfies {
+  amount: number;
+  unit: "total";
+  functionKeys: readonly string[];
+  note: string;
+  by: PersonaKey;
+};
 
 /** Papa's Comment on the first Venue's card. */
 export const PAPA_VENUE_COMMENT =

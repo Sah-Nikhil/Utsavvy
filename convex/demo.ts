@@ -24,6 +24,7 @@ import type { PricedEstimate } from "../lib/types";
 import {
   ADITI_NOTE,
   CATERING_THREAD,
+  DECORATOR_QUOTE,
   DEMO_BRIEF,
   DEMO_EVENT,
   DEMO_FUNCTION_KEYS,
@@ -31,8 +32,10 @@ import {
   DEMO_KEY,
   DEMO_PERSONAS,
   DEMO_PLAN_DRAFT,
+  DEMO_SHORTLIST,
   type DemoRole,
   HALDI_PHOTOS,
+  PAPA_VENUE_COMMENT,
   PLAN_THE_SANGEET,
   type PersonaKey,
   personaClerkId,
@@ -43,6 +46,7 @@ import {
   SUGGESTIONS_DISMISSED,
   VIBE_PICK_PHOTOS,
 } from "../seed/demo/meera-weds-rohan";
+import starterSet from "../seed/jaipur-vendors.json";
 import { components } from "./_generated/api";
 import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import {
@@ -69,6 +73,7 @@ import {
   type PricedPlanDraft,
   toFirstPlanDraft,
 } from "./plan";
+import { loadStarterSetRows, SHORTLISTED_CARD_SIZE } from "./vendors";
 
 // S19a (the demo Event's seed and reset) owns this file.
 
@@ -1588,22 +1593,158 @@ async function seedSangeetChange(
 // ---------------------------------------------------------------------------
 // Vendors (S9)
 
+/** The starter Vendor of a category at its place in `seed/jaipur-vendors.json`. */
+async function starterVendor(
+  ctx: MutationCtx,
+  category: Doc<"vendors">["category"],
+  nth: number,
+): Promise<Doc<"vendors">> {
+  const domain = (starterSet as { domain: string; category: string }[]).filter(
+    (vendor) => vendor.category === category,
+  )[nth]?.domain;
+  const vendor =
+    domain === undefined
+      ? null
+      : await ctx.db
+          .query("vendors")
+          .withIndex("by_domain", (q) => q.eq("domain", domain))
+          .unique();
+  if (vendor === null)
+    throw new Error(`The starter set has no ${category} number ${nth + 1}.`);
+  return vendor;
+}
+
 /**
  * The Vendor part of the seed (section 9.1): make sure the 16 starter Vendors
- * exist through `internal.vendors.loadStarterSet` (which inserts only a
- * missing one and never rewrites a row), then shortlist 5 of them with mixed
- * statuses, one Quote on the decorator and Papa's Comment on a Venue card.
- *
- * Does nothing until S9 (#42) merges: the starter set and its loader are S9's.
- * After it merges, this fills in from `DEMO_SHORTLIST` and
- * `PAPA_VENUE_COMMENT` in `seed/demo/meera-weds-rohan.ts`, and the skipped
- * Vendor tests in `convex/demo.test.ts` turn on.
+ * exist through S9's `loadStarterSetRows` (the body of
+ * `internal.vendors.loadStarterSet`, which inserts only a missing Vendor and
+ * never rewrites a row, so a Marker a Member moved from any Event stays
+ * moved), then shortlist 5 of them with mixed statuses, one Quote on the
+ * decorator and Papa's Comment on the first Venue's card. Every demo row goes
+ * in through the Seeder, with history like a Member's own shortlisting: the
+ * Item and its link at Considering, then the status change, and Booked ticks
+ * the checklist Entry's Timeline deadline as `api.vendors.setLinkStatus` does.
  */
 async function seedVendors(
-  _seed: Seeder,
-  _people: People,
-  _items: Record<"budget" | "timeline" | "checklist", Id<"items">>,
-): Promise<void> {}
+  seed: Seeder,
+  people: People,
+  items: Record<"budget" | "timeline" | "checklist", Id<"items">>,
+): Promise<void> {
+  const { inserted, pricesAdded } = await loadStarterSetRows(seed.ctx);
+  if (inserted > 0 || pricesAdded > 0)
+    console.log(
+      `Demo reset: added ${inserted} starter Vendors and ${pricesAdded} Listed prices.`,
+    );
+
+  const checklist = (
+    await seed.ctx.db
+      .query("entries")
+      .withIndex("by_item", (q) => q.eq("itemId", items.checklist))
+      .take(MAX_ROWS)
+  ).filter(
+    (row): row is Extract<Doc<"entries">, { kind: "checklist" }> =>
+      row.kind === "checklist" && row.deletedAt === null,
+  );
+
+  seed.at(3);
+  const links = new Map<string, Id<"vendorLinks">>();
+  let firstVenue: Id<"items"> | null = null;
+  for (const pick of DEMO_SHORTLIST) {
+    const vendor = await starterVendor(seed.ctx, pick.category, pick.nth);
+    const entry = checklist.find(
+      (e) =>
+        e.fields.vendorCategory === pick.category &&
+        (pick.functionKey === null ||
+          e.fields.functionKeys.includes(pick.functionKey)),
+    );
+    if (entry === undefined)
+      throw new Error(`The demo checklist has no ${pick.category} Entry.`);
+    const actor = member(people.byKey.get(pick.by)!);
+    const { sectionId, position } = await placeNewItem(seed.ctx, {
+      eventId: seed.eventId,
+      kind: "shortlistedVendor",
+      size: SHORTLISTED_CARD_SIZE,
+    });
+    const itemId = await seed.create(
+      "items",
+      {
+        eventId: seed.eventId,
+        sectionId,
+        kind: "shortlistedVendor",
+        position,
+        size: SHORTLISTED_CARD_SIZE,
+        functionKey: null,
+        data: { vendorId: vendor._id },
+        createdBy: actor,
+      },
+      actor,
+    );
+    const linkId = await seed.create(
+      "vendorLinks",
+      {
+        eventId: seed.eventId,
+        shortlistItemId: itemId,
+        checklistEntryId: entry._id,
+        status: "considering",
+      },
+      actor,
+    );
+    if (pick.status !== "considering")
+      await seed.update("vendorLinks", linkId, { status: pick.status }, actor);
+    if (pick.status === "booked" && entry.fields.bookByEntryId !== null) {
+      const deadline = await seed.ctx.db.get(
+        "entries",
+        entry.fields.bookByEntryId,
+      );
+      if (deadline?.kind === "timeline" && !deadline.fields.done)
+        await seed.update(
+          "entries",
+          deadline._id,
+          { fields: { ...deadline.fields, done: true } },
+          actor,
+        );
+    }
+    links.set(pick.category, linkId);
+    if (pick.category === "venue") firstVenue ??= itemId;
+  }
+
+  // The decorator's Quote, a day before the reset.
+  seed.at(1, 1);
+  const quoteBy = member(people.byKey.get(DECORATOR_QUOTE.by)!);
+  const receivedAt = seed.tick();
+  await seed.create(
+    "quotes",
+    {
+      eventId: seed.eventId,
+      linkId: links.get("decorator")!,
+      amount: DECORATOR_QUOTE.amount,
+      unit: DECORATOR_QUOTE.unit,
+      functionKeys: [...DECORATOR_QUOTE.functionKeys],
+      guests: null,
+      receivedAt,
+      note: DECORATOR_QUOTE.note,
+      fileId: null,
+      source: "form",
+      createdBy: quoteBy,
+      createdAt: seed.tick(),
+    },
+    quoteBy,
+  );
+
+  // Papa's Comment on the first Venue's card.
+  seed.at(1, 4);
+  await seed.insert("comments", {
+    eventId: seed.eventId,
+    itemId: firstVenue!,
+    target: { kind: "item", itemId: firstVenue! },
+    rootId: null,
+    author: { kind: "member", membershipId: people.byKey.get("papa")! },
+    body: PAPA_VENUE_COMMENT,
+    resolved: false,
+    createdAt: seed.tick(),
+    editedAt: null,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // The reset

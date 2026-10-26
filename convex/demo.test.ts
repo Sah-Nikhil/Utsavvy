@@ -648,7 +648,9 @@ describe("clearing stored files (uploads and Quote screenshots)", () => {
     await reset(t);
     expect(await stored(t, kept)).toBe(false);
     expect(await stored(t, gone)).toBe(false);
-    expect(await rowsOf(t, "quotes", event._id)).toEqual([]);
+    // Only the seed's own Quote (the decorator's, with no file) is left.
+    const quotes = await rowsOf(t, "quotes", event._id);
+    expect(quotes.map((q) => [q.amount, q.fileId])).toEqual([[480_000, null]]);
   });
 });
 
@@ -838,67 +840,173 @@ describe("isolation: reset never touches other Events", () => {
 });
 
 describe("Vendors (S9): the starter set and the shortlist", () => {
-  // Until S9 (#42) merges, `seedVendors` does nothing and these stay skipped.
-  // After it merges: remove `.skip`, fill in `seedVendors`, and run them.
-  it.skip("loads the starter set through internal.vendors.loadStarterSet, so the 16 starter Vendors exist", async () => {
+  /** Every row of a shared table, for "nothing rewritten or added". */
+  const all = <K extends "vendors" | "listedPrices">(t: T, table: K) =>
+    t.run((ctx) => ctx.db.query(table).collect()) as Promise<Doc<K>[]>;
+
+  it("loads the starter set through internal.vendors.loadStarterSet, so the 16 starter Vendors exist", async () => {
     const t = setup();
     await reset(t);
-    const vendors = await t.run((ctx) => ctx.db.query("vendors").collect());
-    expect(vendors.filter((v) => v.source === "starterSet")).toHaveLength(16);
+    const vendors = await all(t, "vendors");
+    expect(vendors).toHaveLength(16);
+    expect(vendors.every((v) => v.source === "starterSet")).toBe(true);
+    expect((await all(t, "listedPrices")).length).toBeGreaterThan(0);
   });
 
-  it.skip("shortlists 5 starter Vendors: two Venues (Considering, Contacted), a caterer (Contacted), a decorator (Quoted, one Quote), a photographer (Booked)", async () => {
+  it("shortlists 5 starter Vendors: two Venues (Considering, Contacted), a caterer (Contacted), a decorator (Quoted, one Quote), a photographer (Booked)", async () => {
     const t = setup();
     const event = await reset(t);
+    const vendors = await all(t, "vendors");
+    const items = (await rowsOf(t, "items", event._id)).filter(
+      (item) => item.kind === "shortlistedVendor",
+    );
+    const entries = await rowsOf(t, "entries", event._id);
     const links = await rowsOf(t, "vendorLinks", event._id);
-    const statuses = links.map((l) => l.status).sort();
-    expect(statuses).toEqual(
+
+    // One Shortlisted Vendor Item per Vendor, each with one link; the picks
+    // are the first Venues, caterer, decorator and photographer in
+    // seed/jaipur-vendors.json.
+    const shortlist = items.map((item) => {
+      if (item.kind !== "shortlistedVendor") throw new Error("not a Vendor");
+      const vendor = vendors.find((v) => v._id === item.data.vendorId)!;
+      const itemLinks = links.filter((l) => l.shortlistItemId === item._id);
+      expect(itemLinks).toHaveLength(1);
+      const link = itemLinks[0]!;
+      const entry = entries.find((e) => e._id === link.checklistEntryId)!;
+      if (entry.kind !== "checklist") throw new Error("not a checklist Entry");
+      return { vendor, item, link, entry };
+    });
+    expect(shortlist).toHaveLength(5);
+    expect(links).toHaveLength(5);
+    expect(
+      shortlist.map(({ vendor, link }) => [vendor.domain, link.status]),
+    ).toEqual(
       expect.arrayContaining([
-        "booked",
-        "considering",
-        "contacted",
-        "contacted",
-        "quoted",
+        ["umaidhaveli.com", "considering"],
+        ["roodmahal.com", "contacted"],
+        ["mlcaterers.com", "contacted"],
+        ["jmdeventsandflowers.com", "quoted"],
+        ["candidlifephotography.in", "booked"],
       ]),
     );
-    expect(await rowsOf(t, "quotes", event._id)).toHaveLength(1);
+
+    // Each link goes to the checklist Entry for its Vendor's category: the
+    // Venues to the wedding's and the sangeet's, the caterer to the one that
+    // serves the sangeet and the wedding.
+    for (const { vendor, entry } of shortlist) {
+      expect(entry.fields.vendorCategory).toBe(vendor.category);
+      expect(entry.deletedAt).toBeNull();
+    }
+    const byDomain = new Map(shortlist.map((s) => [s.vendor.domain, s]));
+    expect(byDomain.get("umaidhaveli.com")!.entry.fields.functionKeys).toEqual([
+      "wedding",
+    ]);
+    expect(byDomain.get("roodmahal.com")!.entry.fields.functionKeys).toEqual([
+      "sangeet",
+    ]);
+    expect(byDomain.get("mlcaterers.com")!.entry.fields.functionKeys).toEqual(
+      expect.arrayContaining(["sangeet", "wedding"]),
+    );
+
+    // Booked ticks the photographer's Timeline deadline, as S9's booking does.
+    const photographer = byDomain.get("candidlifephotography.in")!.entry;
+    const deadline = entries.find(
+      (e) => e._id === photographer.fields.bookByEntryId,
+    );
+    expect(deadline?.kind).toBe("timeline");
+    expect(deadline?.kind === "timeline" && deadline.fields.done).toBe(true);
+
+    // One Quote, on the decorator's link.
+    const quotes = await rowsOf(t, "quotes", event._id);
+    expect(quotes).toHaveLength(1);
+    expect(quotes[0]!.linkId).toBe(
+      byDomain.get("jmdeventsandflowers.com")!.link._id,
+    );
+    expect(quotes[0]!.fileId).toBeNull();
+
+    // Papa's Comment on the first Venue's card.
+    const people = await rowsOf(t, "memberships", event._id);
     const comments = await rowsOf(t, "comments", event._id);
-    expect(comments.map((c) => c.body)).toContain(
-      "Is this hall big enough for our relatives from Kota?",
+    const papas = comments.filter(
+      (c) => c.body === "Is this hall big enough for our relatives from Kota?",
     );
+    expect(papas).toHaveLength(1);
+    const venueItem = byDomain.get("umaidhaveli.com")!.item._id;
+    expect(papas[0]).toMatchObject({
+      itemId: venueItem,
+      target: { kind: "item", itemId: venueItem },
+      rootId: null,
+      author: {
+        kind: "member",
+        membershipId: membershipOf(people, "Papa")._id,
+      },
+    });
   });
 
-  // After S9 merges, rewrite this test before removing `.skip`; until then it
-  // throws, so un-skipping it unchanged fails instead of passing vacuously
-  // (review of #119, M1). It must:
-  // 1. As the other Event's Member (its own identity, not `t.run`), shortlist
-  //    a starter Vendor through S9's public mutation (`api.vendors.shortlist`
-  //    or whatever S9 names it), so the other Event has a real Shortlisted
-  //    Vendor Item and `vendorLinks` row.
-  // 2. As that Member, move the Vendor's Marker through S9's public Marker
-  //    move (`api.map.moveMarker`), so the move also leaves a `changes` row
-  //    in the other Event.
-  // 3. Read the other Event's `vendorLinks`, Items and `changes`, plus every
-  //    `vendors` and `listedPrices` row, then reset twice.
-  // 4. Assert all of them are unchanged: the other Event's links, Items and
-  //    history deep-equal, the moved Marker still where the Member put it,
-  //    and no `vendors` or `listedPrices` row rewritten or added.
-  it.skip("isolation: another Event's shortlist of a starter Vendor and a Marker a Member moved stay unchanged; no vendors or listedPrices row is rewritten", async () => {
-    throw new Error(
-      "Rewrite this test with S9's public shortlist and Marker move before un-skipping it (see the comment above).",
-    );
-  });
-
-  it.skip("only inserts a starter Vendor that is missing", async () => {
+  it("isolation: another Event's shortlist of a starter Vendor and a Marker a Member moved stay unchanged; no vendors or listedPrices row is rewritten", async () => {
     const t = setup();
     await reset(t);
-    const vendors = await t.run((ctx) => ctx.db.query("vendors").collect());
-    await t.run((ctx) => ctx.db.delete("vendors", vendors[0]!._id));
+
+    // Another Event, whose own Member shortlists Rood Mahal (a starter Vendor
+    // the demo shortlists too) and drags its approximate Marker a few km,
+    // both through the public mutations.
+    const other = t.withIdentity(identityFor("user_other_host"));
+    const otherId = await other.mutation(api.events.create, {
+      name: "Another wedding",
+      eventType: "wedding",
+    });
+    const rood = (await all(t, "vendors")).find(
+      (v) => v.domain === "roodmahal.com",
+    )!;
+    expect(rood.marker?.approximate).toBe(true);
+    await other.mutation(api.vendors.shortlist, {
+      eventId: otherId,
+      vendorId: rood._id,
+      checklistEntryId: null,
+    });
+    const moved = { lat: rood.marker!.lat + 0.02, lng: rood.marker!.lng };
+    await other.mutation(api.map.moveMarker, {
+      eventId: otherId,
+      vendorId: rood._id,
+      ...moved,
+    });
+
+    const read = async () => ({
+      links: await rowsOf(t, "vendorLinks", otherId),
+      items: await rowsOf(t, "items", otherId),
+      changes: await rowsOf(t, "changes", otherId),
+      vendors: await all(t, "vendors"),
+      listedPrices: await all(t, "listedPrices"),
+    });
+    const before = await read();
+    expect(before.links).toHaveLength(1);
+    expect(
+      before.items.filter((i) => i.kind === "shortlistedVendor"),
+    ).toHaveLength(1);
+    expect(before.changes.some((c) => c.table === "vendors")).toBe(true);
+
     await reset(t);
-    const again = await t.run((ctx) => ctx.db.query("vendors").collect());
+    await reset(t);
+
+    const after = await read();
+    expect(after).toEqual(before);
+    const roodAfter = after.vendors.find((v) => v._id === rood._id)!;
+    expect(roodAfter.marker).toMatchObject({ ...moved, approximate: false });
+  });
+
+  it("only inserts a starter Vendor that is missing", async () => {
+    const t = setup();
+    await reset(t);
+    const vendors = await all(t, "vendors");
+    // A Vendor the demo doesn't shortlist, so no demo link points at it.
+    const gone = vendors.find((v) => v.domain === "sapphireinnjaipur.com")!;
+    await t.run((ctx) => ctx.db.delete("vendors", gone._id));
+    await reset(t);
+    const again = await all(t, "vendors");
     expect(again).toHaveLength(vendors.length);
-    for (const v of vendors.slice(1))
+    for (const v of vendors.filter((v) => v._id !== gone._id))
       expect(again.find((a) => a._id === v._id)).toEqual(v);
+    expect(again.some((a) => a.domain === gone.domain)).toBe(true);
   });
 });
 
