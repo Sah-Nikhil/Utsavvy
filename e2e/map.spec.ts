@@ -116,7 +116,18 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       "aria-label",
       "Rood Mahal, Venue, Quoted, approximate",
     );
-    await expect(rood).toContainText("approximate");
+    // At city zoom the hollow stamp says it quietly; "approximate" is written
+    // under it only on hover or keyboard focus.
+    const roodTag = rood.locator("[data-approximate-tag]");
+    await expect(roodTag).toBeHidden();
+    await rood.hover();
+    await expect(roodTag).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(roodTag).toBeHidden();
+    // Each status has its own shape, drawn in the list's key too.
+    await expect(
+      sheet.getByRole("list", { name: "Marker key" }).getByRole("listitem"),
+    ).toHaveCount(7);
     await expect(
       sheet.locator('[data-marker-id][aria-label^="Wedding Velvet,"]'),
     ).not.toContainText("approximate");
@@ -222,6 +233,27 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       "Umaid Haveli, Venue, Considering",
     );
 
+    // The selected Marker opens rangoli petals; with Ornaments off they go,
+    // with the prints, and a plain ring, the shape and its colour stay.
+    const selected = sheet.locator('[data-marker-id][aria-pressed="true"]');
+    await expect(selected.locator('[data-ornament="petals"]')).toBeVisible();
+    await expect(selected.locator("[data-plain-ring]")).toBeHidden();
+    await page.evaluate(() => {
+      document.documentElement.dataset.ornaments = "off";
+    });
+    await expect(selected.locator('[data-ornament="petals"]')).toBeHidden();
+    await expect(selected.locator("[data-plain-ring]")).toBeVisible();
+    await expect(selected.locator("[data-stamp-shape]")).toBeVisible();
+    await expect(
+      sheet.locator('[data-ornament="misregistration"]').first(),
+    ).toBeHidden();
+    await expect(sheet.locator('[data-ornament="diamond"]')).toBeHidden();
+    await expect(sheet.locator(".maplibregl-marker")).toHaveCount(14);
+    await expectNoSeriousA11yViolations(page);
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.ornaments;
+    });
+
     expect(cspViolations).toEqual([]);
   });
 
@@ -242,6 +274,14 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       const sheet = await openMap(page, label === "390");
       await page.waitForTimeout(3_000); // the tiles
       await page.screenshot({ path: `${dir}/jaipur-city-${label}.png` });
+      // An approximate Marker selected on the map, at city zoom.
+      await sheet
+        .locator('[data-marker-id][aria-label^="Rood Mahal,"]')
+        .click();
+      await page.waitForTimeout(1_000); // the petals open
+      await page.screenshot({
+        path: `${dir}/jaipur-city-selected-${label}.png`,
+      });
       await sheet
         .locator("[data-list-vendor]")
         .filter({ hasText: "Rood Mahal" })
@@ -254,5 +294,16 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       await page.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
     }
+
+    // The same view with the Ornaments setting off: flat colours and shapes.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(() => {
+      document.documentElement.dataset.ornaments = "off";
+    });
+    const sheet = await openMap(page);
+    await page.waitForTimeout(3_000);
+    await sheet.locator('[data-marker-id][aria-label^="Rood Mahal,"]').click();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${dir}/jaipur-ornaments-off-desktop.png` });
   });
 });
