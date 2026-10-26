@@ -52,7 +52,10 @@ type Ctx = QueryCtx | MutationCtx;
 
 /** The most Vendors one category in one city can have (the starter set has 6 at most). */
 const MAX_VENDORS = 200;
+/** Current Listed prices one card shows at most. */
 const MAX_PRICES_PER_VENDOR = 50;
+/** Listed price rows (history included) read for one Vendor at most. */
+const MAX_PRICE_ROWS = 2000;
 const MAX_SHORTLISTED = 200;
 const MAX_LINKS_PER_ITEM = 50;
 const MAX_ENTRY_ROWS = 2000;
@@ -131,14 +134,11 @@ export async function loadStarterSetRows(
       continue;
     }
     existing += 1;
-    const have = new Set(
-      (
-        await ctx.db
-          .query("listedPrices")
-          .withIndex("by_vendor", (q) => q.eq("vendorId", found._id))
-          .take(MAX_PRICES_PER_VENDOR)
-      ).map(priceKey),
-    );
+    const have = new Set<string>();
+    await eachPriceRow(ctx, found._id, "asc", (row) => {
+      have.add(priceKey(row));
+      return true;
+    });
     for (const price of listedPrices) {
       if (have.has(priceKey(price))) continue;
       await ctx.db.insert("listedPrices", {
@@ -166,16 +166,41 @@ export const loadStarterSet = internalMutation({
 // ---------------------------------------------------------------------------
 // Reading shared Vendors
 
-/** The current Listed prices of a Vendor (a refresh adds rows; superseded ones are history). */
+/**
+ * Visits a Vendor's Listed price rows, history included, streaming them in
+ * index order until `visit` returns false or MAX_PRICE_ROWS rows have been
+ * read, so no fixed page size can hide a row however long the history grows.
+ */
+async function eachPriceRow(
+  ctx: Ctx,
+  vendorId: Id<"vendors">,
+  order: "asc" | "desc",
+  visit: (row: Doc<"listedPrices">) => boolean,
+): Promise<void> {
+  let read = 0;
+  for await (const row of ctx.db
+    .query("listedPrices")
+    .withIndex("by_vendor", (q) => q.eq("vendorId", vendorId))
+    .order(order)) {
+    if (!visit(row) || ++read >= MAX_PRICE_ROWS) return;
+  }
+}
+
+/**
+ * The current Listed prices of a Vendor, oldest first (a refresh adds rows;
+ * superseded ones are history). Read newest first, so a long history of
+ * superseded rows never hides the current ones.
+ */
 async function currentPrices(
   ctx: Ctx,
   vendorId: Id<"vendors">,
 ): Promise<Doc<"listedPrices">[]> {
-  const rows = await ctx.db
-    .query("listedPrices")
-    .withIndex("by_vendor", (q) => q.eq("vendorId", vendorId))
-    .take(MAX_PRICES_PER_VENDOR);
-  return rows.filter((row) => row.supersededAt === null);
+  const current: Doc<"listedPrices">[] = [];
+  await eachPriceRow(ctx, vendorId, "desc", (row) => {
+    if (row.supersededAt === null) current.push(row);
+    return current.length < MAX_PRICES_PER_VENDOR;
+  });
+  return current.reverse();
 }
 
 /**
