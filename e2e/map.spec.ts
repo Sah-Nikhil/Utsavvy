@@ -63,10 +63,12 @@ async function seededEvent(page: Page, signIn: () => Promise<void>) {
 }
 
 /** Opens the map from the Vendors Section: on the Canvas, or in the phone's list. */
-async function openMap(page: Page) {
-  const nav = page.getByRole("navigation", { name: "Workspace" });
-  if (await nav.isVisible())
+async function openMap(page: Page, phone = false) {
+  if (phone) {
+    const nav = page.getByRole("navigation", { name: "Workspace" });
+    await expect(nav).toBeVisible();
     await nav.getByRole("button", { name: "Canvas" }).click();
+  }
   await page.getByRole("button", { name: "Map", exact: true }).first().click();
   const sheet = page.getByRole("dialog", { name: "Vendors on the map" });
   await expect(sheet).toBeVisible();
@@ -237,7 +239,7 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       ["390", { width: 390, height: 844 }],
     ] as const) {
       await page.setViewportSize(size);
-      const sheet = await openMap(page);
+      const sheet = await openMap(page, label === "390");
       await page.waitForTimeout(3_000); // the tiles
       await page.screenshot({ path: `${dir}/jaipur-city-${label}.png` });
       await sheet
