@@ -18,13 +18,7 @@ import type { MapVendor, MapView } from "@/convex/map";
 import { cn } from "@/lib/utils";
 import { budgetLineFor, filterForFunction } from "./filter";
 import type { MapVendorShown } from "./MapCanvas";
-import {
-  LEGEND,
-  markerLabel,
-  TONE_CLASS,
-  TONE_LABELS,
-  toneOf,
-} from "./markers";
+import { LEGEND, TONE_CLASS, TONE_LABELS, toneOf } from "./markers";
 import { MarkerPin } from "./MarkerPin";
 
 /*
@@ -288,7 +282,6 @@ function VendorList({
                 <button
                   type="button"
                   data-list-vendor={v._id}
-                  aria-label={`Show ${markerLabel(v, { noPrice: v.noPrice })} on the map`}
                   aria-pressed={v._id === selectedId}
                   onClick={() => onShow(v._id)}
                   className={cn(
@@ -304,6 +297,7 @@ function VendorList({
                     className="shrink-0 scale-75"
                   />
                   <span className="min-w-0 flex-1">
+                    <span className="sr-only">Show on the map: </span>
                     <span className="block truncate text-label font-medium text-ink">
                       {v.name}
                     </span>

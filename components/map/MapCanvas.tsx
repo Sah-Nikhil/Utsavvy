@@ -1,7 +1,7 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { StyleSpecification } from "maplibre-gl";
+import { setWorkerUrl, type StyleSpecification } from "maplibre-gl";
 import { LocateFixed, Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
@@ -24,6 +24,12 @@ import { buildMapStyle, readMapColours } from "./style";
  * instead of ours (ADR 0005).
  */
 
+// MapLibre looks for its worker next to its own module, which the bundler
+// moves; point it at the worker file the bundler emits instead.
+setWorkerUrl(
+  new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).href,
+);
+
 export type MapVendorShown = MapVendor & {
   marker: NonNullable<MapVendor["marker"]>;
   noPrice: boolean;
@@ -40,8 +46,10 @@ export type MapCanvasProps = {
   reveal: { id: Id<"vendors">; n: number } | null;
 };
 
-const CITY_ZOOM = 11.6;
 const STREET_ZOOM = 15;
+/** The opening view never comes closer than this, so it reads as the city. */
+const CITY_MAX_ZOOM = 12.5;
+const FIT = { padding: 48, maxZoom: CITY_MAX_ZOOM };
 /** How far from the city the map may pan, in degrees. */
 const CITY_REACH = { lat: 0.45, lng: 0.55 };
 
@@ -60,6 +68,31 @@ function centreOf(
     { lat: 0, lng: 0 },
   );
   return { lat: sum.lat / vendors.length, lng: sum.lng / vendors.length };
+}
+
+/**
+ * The opening view: centred on the city and wide enough for every Marker near
+ * it (a Marker further than the city's reach doesn't widen it).
+ */
+function fitOf(
+  centre: { lat: number; lng: number },
+  vendors: MapVendorShown[],
+): [number, number, number, number] {
+  let lat = 0.04;
+  let lng = 0.04;
+  for (const { marker } of vendors) {
+    const dLat = Math.abs(marker.lat - centre.lat);
+    const dLng = Math.abs(marker.lng - centre.lng);
+    if (dLat > CITY_REACH.lat || dLng > CITY_REACH.lng) continue;
+    lat = Math.max(lat, dLat);
+    lng = Math.max(lng, dLng);
+  }
+  return [
+    centre.lng - lng,
+    centre.lat - lat,
+    centre.lng + lng,
+    centre.lat + lat,
+  ];
 }
 
 /** The city's reach, grown to take in every Marker (a Vendor shortlisted from elsewhere). */
@@ -114,11 +147,7 @@ export default function MapCanvas({
   const [initial] = useState(() =>
     centre
       ? {
-          view: {
-            latitude: centre.lat,
-            longitude: centre.lng,
-            zoom: CITY_ZOOM,
-          },
+          fit: fitOf(centre, vendors),
           bounds: boundsOf(centre, vendors),
         }
       : null,
@@ -203,7 +232,7 @@ export default function MapCanvas({
         <Map
           ref={mapRef}
           mapStyle={style}
-          initialViewState={initial.view}
+          initialViewState={{ bounds: initial.fit, fitBoundsOptions: FIT }}
           maxBounds={initial.bounds}
           minZoom={9.5}
           maxZoom={18}
@@ -290,11 +319,7 @@ export default function MapCanvas({
           icon
           aria-label={`Back to ${city?.name ?? "the city"}`}
           onClick={() =>
-            mapRef.current?.flyTo({
-              center: [initial.view.longitude, initial.view.latitude],
-              zoom: CITY_ZOOM,
-              duration: 600,
-            })
+            mapRef.current?.fitBounds(initial.fit, { ...FIT, duration: 600 })
           }
         >
           <LocateFixed />
