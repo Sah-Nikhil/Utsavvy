@@ -148,6 +148,7 @@
   --color-motif: var(--motif);
   --color-motif-2: var(--motif-2);
   --color-motif-soft: var(--motif-soft);
+  --color-motif-text: var(--motif-text);
   --color-orb-1: var(--orb-1);
   --color-orb-2: var(--orb-2);
   --color-orb-3: var(--orb-3);
@@ -275,6 +276,8 @@
   --motif: #b5583a;
   --motif-2: #7e4c86;
   --motif-soft: #e9c9b5;
+  /* The motif terracotta dark enough for small text on sand (5.7:1). */
+  --motif-text: #9e4a2f;
 
   /*
    * The Assistant orb's brand palette, used when the Event has no Theme

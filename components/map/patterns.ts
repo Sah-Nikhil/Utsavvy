@@ -25,12 +25,13 @@ function butta(ctx: CanvasRenderingContext2D, colours: MapColours) {
       ctx.translate(cx, cy);
       ctx.rotate((i * Math.PI) / 2);
       ctx.beginPath();
-      ctx.ellipse(0, -3, 1.5, 2.6, 0, 0, Math.PI * 2);
+      // Petals stand off the centre, so the butta reads as a flower, not a cross.
+      ctx.ellipse(0, -4.2, 1.8, 2.6, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
     ctx.beginPath();
-    ctx.arc(cx, cy, 0.9, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 1.1, 0, Math.PI * 2);
     ctx.fill();
   };
   flower(10, 10);

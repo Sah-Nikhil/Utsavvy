@@ -24,6 +24,16 @@ export const TONE_CLASS: Record<MarkerTone, string> = {
   other: "text-ink-3",
 };
 
+/**
+ * The colour each tone writes its status word in. Small text on the sand
+ * needs 4.5:1, which the terracotta and the Dropped grey don't reach.
+ */
+export const TONE_TEXT_CLASS: Record<MarkerTone, string> = {
+  ...TONE_CLASS,
+  quoted: "text-motif-text",
+  dropped: "text-ink-3",
+};
+
 /** The legend's order: the way a Vendor moves along. */
 export const LEGEND: readonly MarkerTone[] = [
   "considering",

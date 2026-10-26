@@ -20,7 +20,13 @@ import { cn } from "@/lib/utils";
 import { budgetLineFor, filterForFunction } from "./filter";
 import { placeVendors } from "./placement";
 import type { MapVendorShown } from "./MapCanvas";
-import { LEGEND, TONE_CLASS, TONE_LABELS, toneOf } from "./markers";
+import {
+  LEGEND,
+  TONE_CLASS,
+  TONE_LABELS,
+  TONE_TEXT_CLASS,
+  toneOf,
+} from "./markers";
 import { StatusGlyph } from "./MarkerStamp";
 import { SectionOrnament } from "@/components/shell/SectionOrnament";
 
@@ -138,7 +144,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
       <div className="relative order-2 flex min-h-0 flex-1 flex-col bg-surface-container md:order-1 md:w-[22.5rem] md:flex-none md:border-r md:border-rule">
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {/* The corner pieces scroll with the list, so they never cover a row. */}
-          <div className="relative flex min-h-full flex-col gap-3 px-5 pt-3 pb-16 ornaments-off:pb-6">
+          <div className="relative flex min-h-full shrink-0 flex-col gap-3 px-5 pt-3 pb-16 ornaments-off:pb-6">
             <div aria-hidden className="pointer-events-none absolute inset-2.5">
               <SectionOrnament />
             </div>
@@ -347,7 +353,7 @@ function VendorList({
                       <span
                         className={cn(
                           "text-caption font-semibold",
-                          TONE_CLASS[tone],
+                          TONE_TEXT_CLASS[tone],
                         )}
                       >
                         {TONE_LABELS[tone]}
@@ -415,7 +421,7 @@ function PlainList({
                   <span
                     className={cn(
                       "text-caption font-semibold",
-                      TONE_CLASS[tone],
+                      TONE_TEXT_CLASS[tone],
                     )}
                   >
                     {TONE_LABELS[tone]}
