@@ -37,21 +37,80 @@ const UNIT_LABELS: Record<string, string> = {
   total: "in total",
 };
 
-function provenanceFor(
-  vendor: Doc<"vendors">,
-  fields: string[],
-): Provenance | null {
-  for (const field of fields) {
-    const found = vendor.provenance.find((p) => p.field === field);
-    if (found) return found;
-  }
-  return null;
+function provenanceFor(vendor: Doc<"vendors">, fields: string[]): Provenance[] {
+  return fields.flatMap((field) =>
+    vendor.provenance.filter((p) => p.field === field),
+  );
 }
 
-function SourceLine({ source }: { source: Provenance | null }) {
-  if (source === null) return null;
+/**
+ * "The exact sentence": the quote-checked sentence(s) a fact or price was read
+ * from, in a tooltip on hover and inline on tap, so touch screens get it too.
+ */
+function ExactSentence({
+  sentences,
+}: {
+  sentences: { sentence: string; url: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  if (sentences.length === 0) return null;
+  const several = sentences.length > 1;
+  const label = several ? "The exact sentences" : "The exact sentence";
   return (
-    <p className="text-caption text-ink-3 num">{provenanceLine(source)}</p>
+    <>
+      <div>
+        <Tooltip content={sentences.map((s) => `“${s.sentence}”`).join(" ")}>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? id : undefined}
+            onClick={() => setOpen((value) => !value)}
+            className="inline-flex items-center gap-1 rounded-xs text-caption font-medium text-action underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+          >
+            <QuoteIcon aria-hidden className="size-3" />
+            {open
+              ? several
+                ? "Hide the sentences"
+                : "Hide the sentence"
+              : label}
+          </button>
+        </Tooltip>
+      </div>
+      {open ? (
+        <div id={id} className="grid gap-1">
+          {sentences.map((s) => (
+            <blockquote
+              key={`${s.url}
+${s.sentence}`}
+              cite={s.url}
+              className="border-l-2 border-rule-strong pl-2 text-caption text-ink-2"
+            >
+              “{s.sentence}”
+            </blockquote>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** A section's short provenance line, with its exact sentences on hover or tap. */
+function SourceLine({ sources }: { sources: Provenance[] }) {
+  const first = sources[0];
+  if (first === undefined) return null;
+  const seen = new Set<string>();
+  const sentences: { sentence: string; url: string }[] = [];
+  for (const source of sources) {
+    if (source.sentence === null || seen.has(source.sentence)) continue;
+    seen.add(source.sentence);
+    sentences.push({ sentence: source.sentence, url: source.url });
+  }
+  return (
+    <>
+      <p className="text-caption text-ink-3 num">{provenanceLine(first)}</p>
+      <ExactSentence sentences={sentences} />
+    </>
   );
 }
 
@@ -77,8 +136,6 @@ function Section({
 
 /** A Listed price, its worked-out comparison and its exact sentence on hover or tap. */
 function ListedPriceRow({ price }: { price: ListedPriceView }) {
-  const [open, setOpen] = useState(false);
-  const sentenceId = useId();
   return (
     <li className="grid gap-1">
       <PriceBadge
@@ -96,29 +153,9 @@ function ListedPriceRow({ price }: { price: ListedPriceView }) {
           Not comparable with a per-Guest budget line
         </p>
       )}
-      <div>
-        <Tooltip content={`“${price.sentence}”`}>
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={sentenceId}
-            onClick={() => setOpen((value) => !value)}
-            className="inline-flex items-center gap-1 rounded-xs text-caption font-medium text-action underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-focus"
-          >
-            <QuoteIcon aria-hidden className="size-3" />
-            {open ? "Hide the sentence" : "The exact sentence"}
-          </button>
-        </Tooltip>
-      </div>
-      {open ? (
-        <blockquote
-          id={sentenceId}
-          cite={price.sourceUrl}
-          className="border-l-2 border-price-listed-line pl-2 text-caption text-ink-2"
-        >
-          “{price.sentence}”
-        </blockquote>
-      ) : null}
+      <ExactSentence
+        sentences={[{ sentence: price.sentence, url: price.sourceUrl }]}
+      />
     </li>
   );
 }
@@ -194,7 +231,7 @@ export function VendorCard({
               </>
             ) : null}
           </p>
-          <SourceLine source={provenanceFor(vendor, ["name"])} />
+          <SourceLine sources={provenanceFor(vendor, ["name"])} />
         </div>
       </header>
 
@@ -212,7 +249,7 @@ export function VendorCard({
           label="Contact"
           source={
             <SourceLine
-              source={provenanceFor(vendor, ["address", "phone", "email"])}
+              sources={provenanceFor(vendor, ["address", "phone", "email"])}
             />
           }
         >
@@ -233,7 +270,7 @@ export function VendorCard({
       {vendor.category === "venue" && vendor.capacity ? (
         <Section
           label="Capacity"
-          source={<SourceLine source={provenanceFor(vendor, ["capacity"])} />}
+          source={<SourceLine sources={provenanceFor(vendor, ["capacity"])} />}
         >
           <p className="text-label text-ink num">
             {vendor.capacity.min !== undefined
@@ -244,7 +281,9 @@ export function VendorCard({
       ) : vendor.areaServed ? (
         <Section
           label="Area served"
-          source={<SourceLine source={provenanceFor(vendor, ["areaServed"])} />}
+          source={
+            <SourceLine sources={provenanceFor(vendor, ["areaServed"])} />
+          }
         >
           <p className="text-label text-ink">{vendor.areaServed}</p>
         </Section>

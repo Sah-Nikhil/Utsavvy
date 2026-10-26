@@ -27,6 +27,7 @@ import type { ItemComponentProps } from "@/components/items/registry";
 import { formatDay } from "@/components/items/timeline/format";
 import { Badge } from "@/components/ui/badge";
 import { FunctionMarker } from "@/components/ui/function-marker";
+import { FindVendors } from "@/components/vendors/FindVendors";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { scriptClass } from "@/lib/script";
@@ -262,6 +263,15 @@ function ChecklistRow({
       <Badge tone={STATUS_TONE[status]} className="mt-px">
         {CHECKLIST_STATUS_LABELS[status]}
       </Badge>
+      {canEdit && fields.vendorCategory ? (
+        <FindVendors
+          eventId={entry.eventId}
+          entryId={entry._id}
+          entryName={name}
+          category={fields.vendorCategory}
+          functionKey={fields.functionKeys[0] ?? null}
+        />
+      ) : null}
       {canEdit ? (
         <TinyIconButton
           label={`Delete ${name}`}
