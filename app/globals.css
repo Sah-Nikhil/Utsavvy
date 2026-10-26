@@ -307,6 +307,21 @@
   --map-label: #57545f;
   --map-label-halo: #f8f2e7;
   --map-boundary: #c4a690;
+  /*
+   * The printed map (Sah-Nikhil, 27 Oct): option B's Jaipur block prints on
+   * option A's sand ground (--map-land), with no pink anywhere. Butta on the
+   * land, a leaf print on parks, lahariya waves on water, roads inked in the
+   * motif terracotta. Patterns are drawn in these colours on a canvas
+   * (components/map/patterns.ts).
+   */
+  --map-print-butta: #e8dabd;
+  --map-print-park: #e1e2c2;
+  --map-print-leaf: #a3ad7f;
+  --map-print-water: #cddcd9;
+  --map-print-wave: #93b8bb;
+  --map-print-building: #e9dcc4;
+  --map-print-ink: #b5583a;
+  --map-print-label: #5c4630;
 
   --radius-xs: 5px;
   --radius-sm: 9px;
