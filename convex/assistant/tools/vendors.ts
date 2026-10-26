@@ -339,7 +339,7 @@ export const findForRun = internalMutation({
 // shortlistVendor
 
 const NOT_ASKED_SHORTLIST =
-  'No Member asked to shortlist a Vendor in this message. Don\'t shortlist it: suggest it in your reply instead; a Member can tap "Add to Canvas" on the Vendor card.';
+  'No Member asked to shortlist this Vendor in this message. Don\'t shortlist it: suggest it in your reply instead. To have it added, a Member can name the Vendor in full or by its card number ("add the second one"), or tap "Add to Canvas" on the Vendor card.';
 
 /** The Event's newest Vendor cards in the Chat, for "add the second one". */
 async function latestCards(
@@ -464,7 +464,7 @@ export const shortlistForRun = internalMutation({
 // setVendorStatus
 
 const NOT_ASKED_STATUS =
-  "No Member asked for that status in this message. Don't change it: suggest it in your reply instead; a Member can change it from the status menu on the Shortlisted Vendor's card.";
+  "No Member asked for that status for this Vendor in this message. Don't change it: suggest it in your reply instead. To have it changed, a Member can name the Vendor in full or by its card number, or use the status menu on the Shortlisted Vendor's card.";
 
 export const setStatusForRun = internalMutation({
   args: {

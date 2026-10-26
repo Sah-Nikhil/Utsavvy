@@ -153,30 +153,49 @@ const STOP = new Set([
   "confirmed",
 ]);
 
+/** A word that can single a Vendor out: not generic, not a request word. */
+const distinctive = (token: string) => !GENERIC.has(token) && !STOP.has(token);
+
+const countDistinctive = (tokens: string[]) =>
+  tokens.filter(distinctive).length;
+
 /**
- * The ways a Member can name a Vendor: its whole name, with or without a part
- * in brackets or a leading "The", optionally leaving off trailing generic
- * words ("Vinayak Foods" or "Vinayak" for "Vinayak Foods & Catering", "Viresh"
- * for "Viresh Studio", "Ganesh Dal Bati" for "Ganesh Dal Bati Churma"). What
- * is left has to hold a distinctive word, so one word of a longer distinctive
- * name ("Ganesh" alone) never counts, and neither does a name made only of
- * generic or request words (a Vendor called "Add").
+ * The ways a Member can name a Vendor (review of #122, round 4):
+ *
+ * - its whole displayed name, with or without a leading "The" ("Viresh
+ *   Studio", "Prince Group of Events"), as long as it holds one distinctive
+ *   word, so a Vendor called "Add" can't be named by a request word;
+ * - a shorter form that leaves off a bracketed part or trailing generic words
+ *   only when it still holds two distinctive words in order ("Bhanwar Singh"
+ *   for "Bhanwar Singh Palace", "Ganesh Dal Bati" for "Ganesh Dal Bati
+ *   Churma", "M L" for "M L Caterers").
+ *
+ * One word of a name never counts on its own ("Viresh", "Vinayak", "Ganesh"):
+ * a sentence like "Add Viresh to the Guest list" is about something else, and
+ * the Assistant then asks for the full name or the card instead.
  */
 function nameForms(name: string): string[] {
   const forms = new Set<string>();
+  const tokensOf = (text: string) =>
+    words(text).trim().split(" ").filter(Boolean);
+  const withoutThe = (text: string) => text.replace(/^\s*the\s+/i, "");
   const unbracketed = name.replace(/\([^)]*\)/g, " ");
+
+  for (const whole of [name, withoutThe(name)]) {
+    const tokens = tokensOf(whole);
+    if (countDistinctive(tokens) >= 1) forms.add(tokens.join(" "));
+  }
   for (const variant of [
     name,
+    withoutThe(name),
     unbracketed,
-    name.replace(/^\s*the\s+/i, ""),
-    unbracketed.replace(/^\s*the\s+/i, ""),
+    withoutThe(unbracketed),
   ]) {
-    const tokens = words(variant).trim().split(" ").filter(Boolean);
+    const tokens = tokensOf(variant);
     for (let end = tokens.length; end >= 1; end--) {
       const kept = tokens.slice(0, end);
-      const dropped = tokens.slice(end);
-      if (!dropped.every((t) => GENERIC.has(t))) break;
-      if (!kept.some((t) => !GENERIC.has(t) && !STOP.has(t))) break;
+      if (!tokens.slice(end).every((t) => GENERIC.has(t))) break;
+      if (countDistinctive(kept) < 2) break;
       forms.add(kept.join(" "));
     }
   }
