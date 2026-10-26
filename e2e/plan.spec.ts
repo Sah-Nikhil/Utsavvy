@@ -114,6 +114,22 @@ test.describe("the first plan", () => {
     await expect(summary.locator('[data-brief-field="guests"]')).toContainText(
       "300",
     );
+
+    // A budget cut below the usual minimum says so on the card, before
+    // anyone accepts it (issue #102, review of #114 L2).
+    await summary
+      .locator('[data-brief-field="budget"]')
+      .getByRole("button")
+      .click();
+    await summary.getByLabel("Budget", { exact: true }).fill("15 lakh");
+    await page.keyboard.press("Enter");
+    await expect(
+      chat(page)
+        .getByRole("list", { name: "Chat messages" })
+        .getByText(
+          /Budget ₹25L to ₹15L: .*below the usual minimum of ₹[\d,]+ for Jaipur/,
+        ),
+    ).toBeVisible({ timeout: 30_000 });
     expect(cspViolations).toEqual([]);
   });
 
