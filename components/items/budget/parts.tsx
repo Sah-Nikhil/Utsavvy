@@ -77,7 +77,11 @@ export function EstimateLine({
         {range ? (
           <span className="num text-label text-price-estimate">
             {formatLakh(estimate.low)} to {formatLakh(estimate.high)}
-            {amount ? <span className="text-ink-3"> · picked</span> : null}
+          </span>
+        ) : null}
+        {range && amount ? (
+          <span aria-hidden className="text-caption text-ink-3">
+            ·
           </span>
         ) : null}
         {amount ? (
