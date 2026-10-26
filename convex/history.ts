@@ -8,7 +8,11 @@ import { fitFrame } from "../lib/canvas/placement";
 import { isStartingSection } from "../lib/canvas/starting";
 import type { Actor } from "../lib/types/actors";
 import { countCharacters } from "../lib/types/canvas";
-import { changeOpValidator, type HistoryTable } from "../lib/types/history";
+import {
+  changeOpValidator,
+  type HistoryTable,
+  type SoftDeleteTable,
+} from "../lib/types/history";
 import type { Action, Role } from "../lib/types/roles";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -20,7 +24,7 @@ import {
 import { MAX_CUSTOM_SECTIONS } from "./canvas";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
-import { memberWrite } from "./lib/write";
+import { memberSoftDelete, memberWrite } from "./lib/write";
 
 // S6 owns this file: the edit history and Restore (IMPLEMENTATION_PLAN.md
 // section 4.4, docs/design/roles.md "History and attribution").
@@ -36,9 +40,11 @@ export type HistoryProblem =
   | "notRestorable"
   | "useDelete"
   | "gone"
+  | "functionGone"
   | "sectionDeleted"
   | "itemDeleted"
-  | "tooManySections";
+  | "tooManySections"
+  | "sectionNotEmpty";
 
 function refuse(problem: HistoryProblem): never {
   throw new ConvexError({ kind: "HistoryRefused", problem });
@@ -582,11 +588,26 @@ async function liveCustomSections(
   return count;
 }
 
+/** Whether the Event still has a Function with this key (an Event has a handful). */
+async function functionExists(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  key: string,
+): Promise<boolean> {
+  for await (const row of ctx.db
+    .query("eventFunctions")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))) {
+    if (row.key === key) return true;
+  }
+  return false;
+}
+
 /** Grows a Section's frame to hold its live Items, writing only when it grows. */
 async function fitSectionFrame(
   ctx: MutationCtx,
   sectionId: Id<"sections">,
   actor: { kind: "member"; membershipId: Id<"memberships"> },
+  group: GroupOptions = {},
 ): Promise<void> {
   const section = await ctx.db.get("sections", sectionId);
   if (section === null) return;
@@ -604,7 +625,158 @@ async function fitSectionFrame(
     id: sectionId,
     patch: { frame },
     actor,
+    ...group,
   });
+}
+
+/** How putting back one change went, for Restore to throw and Undo all to count. */
+type Outcome =
+  | {
+      kind: "done";
+      changed: boolean;
+      /** The new change row, when one was written. */
+      changeId: Id<"changes"> | null;
+    }
+  | { kind: "refused"; problem: HistoryProblem }
+  | { kind: "denied"; reason: "wrongEvent" | "notAllowed"; action: Action };
+
+type GroupOptions = { groupKey?: string | null; groupLabel?: string | null };
+
+/** The newest change row of a document. */
+async function latestRowOf(
+  ctx: MutationCtx,
+  docId: Doc<"changes">["docId"],
+): Promise<Doc<"changes"> | null> {
+  return await ctx.db
+    .query("changes")
+    .withIndex("by_doc", (q) => q.eq("docId", docId))
+    .order("desc")
+    .first();
+}
+
+async function latestChangeOf(
+  ctx: MutationCtx,
+  docId: Doc<"changes">["docId"],
+): Promise<Id<"changes"> | null> {
+  return (await latestRowOf(ctx, docId))?._id ?? null;
+}
+
+/**
+ * Puts back the earlier values of one change as a new change (op "restore"),
+ * through `memberWrite`. Shared by Restore and Undo all, which differ only in
+ * what they do with a refusal and in the history group they write to.
+ */
+async function putBack(
+  ctx: MutationCtx,
+  change: Doc<"changes">,
+  membership: Doc<"memberships">,
+  group: GroupOptions,
+): Promise<Outcome> {
+  if (!isRestorable(change))
+    return { kind: "refused", problem: "notRestorable" };
+  const restorable = restorableFields(change);
+  if (restorable.length === 0)
+    return { kind: "refused", problem: "notRestorable" };
+  if (wouldDelete(change, restorable))
+    return { kind: "refused", problem: "useDelete" };
+
+  const table = change.table as HistoryTable;
+  const id = change.docId as Id<HistoryTable>;
+  const doc = (await ctx.db.get(table, id)) as Fields | null;
+  if (doc === null) return { kind: "refused", problem: "gone" };
+  if (!belongsTo(table, doc, change.eventId))
+    return { kind: "denied", reason: "wrongEvent", action: "history.restore" };
+
+  const before = { ...(change.before as Fields) };
+  // A Function skipped since (X12 deletes its row) can't be tagged again: the
+  // Item or Entry comes back Event-wide instead.
+  const functionGone =
+    typeof before.functionKey === "string" &&
+    restorable.includes("functionKey") &&
+    !(await functionExists(ctx, change.eventId, before.functionKey));
+  if (functionGone) before.functionKey = null;
+  const patch: Fields = {};
+  for (const field of restorable) {
+    if (!sameValue(doc[field], before[field])) patch[field] = before[field];
+  }
+  // A deleted Item or Entry kept its tag when the Function was skipped. Clear
+  // that tag when this Restore brings the row back.
+  const restored = { ...doc, ...patch };
+  if (
+    (table === "items" || table === "entries") &&
+    doc.deletedAt !== null &&
+    restored.deletedAt === null &&
+    typeof restored.functionKey === "string" &&
+    !(await functionExists(ctx, change.eventId, restored.functionKey))
+  ) {
+    patch.functionKey = null;
+  }
+  const fields = Object.keys(patch);
+  if (fields.length === 0) {
+    // Nothing but the skipped Function to put back.
+    if (functionGone && restorable.length === 1)
+      return { kind: "refused", problem: "functionGone" };
+    return { kind: "done", changed: false, changeId: null };
+  }
+
+  const event = await ctx.db.get("events", change.eventId);
+  for (const action of actionsFor(
+    table,
+    doc,
+    fields,
+    event?.startingSectionRenameBlocked ?? false,
+  )) {
+    if (!can(membership.role, action))
+      return { kind: "denied", reason: "notAllowed", action };
+  }
+
+  // A row coming back needs its parent to be there.
+  const after = { ...doc, ...patch };
+  if (table === "items" && after.deletedAt === null) {
+    const section = await ctx.db.get(
+      "sections",
+      after.sectionId as Id<"sections">,
+    );
+    if (section === null || section.deletedAt !== null)
+      return { kind: "refused", problem: "sectionDeleted" };
+  }
+  if (table === "entries" && after.deletedAt === null) {
+    const item = await ctx.db.get("items", after.itemId as Id<"items">);
+    if (item === null || item.deletedAt !== null)
+      return { kind: "refused", problem: "itemDeleted" };
+  }
+  // A custom Section coming back counts against the cap, as a new one does.
+  if (
+    table === "sections" &&
+    after.kind === "custom" &&
+    doc.deletedAt !== null &&
+    after.deletedAt === null &&
+    (await liveCustomSections(ctx, change.eventId)) >= MAX_CUSTOM_SECTIONS
+  ) {
+    return { kind: "refused", problem: "tooManySections" };
+  }
+
+  const actor = { kind: "member" as const, membershipId: membership._id };
+  await memberWrite(ctx, {
+    table,
+    id,
+    patch: patch as never,
+    actor,
+    op: "restore",
+    ...group,
+  });
+  const changeId = await latestChangeOf(ctx, change.docId);
+  // An Item put back somewhere grows its Section's frame to hold it, as
+  // `canvas.moveItem` does.
+  const placement = ["position", "size", "sectionId", "deletedAt"];
+  if (
+    table === "items" &&
+    after.deletedAt === null &&
+    fields.some((f) => placement.includes(f))
+  ) {
+    await fitSectionFrame(ctx, after.sectionId as Id<"sections">, actor, group);
+  }
+  return { kind: "done", changed: true, changeId };
 }
 
 /**
@@ -627,80 +799,505 @@ export const restore = mutation({
       change.eventId,
       "history.restore",
     );
-    if (!isRestorable(change)) refuse("notRestorable");
-    const restorable = restorableFields(change);
-    if (restorable.length === 0) refuse("notRestorable");
-    if (wouldDelete(change, restorable)) refuse("useDelete");
-
-    const table = change.table as HistoryTable;
-    const id = change.docId as Id<HistoryTable>;
-    const doc = (await ctx.db.get(table, id)) as Fields | null;
-    if (doc === null) refuse("gone");
-    if (!belongsTo(table, doc, change.eventId))
-      throw new AccessDenied("wrongEvent", "history.restore");
-
-    const before = change.before as Fields;
-    const patch: Fields = {};
-    for (const field of restorable) {
-      if (!sameValue(doc[field], before[field])) patch[field] = before[field];
+    // Restoring one row of an Undo all is a one-row redo: it joins that Undo
+    // all's chain, so the reply's own Undo all can still finish later.
+    const fromUndo = change.groupKey !== null && isUndoKey(change.groupKey);
+    const group: GroupOptions = fromUndo
+      ? {
+          groupKey: newUndoKey(change.groupKey!),
+          groupLabel: undoLabel(change.groupKey!, change.groupLabel),
+        }
+      : {};
+    const outcome = await putBack(ctx, change, membership, group);
+    if (outcome.kind === "refused") refuse(outcome.problem);
+    if (outcome.kind === "denied")
+      throw new AccessDenied(outcome.reason, outcome.action);
+    if (outcome.changed) {
+      if (fromUndo)
+        await ctx.db.patch("changes", change._id, {
+          undoneBy: outcome.changeId,
+        });
+      // Whatever this change undid, by an Undo all or by hand, is in place
+      // again, so the reply's Undo all can take it back once more.
+      await reopenUndoneBy(ctx, change);
     }
-    const fields = Object.keys(patch);
-    if (fields.length === 0) return { changed: false };
+    return { changed: outcome.changed };
+  },
+});
 
-    const event = await ctx.db.get("events", change.eventId);
-    for (const action of actionsFor(
-      table,
-      doc,
-      fields,
-      event?.startingSectionRenameBlocked ?? false,
-    )) {
-      if (!can(membership.role, action))
-        throw new AccessDenied("notAllowed", action);
+// ---------------------------------------------------------------------------
+// Undo all (X11)
+
+/**
+ * An Undo all's history group is `undo:<tap>:<the group it undid>`: one group
+ * per tap, so undo, redo and undo again show as three groups, while the group
+ * it undid can still be read back from the key.
+ */
+const UNDO_PREFIX = "undo:";
+/** The most later changes to one document Undo all looks through. */
+const LATER_MAX = 100;
+/**
+ * Roughly how many documents one Undo all tap reads before it stops and asks
+ * for another tap, well under Convex's per-mutation read limit. The changes
+ * it already undid stay undone, so the next tap carries on where it stopped.
+ */
+const READ_BUDGET = 8000;
+/** Reads per change besides its later history: the row, its Event, hooks. */
+const READS_PER_CHANGE = 8;
+/** Items every plan keeps; delete their Entries instead (as `deleteItemOp`). */
+const PLAN_ITEM_KINDS: readonly string[] = ["budget", "timeline", "checklist"];
+
+function isUndoKey(key: string): boolean {
+  return parentOf(key) !== null;
+}
+
+/** The group an Undo all's group undid, or null for any other group. */
+function parentOf(key: string): string | null {
+  if (!key.startsWith(UNDO_PREFIX)) return null;
+  const rest = key.slice(UNDO_PREFIX.length);
+  const colon = rest.indexOf(":");
+  return colon <= 0 ? null : rest.slice(colon + 1);
+}
+
+/** A fresh group key for one Undo all tap on `parent`. */
+function newUndoKey(parent: string): string {
+  const tap = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `${UNDO_PREFIX}${tap}:${parent}`;
+}
+
+/** How many Undo alls deep a group is: 0 for a reply, 1 for its undo, 2 for a redo. */
+function undoDepth(key: string): number {
+  let depth = 0;
+  for (let k: string | null = key; k !== null && isUndoKey(k); k = parentOf(k))
+    depth++;
+  return depth;
+}
+
+/** Whether `key` is `groupKey` or an Undo all of it, or of that, and so on. */
+function inUndoChain(key: string | null, groupKey: string): boolean {
+  for (let k = key; k !== null; k = parentOf(k)) {
+    if (k === groupKey) return true;
+  }
+  return false;
+}
+
+/**
+ * The history label of an Undo all of `groupKey`: "Undo all of Plan the
+ * sangeet", and "Redo Plan the sangeet" when it undoes an Undo all.
+ */
+function undoLabel(groupKey: string, label: string | null): string {
+  const base = (label ?? "").replace(/^(Undo all of |Redo )/, "");
+  if (undoDepth(groupKey) % 2 === 1) return base ? `Redo ${base}` : "Redo";
+  return base ? `Undo all of ${base}` : "Undo all";
+}
+
+/**
+ * When the change an Undo all wrote is itself put back (by Restore, or by
+ * undoing that Undo all), the change it undid counts as not undone again, so
+ * the original reply's Undo all can run on it once more.
+ */
+async function reopenUndone(
+  ctx: MutationCtx,
+  changes: Doc<"changes">[],
+): Promise<void> {
+  const byParent = new Map<string, Set<Id<"changes">>>();
+  for (const change of changes) {
+    const parent = change.groupKey === null ? null : parentOf(change.groupKey);
+    if (parent === null) continue;
+    const ids = byParent.get(parent) ?? new Set();
+    ids.add(change._id);
+    byParent.set(parent, ids);
+  }
+  for (const [parent, ids] of byParent) {
+    const rows = await ctx.db
+      .query("changes")
+      .withIndex("by_group", (q) => q.eq("groupKey", parent))
+      .take(GROUP_COUNT_MAX);
+    for (const row of rows) {
+      if (row.undoneBy !== null && ids.has(row.undoneBy))
+        await ctx.db.patch("changes", row._id, { undoneBy: null });
     }
+  }
+}
 
-    // A row coming back needs its parent to be there.
-    const after = { ...doc, ...patch };
-    if (table === "items" && after.deletedAt === null) {
-      const section = await ctx.db.get(
-        "sections",
-        after.sectionId as Id<"sections">,
+/**
+ * After a Restore of `change`, any earlier change it counted as undoing (an
+ * Undo all's row, or a Member's Restore by hand that Undo all counted) is open
+ * again. `undoneBy` always points at a later row of the same document.
+ */
+async function reopenUndoneBy(
+  ctx: MutationCtx,
+  change: Doc<"changes">,
+): Promise<void> {
+  const earlier = await ctx.db
+    .query("changes")
+    .withIndex("by_doc", (q) =>
+      q.eq("docId", change.docId).lt("_creationTime", change._creationTime),
+    )
+    .order("desc")
+    .take(LATER_MAX);
+  for (const row of earlier) {
+    if (row.undoneBy === change._id)
+      await ctx.db.patch("changes", row._id, { undoneBy: null });
+  }
+}
+
+/** What a change was about, as a person names it: "Sangeet DJ", "the Budget". */
+function plainName(table: HistoryTable, doc: Fields): string {
+  switch (table) {
+    case "entries": {
+      const fields = (doc.fields ?? {}) as Fields;
+      const label =
+        fields.label ??
+        fields.title ??
+        fields.freeLabel ??
+        fields.vendorCategory;
+      return typeof label === "string" && label.trim() !== ""
+        ? label.trim()
+        : "an Entry";
+    }
+    case "sections":
+    case "eventFunctions":
+    case "vendors":
+      return typeof doc.name === "string" && doc.name.trim() !== ""
+        ? doc.name.trim()
+        : thingOf(table, doc);
+    default:
+      return thingOf(table, doc);
+  }
+}
+
+/**
+ * Whether Undo all may delete this row again: an Item other than the plan's
+ * Budget, Timeline and Vendor checklist, an Entry other than a Contingency or
+ * Unallocated line, or a custom Section. Deleting anything else has its own
+ * rules elsewhere.
+ */
+function canTakeBack(table: string, doc: Fields | null): boolean {
+  if (doc === null) return false;
+  switch (table) {
+    case "items":
+      return !PLAN_ITEM_KINDS.includes(doc.kind as string);
+    case "entries": {
+      const role = ((doc.fields ?? {}) as Fields).role;
+      return role !== "contingency" && role !== "unallocated";
+    }
+    case "sections":
+      return doc.kind === "custom";
+    default:
+      return false;
+  }
+}
+
+/** Whether undoing this change deletes its row again rather than putting values back. */
+function deletesAgain(change: Doc<"changes">): boolean {
+  if (change.op === "create") return true;
+  return isRestorable(change) && wouldDelete(change, restorableFields(change));
+}
+
+/** Whether Undo all can ever undo this change, whatever happens later. */
+function undoable(change: Doc<"changes">): boolean {
+  if (change.table === "memberships") return false;
+  if (deletesAgain(change))
+    return canTakeBack(change.table, (change.after ?? null) as Fields | null);
+  return isRestorable(change) && restorableFields(change).length > 0;
+}
+
+/** Whether this change's earlier state is already back, by whoever put it there. */
+async function alreadyBack(
+  ctx: MutationCtx,
+  change: Doc<"changes">,
+): Promise<boolean> {
+  const doc = (await ctx.db.get(
+    change.table as HistoryTable,
+    change.docId as Id<HistoryTable>,
+  )) as Fields | null;
+  if (doc === null) return false;
+  if (deletesAgain(change)) return doc.deletedAt != null;
+  const before = change.before as Fields;
+  return restorableFields(change).every((f) => sameValue(doc[f], before[f]));
+}
+
+/** Whether a Section has any live Item. */
+async function holdsItems(
+  db: QueryCtx["db"],
+  sectionId: Id<"sections">,
+): Promise<boolean> {
+  for await (const item of db
+    .query("items")
+    .withIndex("by_section", (q) => q.eq("sectionId", sectionId))) {
+    if (item.deletedAt === null) return true;
+  }
+  return false;
+}
+
+/**
+ * Deletes again a row the change added (or brought back), as a soft delete
+ * through `memberSoftDelete`, so Restore can bring it back. Only what
+ * `canTakeBack` allows, and a custom Section only once it is empty.
+ */
+async function takeBack(
+  ctx: MutationCtx,
+  change: Doc<"changes">,
+  membership: Doc<"memberships">,
+  group: GroupOptions,
+): Promise<Outcome> {
+  const table = change.table;
+  if (table !== "items" && table !== "entries" && table !== "sections")
+    return { kind: "refused", problem: "notRestorable" };
+  const id = change.docId as Id<SoftDeleteTable>;
+  const doc = (await ctx.db.get(table, id as never)) as Fields | null;
+  if (doc === null) return { kind: "refused", problem: "gone" };
+  if (!belongsTo(table, doc, change.eventId))
+    return { kind: "denied", reason: "wrongEvent", action: "history.restore" };
+  if (!canTakeBack(table, doc))
+    return { kind: "refused", problem: "notRestorable" };
+  if (doc.deletedAt !== null)
+    return { kind: "done", changed: false, changeId: null };
+
+  if (table === "sections" && (await holdsItems(ctx.db, id as Id<"sections">)))
+    return { kind: "refused", problem: "sectionNotEmpty" };
+  const event = await ctx.db.get("events", change.eventId);
+  for (const action of actionsFor(
+    table,
+    doc,
+    ["deletedAt"],
+    event?.startingSectionRenameBlocked ?? false,
+  )) {
+    if (!can(membership.role, action))
+      return { kind: "denied", reason: "notAllowed", action };
+  }
+
+  await memberSoftDelete(ctx, {
+    table,
+    id: id as never,
+    actor: { kind: "member", membershipId: membership._id },
+    ...group,
+  });
+  return {
+    kind: "done",
+    changed: true,
+    changeId: await latestChangeOf(ctx, change.docId),
+  };
+}
+
+const undoResultValidator = v.object({
+  /** Changes undone by this tap. */
+  undone: v.number(),
+  /** Changes in the group. */
+  total: v.number(),
+  /** "Undid 7 of 8; Rohan has since edited Sangeet DJ". */
+  message: v.string(),
+});
+
+/**
+ * Undo all (assistant-behavior.md rule 18): puts back everything one
+ * Assistant reply or accepted Proposal changed, newest first, as one new
+ * history group of the Member's own changes, reusing Restore's rules per
+ * change. A row the reply added is deleted again. Anything someone else edited
+ * after the reply is skipped and named in the message, unless its earlier
+ * state is already back. Each change undone is marked with `undoneBy`, so a
+ * second tap undoes nothing new. Changes it can never undo (a shared Vendor,
+ * a Function, the plan's own Items) are named. Members only, like Restore;
+ * the Event comes from the stored rows, never from the caller.
+ */
+export const undoGroup = mutation({
+  args: { groupKey: v.string() },
+  returns: undoResultValidator,
+  handler: async (ctx, { groupKey }) => {
+    const rows = await ctx.db
+      .query("changes")
+      .withIndex("by_group", (q) => q.eq("groupKey", groupKey))
+      .order("desc")
+      .take(GROUP_COUNT_MAX);
+    if (rows.length === 0) refuse("notFound");
+    const eventId = rows[0]!.eventId;
+    const { membership } = await requireAccess(ctx, eventId, "history.restore");
+    const changes = rows.filter((r) => r.eventId === eventId);
+    const group: GroupOptions = {
+      groupKey: newUndoKey(groupKey),
+      groupLabel: undoLabel(
+        groupKey,
+        changes.find((c) => c.groupLabel !== null)?.groupLabel ?? null,
+      ),
+    };
+    const redo = undoDepth(groupKey) % 2 === 1;
+
+    const membershipOf = cached((id: Id<"memberships">) =>
+      ctx.db.get("memberships", id),
+    );
+    let undone = 0;
+    let already = 0;
+    let reads = 0;
+    let unread = 0;
+    const edited = new Map<string, string[]>();
+    /** Who already put a change back by hand, and which. */
+    const byHand = new Map<string, string[]>();
+    /** Newest first; reversed for the message. */
+    const cannot: string[] = [];
+    /** Custom Sections that still hold Items, so they stay for now. */
+    const holding: string[] = [];
+    /** Whether something refused this time that a later tap might manage. */
+    let refusedNow = false;
+    const putBackNow: Doc<"changes">[] = [];
+    const nameOfChange = (change: Doc<"changes">) =>
+      plainName(
+        change.table as HistoryTable,
+        (change.after ?? change.before ?? {}) as Fields,
       );
-      if (section === null || section.deletedAt !== null)
-        refuse("sectionDeleted");
-    }
-    if (table === "entries" && after.deletedAt === null) {
-      const item = await ctx.db.get("items", after.itemId as Id<"items">);
-      if (item === null || item.deletedAt !== null) refuse("itemDeleted");
-    }
-    // A custom Section coming back counts against the cap, as a new one does.
-    if (
-      table === "sections" &&
-      after.kind === "custom" &&
-      doc.deletedAt !== null &&
-      after.deletedAt === null &&
-      (await liveCustomSections(ctx, change.eventId)) >= MAX_CUSTOM_SECTIONS
-    ) {
-      refuse("tooManySections");
-    }
+    for (const change of changes) {
+      if (change.undoneBy !== null) {
+        already++;
+        continue;
+      }
+      if (!undoable(change)) {
+        cannot.push(nameOfChange(change));
+        continue;
+      }
+      if (reads > READ_BUDGET) {
+        unread++;
+        continue;
+      }
+      // Someone outside this reply (and its undos) changed the row since.
+      const later = await ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) =>
+          q.eq("docId", change.docId).gt("_creationTime", change._creationTime),
+        )
+        .take(LATER_MAX);
+      reads += later.length + READS_PER_CHANGE;
+      const other = later.find((r) => !inUndoChain(r.groupKey, groupKey));
+      if (other !== undefined) {
+        if (await alreadyBack(ctx, change)) {
+          // Put back by hand (a per-change Restore, or the same value typed
+          // in again): count it as undone, and reopen what it had undone, as
+          // for a change this tap puts back itself.
+          const latest = (await latestRowOf(ctx, change.docId)) ?? other;
+          undone++;
+          putBackNow.push(change);
+          await ctx.db.patch("changes", change._id, { undoneBy: latest._id });
+          const who = await whoOf(latest.actor, membershipOf, eventId);
+          byHand.set(who, [...(byHand.get(who) ?? []), nameOfChange(change)]);
+          continue;
+        }
+        const who = await whoOf(other.actor, membershipOf, eventId);
+        const names = edited.get(who) ?? [];
+        names.push(nameOfChange(change));
+        edited.set(who, names);
+        continue;
+      }
 
-    const actor = { kind: "member" as const, membershipId: membership._id };
-    await memberWrite(ctx, {
-      table,
-      id,
-      patch: patch as never,
-      actor,
-      op: "restore",
-    });
-    // An Item put back somewhere grows its Section's frame to hold it, as
-    // `canvas.moveItem` does.
-    const placement = ["position", "size", "sectionId", "deletedAt"];
-    if (
-      table === "items" &&
-      after.deletedAt === null &&
-      fields.some((f) => placement.includes(f))
-    ) {
-      await fitSectionFrame(ctx, after.sectionId as Id<"sections">, actor);
+      const outcome = deletesAgain(change)
+        ? await takeBack(ctx, change, membership, group)
+        : await putBack(ctx, change, membership, group);
+      if (outcome.kind === "refused" && outcome.problem === "functionGone") {
+        // Its Function was skipped since; Event-wide is as far back as it goes.
+        undone++;
+        await ctx.db.patch("changes", change._id, {
+          undoneBy: await latestChangeOf(ctx, change.docId),
+        });
+        continue;
+      }
+      if (outcome.kind === "refused" && outcome.problem === "sectionNotEmpty") {
+        holding.push(nameOfChange(change));
+        refusedNow = true;
+        continue;
+      }
+      if (outcome.kind !== "done") {
+        cannot.push(nameOfChange(change));
+        refusedNow = true;
+        continue;
+      }
+      undone++;
+      if (outcome.changed) putBackNow.push(change);
+      // Values already back count as undone, pointing at the row that has them.
+      const undoneBy =
+        outcome.changeId ?? (await latestChangeOf(ctx, change.docId));
+      await ctx.db.patch("changes", change._id, { undoneBy });
     }
-    return { changed: true };
+    await reopenUndone(ctx, putBackNow);
+
+    const total = changes.length;
+    const verb = redo ? "Redid" : "Undid";
+    const parts = [
+      undone > 0 || already === 0
+        ? `${verb} ${undone} of ${total}`
+        : edited.size === 0 && unread === 0 && !refusedNow
+          ? redo
+            ? "Already redone"
+            : "Already undone"
+          : redo
+            ? "Nothing more to redo"
+            : "Nothing more to undo",
+    ];
+    for (const [who, names] of byHand)
+      parts.push(`${who} had already put back ${listWords(names.reverse())}`);
+    for (const [who, names] of edited)
+      parts.push(`${who} has since edited ${listWords(names.reverse())}`);
+    if (cannot.length > 0)
+      parts.push(`${listWords(cannot.reverse())} can't be undone here`);
+    if (holding.length > 0)
+      parts.push(
+        holding.length === 1
+          ? `${holding[0]} still holds Items, so it stays`
+          : `${listWords(holding.reverse())} still hold Items, so they stay`,
+      );
+    if (unread > 0)
+      parts.push(
+        `${unread} more ${unread === 1 ? "change" : "changes"} left: press again to carry on`,
+      );
+    if (rows.length === GROUP_COUNT_MAX)
+      parts.push(`only the newest ${GROUP_COUNT_MAX} changes were looked at`);
+    return { undone, total, message: parts.join("; ") };
+  },
+});
+
+/**
+ * What the Undo all button shows for one group: whether this person may
+ * press it and how many changes it can still undo. Null when the group has
+ * nothing Undo all could ever undo (a reply that only talked) or the caller
+ * isn't in its Event.
+ */
+export const groupStatus = query({
+  args: { groupKey: v.string() },
+  returns: v.union(
+    v.object({ canUndo: v.boolean(), left: v.number(), total: v.number() }),
+    v.null(),
+  ),
+  handler: async (ctx, { groupKey }) => {
+    const rows = await ctx.db
+      .query("changes")
+      .withIndex("by_group", (q) => q.eq("groupKey", groupKey))
+      .take(GROUP_COUNT_MAX);
+    if (rows.length === 0) return null;
+    const eventId = rows[0]!.eventId;
+    let role: Role;
+    try {
+      role = (await requireAccess(ctx, eventId, "canvas.view")).membership.role;
+    } catch (error) {
+      if (error instanceof AccessDenied) return null;
+      throw error;
+    }
+    const changes = rows.filter((r) => r.eventId === eventId);
+    const undoableRows = changes.filter(undoable);
+    if (undoableRows.length === 0) return null;
+    const pending = undoableRows.filter((c) => c.undoneBy === null);
+    // When all that is left is custom Sections that still hold someone's
+    // Items, Undo all can't go further until they're emptied, so the button
+    // settles; emptying one brings it back.
+    let stuck = 0;
+    for (const c of pending) {
+      if (c.table !== "sections" || !deletesAgain(c)) break;
+      const sectionId = c.docId as Id<"sections">;
+      const section = await ctx.db.get("sections", sectionId);
+      if (section === null || section.deletedAt !== null) break;
+      if (!(await holdsItems(ctx.db, sectionId))) break;
+      stuck++;
+    }
+    return {
+      canUndo: can(role, "history.restore"),
+      left: stuck === pending.length ? 0 : pending.length,
+      total: changes.length,
+    };
   },
 });

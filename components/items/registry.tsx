@@ -8,6 +8,7 @@ import { ChecklistItem } from "./checklist/ChecklistItem";
 import { InspirationItem } from "./inspiration/InspirationItem";
 import { ItemFrame } from "./ItemFrame";
 import { NoteItem } from "./note/NoteItem";
+import { ShortlistedVendorItem } from "./shortlisted-vendor/ShortlistedVendorItem";
 import { SuggestionItem } from "./suggestion/SuggestionItem";
 import { TimelineItem } from "./timeline/TimelineItem";
 
@@ -54,7 +55,7 @@ export const ITEM_COMPONENTS: { [K in ItemKind]: ItemComponent<K> } = {
   budget: BudgetItem,
   timeline: TimelineItem,
   checklist: ChecklistItem,
-  shortlistedVendor: placeholder("shortlistedVendor", "S9"),
+  shortlistedVendor: ShortlistedVendorItem,
   googlePlace: placeholder("googlePlace", "S20"),
   inspiration: InspirationItem,
   suggestion: SuggestionItem,
