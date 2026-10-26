@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cityBounds, openingFit, placeVendors } from "./placement";
+import { cityBounds, fitPadding, openingFit, placeVendors } from "./placement";
 
 // Review of #123, finding 3: the map stays on the Event's city. A Vendor
 // shortlisted from another city is listed as outside it, never drawn by
@@ -71,5 +71,35 @@ describe("openingFit", () => {
   it("widens to take in the city's own Markers", () => {
     const fit = openingFit(JAIPUR, [{ marker: ROOD_MAHAL }]);
     expect(inside(fit, ROOD_MAHAL)).toBe(true);
+  });
+});
+
+// The designer's 390 px mock-up hid a Marker under the bottom sheet and cut a
+// label at the edge. The opening view keeps every Marker clear of what sits
+// over the map: the zoom buttons, the city's cartouche and the credits.
+describe("fitPadding", () => {
+  /** Half a selected Marker with its petals, plus its "approximate" tag. */
+  const MARKER_REACH = 36;
+
+  it.each([
+    ["a phone", 390],
+    ["a desktop", 1080],
+  ])("keeps Markers clear of the map's overlays on %s", (_, width) => {
+    const padding = fitPadding(width);
+    // The zoom buttons run down the right edge.
+    expect(padding.right).toBeGreaterThanOrEqual(56);
+    // The credits sit along the bottom, on two lines on a phone.
+    expect(padding.bottom).toBeGreaterThanOrEqual(width < 640 ? 48 : 36);
+    for (const side of ["top", "right", "bottom", "left"] as const)
+      expect(padding[side], side).toBeGreaterThanOrEqual(MARKER_REACH);
+  });
+
+  it("leaves room under the city's cartouche on a desktop", () => {
+    expect(fitPadding(1080).top).toBeGreaterThanOrEqual(84);
+  });
+
+  it("never pads more than the map can give on a narrow phone", () => {
+    const padding = fitPadding(320);
+    expect(padding.left + padding.right).toBeLessThan(320 / 2);
   });
 });
