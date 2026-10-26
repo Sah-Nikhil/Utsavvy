@@ -5,12 +5,11 @@ import { ChevronDown, Link2, Store } from "lucide-react";
 import { useState } from "react";
 import { useCanvasItem } from "@/components/canvas/CanvasItemContext";
 import { ItemFrame } from "@/components/items/ItemFrame";
+import { LinkQuotes } from "@/components/quotes/LinkQuotes";
 import type { ItemComponentProps } from "@/components/items/registry";
 import { errorMessage } from "@/components/people/errors";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
-import { Money } from "@/components/ui/money";
-import { PriceBadge } from "@/components/ui/price-badge";
 import {
   LINK_STATUSES,
   LINK_STATUS_LABELS,
@@ -23,8 +22,10 @@ import { cn } from "@/lib/utils";
 /*
  * A Shortlisted Vendor on the Canvas (S9): the shared Vendor card plus this
  * Event's private layer, one status per linked checklist Entry ("Sangeet:
- * Quoted · Wedding: Booked") and its current Quote. Booking a link marks its
- * Entry done. Another Event that shortlisted the same Vendor never sees these.
+ * Quoted · Wedding: Booked") and its Quotes (S12: add one, see how it adds
+ * up, and once Booked say yes to using it as the line's amount). Booking a
+ * link marks its Entry done. Another Event that shortlisted the same Vendor
+ * never sees these.
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -121,7 +122,7 @@ export function ShortlistedVendorItem({
                   <li
                     key={l._id}
                     data-status={l.status}
-                    className="flex flex-wrap items-center gap-2"
+                    className="grid gap-1.5"
                   >
                     <StatusMenu
                       label={l.entryLabel}
@@ -131,12 +132,13 @@ export function ShortlistedVendorItem({
                         void run(() => setStatus({ linkId: l._id, status }))
                       }
                     />
-                    {l.quote ? (
-                      <span className="inline-flex items-center gap-1 text-caption text-ink-2">
-                        <PriceBadge kind="quote" detail="none" />
-                        <Money amount={l.quote.amount} />
-                      </span>
-                    ) : null}
+                    {l.status === "dropped" ? null : (
+                      <LinkQuotes
+                        linkId={l._id}
+                        vendorName={title}
+                        entryLabel={l.entryLabel}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>

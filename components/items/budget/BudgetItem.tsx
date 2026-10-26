@@ -9,12 +9,14 @@ import {
 } from "@/components/canvas/CanvasItemContext";
 import type { ItemComponentProps } from "@/components/items/registry";
 import { EntryCommentCount } from "@/components/comments/ItemComments";
+import { BudgetQuotes } from "@/components/quotes/BudgetQuotes";
 import { ItemFrame } from "@/components/items/ItemFrame";
 import { Badge } from "@/components/ui/badge";
 import { FunctionMarker } from "@/components/ui/function-marker";
 import { Money } from "@/components/ui/money";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { LineComparison } from "@/convex/quotes";
 import { formatLakh } from "@/lib/format";
 import { perHousehold } from "@/lib/pricing/pricePlan";
 import { scriptClass } from "@/lib/script";
@@ -82,7 +84,12 @@ export function BudgetItem({ item }: ItemComponentProps<"budget">) {
           view.event.budgetTotal,
         ).total;
   const body = (
-    <BudgetBody itemId={item._id} note={item.data.note} view={view} />
+    <BudgetBody
+      itemId={item._id}
+      eventId={item.eventId}
+      note={item.data.note}
+      view={view}
+    />
   );
   return (
     <ItemFrame
@@ -94,7 +101,12 @@ export function BudgetItem({ item }: ItemComponentProps<"budget">) {
       functionName={canvas?.functionName}
       actions={
         <ExpandButton title="Budget" description="Every line of the plan">
-          <BudgetBody itemId={item._id} note={item.data.note} view={view} />
+          <BudgetBody
+            itemId={item._id}
+            eventId={item.eventId}
+            note={item.data.note}
+            view={view}
+          />
         </ExpandButton>
       }
     >
@@ -121,14 +133,18 @@ const BAND_LABELS: Partial<
 
 function BudgetBody({
   itemId,
+  eventId,
   note,
   view,
 }: {
   itemId: Id<"items">;
+  eventId: Id<"events">;
   note: string | null;
   view: View | undefined;
 }) {
   const add = useMutation(api.entries.add);
+  // S12: each line's Listed prices and Quotes, shown beside it, never added in.
+  const comparison = useQuery(api.quotes.budgetComparison, { eventId });
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
   const [functionKey, setFunctionKey] = useState<string | null>(null);
@@ -184,6 +200,9 @@ function BudgetBody({
       rows: eventWide,
     },
   ].filter((group) => group.rows.length > 0);
+  const byEntry = new Map(
+    (comparison?.entries ?? []).map((line) => [line.entryId, line]),
+  );
 
   return (
     <div className="grid gap-2.5">
@@ -259,6 +278,9 @@ function BudgetBody({
                 entry={entry}
                 canEdit={canEdit}
                 run={action.run}
+                comparison={byEntry.get(entry._id)}
+                functionName={group.key === "" ? null : group.name}
+                functionTotal={group.key === "" ? null : group.total}
               />
             ))}
           </ul>
@@ -331,10 +353,16 @@ function BudgetRow({
   entry,
   canEdit,
   run,
+  comparison,
+  functionName = null,
+  functionTotal = null,
 }: {
   entry: BudgetEntry;
   canEdit: boolean;
   run: (action: () => Promise<unknown>) => void;
+  comparison?: LineComparison;
+  functionName?: string | null;
+  functionTotal?: number | null;
 }) {
   const canvas = useCanvasItem();
   const update = useMutation(api.entries.update);
@@ -496,14 +524,23 @@ function BudgetRow({
       ) : null}
 
       {fields.role === "line" ? (
-        fields.estimate ? (
-          <EstimateLine
-            estimate={fields.estimate}
-            amount={fields.plannedAmount !== null}
+        <>
+          {fields.estimate ? (
+            <EstimateLine
+              estimate={fields.estimate}
+              amount={fields.plannedAmount !== null}
+              range={(comparison?.vendors.length ?? 0) > 0}
+            />
+          ) : (
+            <NoEstimate />
+          )}
+          <BudgetQuotes
+            label={label}
+            comparison={comparison}
+            functionName={functionName}
+            functionTotal={functionTotal}
           />
-        ) : (
-          <NoEstimate />
-        )
+        </>
       ) : (
         <p className="text-caption text-ink-3">
           {fields.role === "contingency"
