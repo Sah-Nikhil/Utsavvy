@@ -6,6 +6,8 @@ import type { MutationCtx } from "./_generated/server";
 import { createStartingSections } from "./canvas";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 import {
+  assistantInsert,
+  assistantSoftDelete,
   assistantWrite,
   memberSoftDelete,
   memberWrite,
@@ -809,6 +811,451 @@ describe("review fixes (PR #90)", () => {
       const loneSurrogate =
         /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
       expect(page[0]!.summary).not.toMatch(loneSurrogate);
+    });
+  });
+});
+
+describe("undoGroup (X11)", () => {
+  const LABELS = [
+    "Sangeet DJ",
+    "Caterer",
+    "Decor",
+    "Mehendi artist",
+    "Photographer",
+    "Sound",
+    "Lighting",
+    "Venue",
+  ];
+
+  function line(label: string, planned: number) {
+    return {
+      label,
+      category: null,
+      quantity: 1,
+      unit: "per_event" as const,
+      estimate: null,
+      plannedAmount: planned,
+      role: "line" as const,
+      belowUsualRange: false,
+      editedByMember: false,
+    };
+  }
+
+  /**
+   * Meera's wedding with Meera (Owner), Rohan (Member) and Papa (Viewer) named
+   * as people see them, a Budget with 8 sangeet lines at ₹10,000, and one
+   * Assistant reply for Meera, "Plan the sangeet", that raised all 8 to ₹20,000.
+   */
+  async function sangeet(ctx: MutationCtx) {
+    const s = await setUp(ctx);
+    await ctx.db.patch("memberships", s.meera, { displayName: "Meera" });
+    await ctx.db.patch("memberships", s.rohan, { displayName: "Rohan" });
+    await ctx.db.patch("memberships", s.papa, { displayName: "Papa" });
+    const budgetId = await ctx.db.insert("items", {
+      eventId: s.eventId,
+      sectionId: s.sections.money,
+      kind: "budget",
+      position: { x: 0, y: 0 },
+      size: null,
+      functionKey: null,
+      data: { note: null },
+      createdBy: { kind: "member", membershipId: s.meera },
+      version: 1,
+      deletedAt: null,
+    });
+    const lines: Id<"entries">[] = [];
+    for (const [order, label] of LABELS.entries()) {
+      lines.push(
+        await ctx.db.insert("entries", {
+          eventId: s.eventId,
+          itemId: budgetId,
+          kind: "budget",
+          order,
+          functionKey: "sangeet",
+          fields: line(label, 10_000),
+          assumed: [],
+          createdBy: { kind: "member", membershipId: s.meera },
+          version: 1,
+          deletedAt: null,
+        }),
+      );
+    }
+    const runId = await ctx.db.insert("runs", {
+      eventId: s.eventId,
+      requestedBy: s.meera,
+      source: "chat",
+      messageId: null,
+      commentId: null,
+      status: "done",
+      stoppedBy: null,
+      model: "stub-utsavvy",
+      createdAt: 0,
+      startedAt: 0,
+      endedAt: 1,
+    });
+    for (const [i, id] of lines.entries()) {
+      await assistantWrite(ctx, {
+        table: "entries",
+        id,
+        expectedVersion: 1,
+        patch: { fields: line(LABELS[i]!, 20_000) },
+        runId,
+        toolCallId: `toolu_01#${i + 1}`,
+        forMembershipId: s.meera,
+        groupLabel: "Plan the sangeet",
+      });
+    }
+    return { ...s, budgetId, lines, runId };
+  }
+
+  async function plannedAmounts(ctx: MutationCtx, ids: Id<"entries">[]) {
+    const out: number[] = [];
+    for (const id of ids) {
+      const entry = await ctx.db.get("entries", id);
+      out.push(
+        entry?.kind === "budget" ? (entry.fields.plannedAmount ?? -1) : -1,
+      );
+    }
+    return out;
+  }
+
+  async function countChanges(ctx: MutationCtx, eventId: Id<"events">) {
+    return (
+      await ctx.db
+        .query("changes")
+        .withIndex("by_event_at", (q) => q.eq("eventId", eventId))
+        .collect()
+    ).length;
+  }
+
+  /** Rohan sets the Sangeet DJ line to ₹25,000 after the reply. */
+  async function rohanEditsTheDj(
+    ctx: MutationCtx,
+    s: Awaited<ReturnType<typeof sangeet>>,
+  ) {
+    await memberWrite(ctx, {
+      table: "entries",
+      id: s.lines[0]!,
+      patch: { fields: line("Sangeet DJ", 25_000) },
+      actor: { kind: "member", membershipId: s.rohan },
+    });
+  }
+
+  it('undoes the 7 changes nobody touched since and says "Undid 7 of 8; Rohan has since edited Sangeet DJ"', async () => {
+    const t = newTest();
+    const s = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      await rohanEditsTheDj(ctx, s);
+      return s;
+    });
+
+    const result = await t
+      .withIdentity(identityFor("meera"))
+      .mutation(api.history.undoGroup, { groupKey: s.runId });
+
+    expect(result).toEqual({
+      undone: 7,
+      total: 8,
+      message: "Undid 7 of 8; Rohan has since edited Sangeet DJ",
+    });
+    const amounts = await t.run((ctx) => plannedAmounts(ctx, s.lines));
+    expect(amounts).toEqual([
+      25_000, 10_000, 10_000, 10_000, 10_000, 10_000, 10_000, 10_000,
+    ]);
+  });
+
+  it("refuses a Viewer and changes nothing", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const before = await t.run((ctx) => countChanges(ctx, s.eventId));
+
+    await expect(
+      t
+        .withIdentity(identityFor("papa"))
+        .mutation(api.history.undoGroup, { groupKey: s.runId }),
+    ).rejects.toThrow();
+
+    const after = await t.run(async (ctx) => ({
+      amounts: await plannedAmounts(ctx, s.lines),
+      changes: await countChanges(ctx, s.eventId),
+    }));
+    expect(after.amounts).toEqual(Array(8).fill(20_000));
+    expect(after.changes).toBe(before);
+  });
+
+  it("refuses a Member of another Event, whose group it isn't", async () => {
+    const t = newTest();
+    const s = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      await seedMembership(ctx, { clerkId: "stranger", role: "owner" });
+      return s;
+    });
+
+    await expect(
+      t
+        .withIdentity(identityFor("stranger"))
+        .mutation(api.history.undoGroup, { groupKey: s.runId }),
+    ).rejects.toThrow();
+
+    const amounts = await t.run((ctx) => plannedAmounts(ctx, s.lines));
+    expect(amounts).toEqual(Array(8).fill(20_000));
+  });
+
+  it("refuses a group with no changes", async () => {
+    const t = newTest();
+    await t.run(sangeet);
+    await expect(
+      t
+        .withIdentity(identityFor("meera"))
+        .mutation(api.history.undoGroup, { groupKey: "no-such-group" }),
+    ).rejects.toThrow();
+  });
+
+  it("does nothing new on a second tap, and says so", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const meera = t.withIdentity(identityFor("meera"));
+
+    const first = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(first.message).toBe("Undid 8 of 8");
+    const written = await t.run((ctx) => countChanges(ctx, s.eventId));
+
+    const second = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(second).toEqual({ undone: 0, total: 8, message: "Already undone" });
+    expect(await t.run((ctx) => countChanges(ctx, s.eventId))).toBe(written);
+  });
+
+  it("says what is still left on a second tap after a skipped change", async () => {
+    const t = newTest();
+    const s = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      await rohanEditsTheDj(ctx, s);
+      return s;
+    });
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+    const second = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(second.message).toBe(
+      "Nothing more to undo; Rohan has since edited Sangeet DJ",
+    );
+  });
+
+  it("writes the undo as one new group of Restores by the Member, and marks each change undone", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    await t
+      .withIdentity(identityFor("meera"))
+      .mutation(api.history.undoGroup, { groupKey: s.runId });
+
+    const { undos, originals } = await t.run(async (ctx) => {
+      const all = await ctx.db
+        .query("changes")
+        .withIndex("by_event_at", (q) => q.eq("eventId", s.eventId))
+        .collect();
+      return {
+        undos: all.filter((c) => c.op === "restore"),
+        originals: all.filter((c) => c.groupKey === s.runId),
+      };
+    });
+    expect(undos).toHaveLength(8);
+    const keys = [...new Set(undos.map((c) => c.groupKey))];
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).not.toBeNull();
+    expect(keys[0]).not.toBe(s.runId);
+    for (const undo of undos) {
+      expect(undo.actor).toEqual({ kind: "member", membershipId: s.meera });
+    }
+    for (const original of originals) {
+      expect(undos.map((u) => u._id)).toContain(original.undoneBy);
+    }
+
+    const { page } = await t
+      .withIdentity(identityFor("papa"))
+      .query(api.history.list, {
+        eventId: s.eventId,
+        paginationOpts: firstPage,
+      });
+    const undoRow = page.find((r) => r.groupKey === keys[0])!;
+    expect(undoRow.byAssistant).toBe(false);
+    expect(undoRow.groupTitle).toBe(
+      "Meera: Undo all of Plan the sangeet (8 changes)",
+    );
+  });
+
+  it("removes what the reply added and brings back what it deleted", async () => {
+    const t = newTest();
+    const s = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      const common = {
+        runId: s.runId,
+        forMembershipId: s.meera,
+        groupLabel: "Plan the sangeet",
+      };
+      const { id: added } = await assistantInsert(ctx, {
+        ...common,
+        table: "entries",
+        toolCallId: "toolu_02",
+        value: {
+          eventId: s.eventId,
+          itemId: s.budgetId,
+          kind: "budget",
+          order: 8,
+          functionKey: "sangeet",
+          fields: line("Dhol", 8_000),
+          assumed: [],
+          createdBy: { kind: "member", membershipId: s.meera },
+        },
+      });
+      await assistantSoftDelete(ctx, {
+        ...common,
+        table: "items",
+        id: s.noteId,
+        expectedVersion: 1,
+        toolCallId: "toolu_03",
+      });
+      return { ...s, added };
+    });
+
+    const result = await t
+      .withIdentity(identityFor("rohan"))
+      .mutation(api.history.undoGroup, { groupKey: s.runId });
+    expect(result.message).toBe("Undid 10 of 10");
+
+    const { added, note } = await t.run(async (ctx) => ({
+      added: await ctx.db.get("entries", s.added),
+      note: await ctx.db.get("items", s.noteId),
+    }));
+    expect(added?.deletedAt).not.toBeNull();
+    expect(note?.deletedAt).toBeNull();
+  });
+
+  it("lets any Member undo an accepted Proposal, not only the one who accepted it", async () => {
+    const t = newTest();
+    const { proposalId, lines } = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      const proposalId = await ctx.db.insert("proposals", {
+        eventId: s.eventId,
+        runId: null,
+        requestedBy: s.rohan,
+        origin: { kind: "chat" },
+        summary: "Cut decor",
+        changes: [],
+        status: "accepted",
+        decidedBy: s.meera,
+        decidedAt: 1,
+        replacedBy: null,
+        expiresAt: 2,
+        createdAt: 0,
+      } as never);
+      await assistantWrite(ctx, {
+        table: "entries",
+        id: s.lines[2]!,
+        expectedVersion: 2,
+        patch: { fields: line("Decor", 5_000) },
+        runId: null,
+        proposalId,
+        toolCallId: "change#1",
+        forMembershipId: s.rohan,
+        acceptedBy: s.meera,
+      });
+      return { ...s, proposalId };
+    });
+
+    const result = await t
+      .withIdentity(identityFor("rohan"))
+      .mutation(api.history.undoGroup, { groupKey: proposalId });
+    expect(result.message).toBe("Undid 1 of 1");
+    const amounts = await t.run((ctx) => plannedAmounts(ctx, lines));
+    expect(amounts[2]).toBe(20_000);
+  });
+
+  it("runs the post-write hooks, so a Nudge check is scheduled as for any Member edit", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const nudgeChecks = () =>
+      t.run(
+        async (ctx) =>
+          (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+            (f) => f.name.includes("nudges"),
+          ).length,
+      );
+    const before = await nudgeChecks();
+    await t
+      .withIdentity(identityFor("meera"))
+      .mutation(api.history.undoGroup, { groupKey: s.runId });
+    expect(await nudgeChecks()).toBe(before + 1);
+  });
+
+  it("redoes a reply by undoing its Undo all, which makes the reply undoable again", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+
+    const redo = await meera.mutation(api.history.undoGroup, {
+      groupKey: `undo:${s.runId}`,
+    });
+    expect(redo.message).toBe("Undid 8 of 8");
+    expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
+      Array(8).fill(20_000),
+    );
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 8, total: 8 });
+
+    const again = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(again.message).toBe("Undid 8 of 8");
+    expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
+      Array(8).fill(10_000),
+    );
+  });
+
+  describe("groupStatus", () => {
+    it("tells a Member how many changes are left to undo, and a Viewer that they can't", async () => {
+      const t = newTest();
+      const s = await t.run(sangeet);
+      const meera = t.withIdentity(identityFor("meera"));
+
+      expect(
+        await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+      ).toEqual({ canUndo: true, left: 8, total: 8 });
+      expect(
+        await t
+          .withIdentity(identityFor("papa"))
+          .query(api.history.groupStatus, { groupKey: s.runId }),
+      ).toEqual({ canUndo: false, left: 8, total: 8 });
+
+      await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+      expect(
+        await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+      ).toEqual({ canUndo: true, left: 0, total: 8 });
+    });
+
+    it("is null for a reply that changed nothing, and for someone outside the Event", async () => {
+      const t = newTest();
+      const s = await t.run(async (ctx) => {
+        const s = await sangeet(ctx);
+        await seedMembership(ctx, { clerkId: "stranger", role: "owner" });
+        return s;
+      });
+      expect(
+        await t
+          .withIdentity(identityFor("meera"))
+          .query(api.history.groupStatus, { groupKey: "chat-only-run" }),
+      ).toBeNull();
+      expect(
+        await t
+          .withIdentity(identityFor("stranger"))
+          .query(api.history.groupStatus, { groupKey: s.runId }),
+      ).toBeNull();
     });
   });
 });

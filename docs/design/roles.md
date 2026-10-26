@@ -102,7 +102,7 @@ This narrows one line of [ADR 0004](../adr/0004-event-keys.md), which said Membe
 ## History and attribution
 
 - Everyone, Viewers included, sees the full edit history with names: Members and the Assistant as "Utsavvy for <Member>". Comments are not history rows (decided 2026-10-23, after the review of PR #91): each keeps its author and time in its own thread, and the history covers changes to the plan only (`HISTORY_TABLES` in `lib/types/history.ts`).
-- Only Members can press Restore, because Restore is an edit.
+- Only Members can press Restore, because Restore is an edit. The same goes for Undo all (X11), which is a Restore of every change in an Assistant reply or accepted Proposal; any Member can press it, not only the one who asked or accepted. Viewers never see the button.
 - Role changes, removals, unblocks, ownership transfers, link resets and Event key changes are listed in the history too, with who did them. The key's value never appears there.
 
 ## Judge accounts

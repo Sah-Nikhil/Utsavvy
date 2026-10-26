@@ -57,6 +57,8 @@ const PROBLEMS: Record<HistoryProblem, string> = {
   itemDeleted: "Its Item was deleted. Restore the Item first, then this.",
   tooManySections:
     "The Canvas already has 30 custom Sections. Delete one, then restore this.",
+  sectionNotEmpty:
+    "That Section still holds Items, so it stays. Move or delete them first.",
 };
 
 function restoreProblem(error: unknown): string {
@@ -126,7 +128,12 @@ function History({ eventId }: { eventId: Id<"events"> }) {
   }
 
   const days = arrange(results, new Date());
-  const rowProps = { busy, onRestore };
+  const rowProps = {
+    busy,
+    onRestore,
+    onUndone: (text: string, tone: "done" | "problem") =>
+      setNotice({ tone, text }),
+  };
   return (
     <div className="grid gap-5" data-history>
       <p
@@ -185,14 +192,20 @@ function History({ eventId }: { eventId: Id<"events"> }) {
 type RowActions = {
   busy: Id<"changes"> | null;
   onRestore: (row: HistoryRow) => void;
+  onUndone: (text: string, tone: "done" | "problem") => void;
 };
 
-/** One Assistant reply or accepted Proposal, closed to its title until opened. */
+/**
+ * One Assistant reply, accepted Proposal or Undo all, closed to its title
+ * until opened.
+ */
 function GroupRow({
   block,
   busy,
   onRestore,
+  onUndone,
 }: { block: Extract<Block, { kind: "group" }> } & RowActions) {
+  const first = block.rows[0]!;
   const [open, setOpen] = useState(false);
   const listId = `history-group-${block.rows[0]!.changeId}`;
   return (
@@ -205,7 +218,14 @@ function GroupRow({
           onClick={() => setOpen((o) => !o)}
           className="flex min-h-11 min-w-0 flex-1 items-start gap-3 rounded-md px-1 py-1.5 text-left hover:bg-surface-sunk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
         >
-          <AssistantOrb palette={[]} size={28} className="mt-0.5 shrink-0" />
+          {first.byAssistant ? (
+            <AssistantOrb palette={[]} size={28} className="mt-0.5 shrink-0" />
+          ) : (
+            // An Undo all is the Member's own; the title already names them.
+            <span aria-hidden className="shrink-0">
+              <Avatar name={first.who.replace(/ \(left\)$/, "")} />
+            </span>
+          )}
           <span className="min-w-0 flex-1">
             <span className="block text-body text-ink">{block.title}</span>
             <span className="block text-caption text-ink-3 num">
@@ -220,7 +240,13 @@ function GroupRow({
             )}
           />
         </button>
-        <UndoAllButton groupKey={block.key} />
+        <span className="mt-1.5">
+          <UndoAllButton
+            groupKey={block.key}
+            label={block.title}
+            onDone={onUndone}
+          />
+        </span>
       </div>
       <ul
         id={listId}
@@ -247,7 +273,7 @@ function ChangeRow({
   busy,
   onRestore,
   inGroup = false,
-}: { row: HistoryRow; inGroup?: boolean } & RowActions) {
+}: { row: HistoryRow; inGroup?: boolean } & Omit<RowActions, "onUndone">) {
   const setSelection = useShowItem();
   const meta = inGroup
     ? timeLabel(row.at)

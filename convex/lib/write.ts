@@ -56,6 +56,11 @@ type WriteOptions = {
   fromComment?: boolean;
   /** The history group's label, such as "Plan the sangeet". */
   groupLabel?: string | null;
+  /**
+   * The history group a Member's writes belong to, such as one Undo all (X11).
+   * Ignored for the Assistant, whose group is always its run or Proposal.
+   */
+  groupKey?: string | null;
 };
 
 type AssistantOptions = WriteOptions & {
@@ -107,7 +112,7 @@ async function record(
   const groupKey =
     args.actor.kind === "assistant"
       ? (args.actor.runId ?? args.actor.proposalId ?? null)
-      : null;
+      : (args.options.groupKey ?? null);
   await ctx.db.insert("changes", {
     eventId,
     at: Date.now(),
