@@ -699,6 +699,18 @@ async function putBack(
   for (const field of restorable) {
     if (!sameValue(doc[field], before[field])) patch[field] = before[field];
   }
+  // A deleted Item or Entry kept its tag when the Function was skipped. Clear
+  // that tag when this Restore brings the row back.
+  const restored = { ...doc, ...patch };
+  if (
+    (table === "items" || table === "entries") &&
+    doc.deletedAt !== null &&
+    restored.deletedAt === null &&
+    typeof restored.functionKey === "string" &&
+    !(await functionExists(ctx, change.eventId, restored.functionKey))
+  ) {
+    patch.functionKey = null;
+  }
   const fields = Object.keys(patch);
   if (fields.length === 0) {
     // Nothing but the skipped Function to put back.

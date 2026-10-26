@@ -11,7 +11,13 @@ import {
   stubEstimateDeps,
 } from "./estimates";
 import { STUB_MODEL, stubCallCount } from "./lib/models";
-import { assistantInsert, assistantWrite, memberInsert } from "./lib/write";
+import {
+  assistantInsert,
+  assistantSoftDelete,
+  assistantWrite,
+  memberInsert,
+  memberSoftDelete,
+} from "./lib/write";
 import { identityFor, newTest, seedMembership } from "./lib/test.helpers";
 
 // The previewed Budget check fixes (X12, #69) end to end on the stub model,
@@ -630,6 +636,81 @@ describe("Undo all after a skipped Function (X11 with X12)", () => {
     ).rejects.toThrow(/functionGone/);
     const note = await s.t.run((ctx) => ctx.db.get("items", noteId));
     expect(note).toMatchObject({ functionKey: null, deletedAt: null });
+  });
+
+  it("Restore of a deleted Note leaves it Event-wide after its Function was skipped (review Low 1)", async () => {
+    const { s, brief } = await jaipurAt15L();
+    const { meera, noteId } = await receptionNote(s);
+    await s.t.run((ctx) =>
+      memberSoftDelete(ctx, {
+        table: "items",
+        id: noteId,
+        actor: { kind: "member", membershipId: meera._id },
+      }),
+    );
+    const deletion = await s.t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("changes")
+          .withIndex("by_doc", (q) => q.eq("docId", noteId))
+          .order("desc")
+          .first())!,
+    );
+    const skip = brief.fixes.find((f) => f.kind === "fewerFunctions")!;
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: skip.change,
+    });
+
+    await s.asMeera.mutation(api.history.restore, {
+      changeId: deletion._id,
+    });
+
+    const note = await s.t.run((ctx) => ctx.db.get("items", noteId));
+    expect(note).toMatchObject({ deletedAt: null, functionKey: null });
+  });
+
+  it("Undo all of a reply's Note deletion leaves it Event-wide after its Function was skipped (review Low 1)", async () => {
+    const { s, brief } = await jaipurAt15L();
+    const { meera, noteId } = await receptionNote(s);
+    const runId = await s.t.run(async (ctx) => {
+      const runId = await ctx.db.insert("runs", {
+        eventId: s.eventId,
+        requestedBy: meera._id,
+        source: "chat",
+        messageId: null,
+        commentId: null,
+        status: "done",
+        stoppedBy: null,
+        model: STUB_MODEL,
+        createdAt: 0,
+        startedAt: 0,
+        endedAt: 1,
+      });
+      await assistantSoftDelete(ctx, {
+        table: "items",
+        id: noteId,
+        expectedVersion: 1,
+        runId,
+        toolCallId: "toolu_01#1",
+        forMembershipId: meera._id,
+        groupLabel: "Remove the reception favours",
+      });
+      return runId;
+    });
+    const skip = brief.fixes.find((f) => f.kind === "fewerFunctions")!;
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: skip.change,
+    });
+
+    const result = await s.asMeera.mutation(api.history.undoGroup, {
+      groupKey: runId,
+    });
+
+    expect(result.message).toBe("Undid 1 of 1");
+    const note = await s.t.run((ctx) => ctx.db.get("items", noteId));
+    expect(note).toMatchObject({ deletedAt: null, functionKey: null });
   });
 
   it("Undo all of a reply that moved an Item off a since-skipped Function leaves it Event-wide (review L3)", async () => {
