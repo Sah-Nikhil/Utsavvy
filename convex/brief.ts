@@ -1654,7 +1654,7 @@ export const summary = query({
         question = nextQuestion(
           state.extraction,
           state.progress,
-          /^d{4}-d{2}-d{2}$/.test(today) ? today : istDay(event.createdAt),
+          /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : istDay(event.createdAt),
         );
         pendingQuestion = question?.id ?? null;
       }
