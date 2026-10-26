@@ -36,12 +36,34 @@ const NEGATION =
 const DEFERRED =
   /\b(later|afterwards|some ?day|eventually|kal|baad|baad mein|abhi nahi)\b|बाद|कल/i;
 
-/** Splits a message into sentences, keeping Hindi's danda as a stop. */
+/**
+ * Whether the period at `i` closes an initial, as in "G.D. Caterer": a single
+ * letter after the start, a space, a bracket or another initial's period.
+ */
+function closesInitial(text: string, i: number): boolean {
+  const letter = text[i - 1];
+  const before = text[i - 2];
+  return (
+    letter !== undefined &&
+    /\p{L}/u.test(letter) &&
+    (before === undefined || /[\s.(]/.test(before))
+  );
+}
+
+/** Splits a message into sentences, keeping Hindi's danda as a stop and initials ("G.D.") whole. */
 function sentences(text: string): string[] {
-  return text
-    .split(/(?<=[.!?।\n])/)
-    .map((s) => s.trim())
-    .filter((s) => s !== "");
+  const found: string[] = [];
+  let current = "";
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]!;
+    current += char;
+    if (/[!?।\n]/.test(char) || (char === "." && !closesInitial(text, i))) {
+      found.push(current);
+      current = "";
+    }
+  }
+  found.push(current);
+  return found.map((s) => s.trim()).filter((s) => s !== "");
 }
 
 /** Lowercase words only, so "M.L. Caterers" and "m l caterers" compare equal. */
@@ -77,6 +99,13 @@ const GENERIC = new Set([
   "wedding",
   "weddings",
   "jaipur",
+  "of",
+  "inn",
+  "hotel",
+  "haveli",
+  "resort",
+  "resorts",
+  "palace",
 ]);
 
 /** Words of a request that can never stand for a Vendor's name ("add", "book", "the"). */
@@ -126,20 +155,27 @@ const STOP = new Set([
 
 /**
  * The ways a Member can name a Vendor: its whole name, with or without a part
- * in brackets, optionally leaving off trailing generic words ("Vinayak Foods"
- * for "Vinayak Foods & Catering", "Ganesh Dal Bati" for "Ganesh Dal Bati
- * Churma"). Never one word of a longer name ("Ganesh" alone), and never a
- * name made only of generic or request words (a Vendor called "Add").
+ * in brackets or a leading "The", optionally leaving off trailing generic
+ * words ("Vinayak Foods" or "Vinayak" for "Vinayak Foods & Catering", "Viresh"
+ * for "Viresh Studio", "Ganesh Dal Bati" for "Ganesh Dal Bati Churma"). What
+ * is left has to hold a distinctive word, so one word of a longer distinctive
+ * name ("Ganesh" alone) never counts, and neither does a name made only of
+ * generic or request words (a Vendor called "Add").
  */
 function nameForms(name: string): string[] {
   const forms = new Set<string>();
-  for (const variant of [name, name.replace(/\([^)]*\)/g, " ")]) {
+  const unbracketed = name.replace(/\([^)]*\)/g, " ");
+  for (const variant of [
+    name,
+    unbracketed,
+    name.replace(/^\s*the\s+/i, ""),
+    unbracketed.replace(/^\s*the\s+/i, ""),
+  ]) {
     const tokens = words(variant).trim().split(" ").filter(Boolean);
     for (let end = tokens.length; end >= 1; end--) {
       const kept = tokens.slice(0, end);
       const dropped = tokens.slice(end);
       if (!dropped.every((t) => GENERIC.has(t))) break;
-      if (kept.length < Math.min(2, tokens.length)) break;
       if (!kept.some((t) => !GENERIC.has(t) && !STOP.has(t))) break;
       forms.add(kept.join(" "));
     }
@@ -147,7 +183,8 @@ function nameForms(name: string): string[] {
   return [...forms];
 }
 
-function namesVendor(sentence: string, name: string): boolean {
+/** Whether the sentence names the Vendor called `name` (see `nameForms`). */
+export function namesVendor(sentence: string, name: string): boolean {
   const said = words(sentence);
   return nameForms(name).some((form) => said.includes(` ${form} `));
 }
