@@ -92,11 +92,17 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
     await expect(vinayak).toContainText("from ₹250/plate (starting price)");
     await expect(vinayak).toContainText("from vinayakfoodsncatering.in · seen");
     await expect(vinayak).toContainText("Summary by the Assistant");
-    await vinayak
+    const prices = vinayak.getByRole("region", { name: "Listed prices" });
+    await prices
       .getByRole("button", { name: "The exact sentence" })
       .first()
       .click();
-    await expect(vinayak.locator("blockquote")).toContainText("250");
+    await expect(prices.locator("blockquote")).toContainText("250");
+    // Every sourced section offers its sentence on tap, not only prices.
+    const area = vinayak.getByRole("region", { name: "Area served" });
+    await expect(area).toContainText("from vinayakfoodsncatering.in · seen");
+    await area.getByRole("button", { name: "The exact sentence" }).click();
+    await expect(area.locator("blockquote")).toBeVisible();
 
     // A neutral illustration on every card, a WedMeGood listing link, no photo.
     await expect(cards.locator("svg[data-illustration]")).toHaveCount(
@@ -146,6 +152,36 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
       path: testInfo.outputPath("shortlisted-vendor-desktop.png"),
     });
 
+    // "Find Vendors" on the caterer Entry: the known caterers, the linked one
+    // marked, and "Add to Canvas" links another to this Entry.
+    await page
+      .getByRole("button", { name: "Find Vendors for Caterer" })
+      .click();
+    const sheet = page.getByRole("dialog", { name: "Find Vendors: Caterer" });
+    const known = sheet.getByRole("list", { name: "Known caterers" });
+    await expect(known.getByRole("article")).toHaveCount(result.found, {
+      timeout: 20_000,
+    });
+    await expect(
+      known.getByRole("article").filter({ hasText: secondName }),
+    ).toContainText("Linked to Caterer");
+    await expectNoSeriousA11yViolations(page);
+    await page.screenshot({
+      path: testInfo.outputPath("find-vendors-desktop.png"),
+    });
+    await known
+      .getByRole("article")
+      .first()
+      .getByRole("button", { name: /^Add to Canvas: / })
+      .click();
+    await expect(known.getByRole("article").first()).toContainText(
+      "Linked to Caterer",
+      { timeout: 10_000 },
+    );
+    await expect(shortlisted(page)).toHaveCount(2, { timeout: 20_000 });
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+
     // At 390 px the cards stay readable in the Chat, and the Canvas tab's
     // Compact mode shows the Shortlisted Vendor with its status.
     await page.setViewportSize({ width: 390, height: 844 });
@@ -158,7 +194,9 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
       .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Canvas" })
       .click();
-    const compact = page.locator('[data-compact-item="shortlistedVendor"]');
+    const compact = page
+      .locator('[data-compact-item="shortlistedVendor"]')
+      .filter({ hasText: secondName });
     await expect(compact).toBeVisible({ timeout: 20_000 });
     await expect(compact).toContainText("Booked");
     await compact.scrollIntoViewIfNeeded();
@@ -166,6 +204,33 @@ test.describe("Vendor cards, seeded on a local deployment", () => {
     await compact.screenshot({
       path: testInfo.outputPath("shortlisted-vendor-390.png"),
     });
+    expect(cspViolations).toEqual([]);
+  });
+
+  test('"Find Vendors" outside Jaipur finds none and points to Chat web search', async ({
+    page,
+    signIn,
+    cspViolations,
+  }) => {
+    test.setTimeout(120_000);
+    const eventId = await newEvent(page, signIn, "E2E Vendors Pune");
+    const result = convexRun<{ ok: boolean; found: number }>(
+      "assistant/tools/vendors:cardsForLocalCheck",
+      { eventId, email: ownerEmail(), city: "Pune" },
+    );
+    expect(result).toMatchObject({ ok: true, found: 0 });
+    await expect(cardList(page)).toHaveCount(0);
+    await page.getByRole("button", { name: "Show the whole Canvas" }).click();
+    await page
+      .getByRole("button", { name: "Find Vendors for Caterer" })
+      .click({ timeout: 20_000 });
+    const sheet = page.getByRole("dialog", { name: "Find Vendors: Caterer" });
+    await expect(sheet.getByRole("status")).toContainText(
+      "Utsavvy has no Vendors in Pune yet",
+      { timeout: 20_000 },
+    );
+    await expect(sheet.getByRole("status")).toContainText("web search");
+    await expectNoSeriousA11yViolations(page);
     expect(cspViolations).toEqual([]);
   });
 });

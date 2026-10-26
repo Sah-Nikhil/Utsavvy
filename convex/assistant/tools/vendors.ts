@@ -686,8 +686,13 @@ function refuseOutsideLocal() {
  * anything but a local deployment.
  */
 export const cardsForLocalCheck = internalMutation({
-  args: { eventId: v.id("events"), email: v.string() },
-  handler: async (ctx, { eventId, email }): Promise<ToolResult> => {
+  args: {
+    eventId: v.id("events"),
+    email: v.string(),
+    /** Another city than Jaipur, for the "none here yet" case. */
+    city: v.optional(v.string()),
+  },
+  handler: async (ctx, { eventId, email, city }): Promise<ToolResult> => {
     refuseOutsideLocal();
     const user = await ctx.db
       .query("users")
@@ -704,9 +709,9 @@ export const cardsForLocalCheck = internalMutation({
     if (!membership) throw new Error(`${email} is not in that Event`);
     await loadStarterSetRows(ctx);
     const event = (await ctx.db.get("events", eventId))!;
-    if (event.city === null) {
+    if (event.city === null || city !== undefined) {
       await ctx.db.patch("events", eventId, {
-        city: { name: "Jaipur", tier: "Y", centre: null },
+        city: { name: city ?? "Jaipur", tier: "Y", centre: null },
       });
     }
     const functions = await ctx.db
@@ -724,6 +729,47 @@ export const cardsForLocalCheck = internalMutation({
         order: functions.length,
         version: 1,
       });
+    }
+    // A caterer Entry on the Vendor checklist, for "Find Vendors".
+    const checklist = (
+      await ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", eventId).eq("kind", "checklist"),
+        )
+        .take(5)
+    ).find((item) => item.deletedAt === null);
+    if (checklist) {
+      const rows = await ctx.db
+        .query("entries")
+        .withIndex("by_item", (q) => q.eq("itemId", checklist._id))
+        .take(100);
+      if (
+        !rows.some(
+          (row) =>
+            row.kind === "checklist" &&
+            row.deletedAt === null &&
+            row.fields.vendorCategory === "caterer",
+        )
+      )
+        await ctx.db.insert("entries", {
+          eventId,
+          itemId: checklist._id,
+          kind: "checklist",
+          order: rows.length,
+          functionKey: null,
+          fields: {
+            vendorCategory: "caterer",
+            freeLabel: null,
+            functionKeys: ["sangeet"],
+            bookByEntryId: null,
+            budgetEntryIds: [],
+          },
+          assumed: [],
+          createdBy: { kind: "member", membershipId: membership._id },
+          version: 1,
+          deletedAt: null,
+        });
     }
     let threadId = event.agentThreadId;
     if (threadId === null) {
