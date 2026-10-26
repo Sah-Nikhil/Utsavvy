@@ -24,6 +24,12 @@ describe("approximateTag", () => {
     expect(approximateTag({ approximate: true, street: true })).toBe("shown");
   });
 
+  it("keeps a faint Vendor's tag for hover and focus even at street zoom, so stacked Markers don't stack tags", () => {
+    expect(
+      approximateTag({ approximate: true, street: true, faint: true }),
+    ).toBe("on-hover");
+  });
+
   it("keeps the tag for hover and focus at city zoom", () => {
     expect(approximateTag({ approximate: true, street: false })).toBe(
       "on-hover",
