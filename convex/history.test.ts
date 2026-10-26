@@ -9,6 +9,7 @@ import {
   assistantInsert,
   assistantSoftDelete,
   assistantWrite,
+  memberInsert,
   memberSoftDelete,
   memberWrite,
   recordPeopleChange,
@@ -1326,13 +1327,210 @@ describe("undoGroup (X11)", () => {
     const result = await meera.mutation(api.history.undoGroup, {
       groupKey: s.runId,
     });
-    expect(result.message).toBe("Undid 8 of 8");
+    expect(result.message).toBe(
+      "Undid 8 of 8; Rohan had already put back Caterer",
+    );
     expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
       Array(8).fill(10_000),
     );
     expect(
       await meera.query(api.history.groupStatus, { groupKey: s.runId }),
     ).toEqual({ canUndo: true, left: 0, total: 8 });
+  });
+
+  it("reopens the reply's change on Redo when someone already set it back by hand (probe Q1)", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const meera = t.withIdentity(identityFor("meera"));
+    await meera.mutation(api.history.undoGroup, { groupKey: s.runId });
+    const undoKey = await t.run((ctx) => newestGroupKey(ctx, s.eventId));
+    // Rohan types the reply's ₹20,000 back into Sangeet DJ himself.
+    await t.run((ctx) =>
+      memberWrite(ctx, {
+        table: "entries",
+        id: s.lines[0]!,
+        patch: { fields: line("Sangeet DJ", 20_000) },
+        actor: { kind: "member", membershipId: s.rohan },
+      }),
+    );
+
+    const redo = await meera.mutation(api.history.undoGroup, {
+      groupKey: undoKey,
+    });
+    expect(redo.message).toBe(
+      "Redid 8 of 8; Rohan had already put back Sangeet DJ",
+    );
+    expect(await t.run((ctx) => plannedAmounts(ctx, s.lines))).toEqual(
+      Array(8).fill(20_000),
+    );
+    // Every one of the reply's changes is in place again, DJ included.
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 8, total: 8 });
+
+    // Rohan's own edit holds the DJ value now, so Undo all names him rather
+    // than settling on "Undone" with the DJ still at the reply's ₹20,000.
+    const again = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(again.message).toBe(
+      "Undid 7 of 8; Rohan has since edited Sangeet DJ",
+    );
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 1, total: 8 });
+
+    // Once the DJ is back at ₹10,000, the reply's Undo all finishes.
+    await t.run((ctx) =>
+      memberWrite(ctx, {
+        table: "entries",
+        id: s.lines[0]!,
+        patch: { fields: line("Sangeet DJ", 10_000) },
+        actor: { kind: "member", membershipId: s.rohan },
+      }),
+    );
+    const last = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(last.message).toBe(
+      "Undid 1 of 8; Rohan had already put back Sangeet DJ",
+    );
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 0, total: 8 });
+  });
+
+  it("reopens a change when the Restore that put it back by hand is itself restored (probe Q3)", async () => {
+    const t = newTest();
+    const s = await t.run(sangeet);
+    const rohan = t.withIdentity(identityFor("rohan"));
+    const meera = t.withIdentity(identityFor("meera"));
+    const djChange = await t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("changes")
+          .withIndex("by_doc", (q) => q.eq("docId", s.lines[0]!))
+          .first())!,
+    );
+    await rohan.mutation(api.history.restore, { changeId: djChange._id });
+    const byHand = await t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("changes")
+          .withIndex("by_doc", (q) => q.eq("docId", s.lines[0]!))
+          .order("desc")
+          .first())!,
+    );
+    const first = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(first.message).toBe(
+      "Undid 8 of 8; Rohan had already put back Sangeet DJ",
+    );
+
+    // Rohan restores his own Restore, which puts the reply's ₹20,000 back.
+    await rohan.mutation(api.history.restore, { changeId: byHand._id });
+    expect(await t.run((ctx) => plannedAmounts(ctx, [s.lines[0]!]))).toEqual([
+      20_000,
+    ]);
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 1, total: 8 });
+    const second = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(second.message).toBe(
+      "Nothing more to undo; Rohan has since edited Sangeet DJ",
+    );
+  });
+
+  it("settles on Undone while a Section it added still holds someone's Items, and finishes once it's empty (probe Q6)", async () => {
+    const t = newTest();
+    const s = await t.run(async (ctx) => {
+      const s = await sangeet(ctx);
+      const common = {
+        runId: s.runId,
+        forMembershipId: s.meera,
+        groupLabel: "Plan the sangeet",
+      };
+      const { id: favours } = await assistantInsert(ctx, {
+        ...common,
+        table: "sections",
+        toolCallId: "toolu_07",
+        value: {
+          eventId: s.eventId,
+          kind: "custom",
+          name: "Favours",
+          frame: { x: 2000, y: 0, w: 600, h: 400 },
+          order: 9,
+        },
+      });
+      await assistantInsert(ctx, {
+        ...common,
+        table: "items",
+        toolCallId: "toolu_08",
+        value: {
+          eventId: s.eventId,
+          sectionId: favours,
+          kind: "note",
+          position: { x: 2020, y: 20 },
+          size: null,
+          functionKey: null,
+          data: { text: "Mithai boxes", citations: [] },
+          createdBy: { kind: "member", membershipId: s.meera },
+        },
+      });
+      const { id: rohansNote } = await memberInsert(ctx, {
+        table: "items",
+        actor: { kind: "member", membershipId: s.rohan },
+        value: {
+          eventId: s.eventId,
+          sectionId: favours,
+          kind: "note",
+          position: { x: 2020, y: 240 },
+          size: null,
+          functionKey: null,
+          data: { text: "Ask about silver coins", citations: [] },
+          createdBy: { kind: "member", membershipId: s.rohan },
+        },
+      });
+      return { ...s, favours, rohansNote };
+    });
+    const meera = t.withIdentity(identityFor("meera"));
+
+    const first = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(first.message).toBe(
+      "Undid 9 of 10; Favours still holds Items, so it stays",
+    );
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 0, total: 10 });
+    const second = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(second.message).toBe(
+      "Nothing more to undo; Favours still holds Items, so it stays",
+    );
+
+    // Rohan moves his Note out of the way: the button comes back and finishes.
+    await t.run((ctx) =>
+      memberSoftDelete(ctx, {
+        table: "items",
+        id: s.rohansNote,
+        actor: { kind: "member", membershipId: s.rohan },
+      }),
+    );
+    expect(
+      await meera.query(api.history.groupStatus, { groupKey: s.runId }),
+    ).toEqual({ canUndo: true, left: 1, total: 10 });
+    const third = await meera.mutation(api.history.undoGroup, {
+      groupKey: s.runId,
+    });
+    expect(third.message).toBe("Undid 1 of 10");
+    const favours = await t.run((ctx) => ctx.db.get("sections", s.favours));
+    expect(favours?.deletedAt).not.toBeNull();
   });
 
   it("names what it can never undo, keeps plan Items and Contingency lines, and lets the button reach Undone", async () => {

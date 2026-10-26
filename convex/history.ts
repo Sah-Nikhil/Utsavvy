@@ -40,6 +40,7 @@ export type HistoryProblem =
   | "notRestorable"
   | "useDelete"
   | "gone"
+  | "functionGone"
   | "sectionDeleted"
   | "itemDeleted"
   | "tooManySections"
@@ -587,6 +588,20 @@ async function liveCustomSections(
   return count;
 }
 
+/** Whether the Event still has a Function with this key (an Event has a handful). */
+async function functionExists(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  key: string,
+): Promise<boolean> {
+  for await (const row of ctx.db
+    .query("eventFunctions")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))) {
+    if (row.key === key) return true;
+  }
+  return false;
+}
+
 /** Grows a Section's frame to hold its live Items, writing only when it grows. */
 async function fitSectionFrame(
   ctx: MutationCtx,
@@ -628,16 +643,22 @@ type Outcome =
 type GroupOptions = { groupKey?: string | null; groupLabel?: string | null };
 
 /** The newest change row of a document. */
-async function latestChangeOf(
+async function latestRowOf(
   ctx: MutationCtx,
   docId: Doc<"changes">["docId"],
-): Promise<Id<"changes"> | null> {
-  const row = await ctx.db
+): Promise<Doc<"changes"> | null> {
+  return await ctx.db
     .query("changes")
     .withIndex("by_doc", (q) => q.eq("docId", docId))
     .order("desc")
     .first();
-  return row?._id ?? null;
+}
+
+async function latestChangeOf(
+  ctx: MutationCtx,
+  docId: Doc<"changes">["docId"],
+): Promise<Id<"changes"> | null> {
+  return (await latestRowOf(ctx, docId))?._id ?? null;
 }
 
 /**
@@ -666,14 +687,25 @@ async function putBack(
   if (!belongsTo(table, doc, change.eventId))
     return { kind: "denied", reason: "wrongEvent", action: "history.restore" };
 
-  const before = change.before as Fields;
+  const before = { ...(change.before as Fields) };
+  // A Function skipped since (X12 deletes its row) can't be tagged again: the
+  // Item or Entry comes back Event-wide instead.
+  const functionGone =
+    typeof before.functionKey === "string" &&
+    restorable.includes("functionKey") &&
+    !(await functionExists(ctx, change.eventId, before.functionKey));
+  if (functionGone) before.functionKey = null;
   const patch: Fields = {};
   for (const field of restorable) {
     if (!sameValue(doc[field], before[field])) patch[field] = before[field];
   }
   const fields = Object.keys(patch);
-  if (fields.length === 0)
+  if (fields.length === 0) {
+    // Nothing but the skipped Function to put back.
+    if (functionGone && restorable.length === 1)
+      return { kind: "refused", problem: "functionGone" };
     return { kind: "done", changed: false, changeId: null };
+  }
 
   const event = await ctx.db.get("events", change.eventId);
   for (const action of actionsFor(
@@ -768,11 +800,14 @@ export const restore = mutation({
     if (outcome.kind === "refused") refuse(outcome.problem);
     if (outcome.kind === "denied")
       throw new AccessDenied(outcome.reason, outcome.action);
-    if (outcome.changed && fromUndo) {
-      await ctx.db.patch("changes", change._id, {
-        undoneBy: outcome.changeId,
-      });
-      await reopenUndone(ctx, [change]);
+    if (outcome.changed) {
+      if (fromUndo)
+        await ctx.db.patch("changes", change._id, {
+          undoneBy: outcome.changeId,
+        });
+      // Whatever this change undid, by an Undo all or by hand, is in place
+      // again, so the reply's Undo all can take it back once more.
+      await reopenUndoneBy(ctx, change);
     }
     return { changed: outcome.changed };
   },
@@ -873,6 +908,28 @@ async function reopenUndone(
   }
 }
 
+/**
+ * After a Restore of `change`, any earlier change it counted as undoing (an
+ * Undo all's row, or a Member's Restore by hand that Undo all counted) is open
+ * again. `undoneBy` always points at a later row of the same document.
+ */
+async function reopenUndoneBy(
+  ctx: MutationCtx,
+  change: Doc<"changes">,
+): Promise<void> {
+  const earlier = await ctx.db
+    .query("changes")
+    .withIndex("by_doc", (q) =>
+      q.eq("docId", change.docId).lt("_creationTime", change._creationTime),
+    )
+    .order("desc")
+    .take(LATER_MAX);
+  for (const row of earlier) {
+    if (row.undoneBy === change._id)
+      await ctx.db.patch("changes", row._id, { undoneBy: null });
+  }
+}
+
 /** What a change was about, as a person names it: "Sangeet DJ", "the Budget". */
 function plainName(table: HistoryTable, doc: Fields): string {
   switch (table) {
@@ -949,6 +1006,19 @@ async function alreadyBack(
   return restorableFields(change).every((f) => sameValue(doc[f], before[f]));
 }
 
+/** Whether a Section has any live Item. */
+async function holdsItems(
+  db: QueryCtx["db"],
+  sectionId: Id<"sections">,
+): Promise<boolean> {
+  for await (const item of db
+    .query("items")
+    .withIndex("by_section", (q) => q.eq("sectionId", sectionId))) {
+    if (item.deletedAt === null) return true;
+  }
+  return false;
+}
+
 /**
  * Deletes again a row the change added (or brought back), as a soft delete
  * through `memberSoftDelete`, so Restore can bring it back. Only what
@@ -973,16 +1043,8 @@ async function takeBack(
   if (doc.deletedAt !== null)
     return { kind: "done", changed: false, changeId: null };
 
-  if (table === "sections") {
-    for await (const item of ctx.db
-      .query("items")
-      .withIndex("by_section", (q) =>
-        q.eq("sectionId", id as Id<"sections">),
-      )) {
-      if (item.deletedAt === null)
-        return { kind: "refused", problem: "sectionNotEmpty" };
-    }
-  }
+  if (table === "sections" && (await holdsItems(ctx.db, id as Id<"sections">)))
+    return { kind: "refused", problem: "sectionNotEmpty" };
   const event = await ctx.db.get("events", change.eventId);
   for (const action of actionsFor(
     table,
@@ -1057,8 +1119,14 @@ export const undoGroup = mutation({
     let reads = 0;
     let unread = 0;
     const edited = new Map<string, string[]>();
+    /** Who already put a change back by hand, and which. */
+    const byHand = new Map<string, string[]>();
     /** Newest first; reversed for the message. */
     const cannot: string[] = [];
+    /** Custom Sections that still hold Items, so they stay for now. */
+    const holding: string[] = [];
+    /** Whether something refused this time that a later tap might manage. */
+    let refusedNow = false;
     const putBackNow: Doc<"changes">[] = [];
     const nameOfChange = (change: Doc<"changes">) =>
       plainName(
@@ -1089,11 +1157,15 @@ export const undoGroup = mutation({
       const other = later.find((r) => !inUndoChain(r.groupKey, groupKey));
       if (other !== undefined) {
         if (await alreadyBack(ctx, change)) {
-          // Put back by hand (a per-change Restore): count it as undone.
+          // Put back by hand (a per-change Restore, or the same value typed
+          // in again): count it as undone, and reopen what it had undone, as
+          // for a change this tap puts back itself.
+          const latest = (await latestRowOf(ctx, change.docId)) ?? other;
           undone++;
-          await ctx.db.patch("changes", change._id, {
-            undoneBy: await latestChangeOf(ctx, change.docId),
-          });
+          putBackNow.push(change);
+          await ctx.db.patch("changes", change._id, { undoneBy: latest._id });
+          const who = await whoOf(latest.actor, membershipOf, eventId);
+          byHand.set(who, [...(byHand.get(who) ?? []), nameOfChange(change)]);
           continue;
         }
         const who = await whoOf(other.actor, membershipOf, eventId);
@@ -1106,8 +1178,22 @@ export const undoGroup = mutation({
       const outcome = deletesAgain(change)
         ? await takeBack(ctx, change, membership, group)
         : await putBack(ctx, change, membership, group);
+      if (outcome.kind === "refused" && outcome.problem === "functionGone") {
+        // Its Function was skipped since; Event-wide is as far back as it goes.
+        undone++;
+        await ctx.db.patch("changes", change._id, {
+          undoneBy: await latestChangeOf(ctx, change.docId),
+        });
+        continue;
+      }
+      if (outcome.kind === "refused" && outcome.problem === "sectionNotEmpty") {
+        holding.push(nameOfChange(change));
+        refusedNow = true;
+        continue;
+      }
       if (outcome.kind !== "done") {
         cannot.push(nameOfChange(change));
+        refusedNow = true;
         continue;
       }
       undone++;
@@ -1124,7 +1210,7 @@ export const undoGroup = mutation({
     const parts = [
       undone > 0 || already === 0
         ? `${verb} ${undone} of ${total}`
-        : edited.size === 0 && unread === 0
+        : edited.size === 0 && unread === 0 && !refusedNow
           ? redo
             ? "Already redone"
             : "Already undone"
@@ -1132,10 +1218,18 @@ export const undoGroup = mutation({
             ? "Nothing more to redo"
             : "Nothing more to undo",
     ];
+    for (const [who, names] of byHand)
+      parts.push(`${who} had already put back ${listWords(names.reverse())}`);
     for (const [who, names] of edited)
       parts.push(`${who} has since edited ${listWords(names.reverse())}`);
     if (cannot.length > 0)
       parts.push(`${listWords(cannot.reverse())} can't be undone here`);
+    if (holding.length > 0)
+      parts.push(
+        holding.length === 1
+          ? `${holding[0]} still holds Items, so it stays`
+          : `${listWords(holding.reverse())} still hold Items, so they stay`,
+      );
     if (unread > 0)
       parts.push(
         `${unread} more ${unread === 1 ? "change" : "changes"} left: press again to carry on`,
@@ -1175,9 +1269,22 @@ export const groupStatus = query({
     const changes = rows.filter((r) => r.eventId === eventId);
     const undoableRows = changes.filter(undoable);
     if (undoableRows.length === 0) return null;
+    const pending = undoableRows.filter((c) => c.undoneBy === null);
+    // When all that is left is custom Sections that still hold someone's
+    // Items, Undo all can't go further until they're emptied, so the button
+    // settles; emptying one brings it back.
+    let stuck = 0;
+    for (const c of pending) {
+      if (c.table !== "sections" || !deletesAgain(c)) break;
+      const sectionId = c.docId as Id<"sections">;
+      const section = await ctx.db.get("sections", sectionId);
+      if (section === null || section.deletedAt !== null) break;
+      if (!(await holdsItems(ctx.db, sectionId))) break;
+      stuck++;
+    }
     return {
       canUndo: can(role, "history.restore"),
-      left: undoableRows.filter((c) => c.undoneBy === null).length,
+      left: stuck === pending.length ? 0 : pending.length,
       total: changes.length,
     };
   },

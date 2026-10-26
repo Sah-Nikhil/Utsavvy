@@ -52,6 +52,7 @@ const PROBLEMS: Record<HistoryProblem, string> = {
   useDelete:
     "Restoring that would delete it again. Delete it from the Canvas instead.",
   gone: "What that change touched no longer exists.",
+  functionGone: "That Function was skipped, so this stays for the whole Event.",
   sectionDeleted:
     "Its Section was deleted. Restore the Section first, then this.",
   itemDeleted: "Its Item was deleted. Restore the Item first, then this.",
