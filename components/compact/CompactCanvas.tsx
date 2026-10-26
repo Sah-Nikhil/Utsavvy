@@ -25,6 +25,7 @@ import {
   useFunctionFilter,
 } from "@/components/canvas/FunctionFilter";
 import { errorMessage } from "@/components/people/errors";
+import { VendorMap } from "@/components/map/VendorMap";
 import { SectionOrnament } from "@/components/shell/SectionOrnament";
 import { useSelection, useSetSelection } from "@/components/shell/selection";
 import { Avatar, AvatarStack } from "@/components/ui/avatar";
@@ -393,14 +394,23 @@ function CompactList({
           functionIndex={
             group.functionKey ? filter.indexOf(group.functionKey) : undefined
           }
-          footer={
-            canEdit &&
-            group.sectionId !== undefined &&
-            data.sections.find((s) => s._id === group.sectionId)?.kind ===
-              "notes" ? (
-              <AddNote eventId={eventId} functionKey={filter.functionKey} />
-            ) : null
-          }
+          footer={(() => {
+            const kind = data.sections.find(
+              (s) => s._id === group.sectionId,
+            )?.kind;
+            if (kind === "notes" && canEdit)
+              return (
+                <AddNote eventId={eventId} functionKey={filter.functionKey} />
+              );
+            // S15: the Vendor map opens from the Vendors Section here too.
+            if (kind === "vendors")
+              return (
+                <div className="px-2 pt-2">
+                  <VendorMap eventId={eventId} />
+                </div>
+              );
+            return null;
+          })()}
         >
           <SortableItems
             group={group}
