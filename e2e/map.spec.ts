@@ -233,16 +233,46 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       "Umaid Haveli, Venue, Considering",
     );
 
-    // The selected Marker opens rangoli petals; with Ornaments off they go,
-    // with the prints, and a plain ring, the shape and its colour stay.
+    // Selecting a Marker: the petals bloom and pool into it, then a ring
+    // comes around it, solid for an exact Marker (Umaid Haveli, just moved)
+    // and dotted for an approximate one.
+    const opacity = (el: ReturnType<typeof sheet.locator>) =>
+      el.evaluate((node) => getComputedStyle(node).opacity);
     const selected = sheet.locator('[data-marker-id][aria-pressed="true"]');
-    await expect(selected.locator('[data-ornament="petals"]')).toBeVisible();
-    await expect(selected.locator("[data-plain-ring]")).toBeHidden();
+    await expect(selected).toHaveAttribute("aria-label", /^Umaid Haveli,/);
+    const petals = selected.locator('[data-ornament="petals"]');
+    await expect
+      .poll(() => petals.evaluate((n) => getComputedStyle(n).animationName))
+      .toBe("stamp-petals");
+    const ring = selected.locator("[data-selection-ring]");
+    await expect(ring).toHaveAttribute("data-selection-ring", "solid");
+    await expect.poll(() => opacity(ring)).toBe("1");
+    await sheet
+      .locator("[data-list-vendor]")
+      .filter({ hasText: "Harika Bagh" })
+      .click();
+    await expect(selected).toHaveAttribute("aria-label", /^Harika Bagh,/);
+    await expect(selected.locator("[data-selection-ring]")).toHaveAttribute(
+      "data-selection-ring",
+      "dotted",
+    );
+    await expect
+      .poll(() => opacity(selected.locator("[data-selection-ring]")))
+      .toBe("1");
+    // Deselecting fades Umaid Haveli's ring back out.
+    await expect
+      .poll(() => opacity(umaid.locator("[data-selection-ring]")))
+      .toBe("0");
+
+    // With Ornaments off the petals go, with the prints; the ring, the shape
+    // and its colour stay.
     await page.evaluate(() => {
       document.documentElement.dataset.ornaments = "off";
     });
     await expect(selected.locator('[data-ornament="petals"]')).toBeHidden();
-    await expect(selected.locator("[data-plain-ring]")).toBeVisible();
+    await expect
+      .poll(() => opacity(selected.locator("[data-selection-ring]")))
+      .toBe("1");
     await expect(selected.locator("[data-stamp-shape]")).toBeVisible();
     await expect(
       sheet.locator('[data-ornament="misregistration"]').first(),
@@ -253,6 +283,17 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
     await page.evaluate(() => {
       delete document.documentElement.dataset.ornaments;
     });
+
+    // With reduced motion there are no petals and the ring is there at once.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await sheet
+      .locator("[data-list-vendor]")
+      .filter({ hasText: "Sapphire Inn" })
+      .click();
+    await expect(selected).toHaveAttribute("aria-label", /^Sapphire Inn,/);
+    await expect(selected.locator('[data-ornament="petals"]')).toBeHidden();
+    expect(await opacity(selected.locator("[data-selection-ring]"))).toBe("1");
+    await page.emulateMedia({ reducedMotion: null });
 
     expect(cspViolations).toEqual([]);
   });

@@ -88,14 +88,58 @@ describe("MarkerStamp", () => {
     );
   });
 
-  it("frames the selected Marker with rangoli petals and a dotted ring", () => {
-    const selected = stamp({ selected: true });
-    expect(selected).toContain('data-ornament="petals"');
-    expect(selected).toContain('data-ornament="dot-ring"');
-    expect(stamp()).not.toContain('data-ornament="petals"');
+  // Sah-Nikhil, 27 Oct: on selection the petals bloom, pool into the Marker
+  // and a ring comes around it, dotted for an approximate Marker and solid
+  // for an exact one. Deselecting fades the ring back out.
+  /** The opening tag of the element carrying `attr`. */
+  const tagWith = (markup: string, attr: string) =>
+    markup.match(new RegExp(`<[a-z]+[^>]*${attr}[^>]*>`))?.[0] ?? "";
+
+  it("rings a selected approximate Marker with dots and an exact one with a solid line", () => {
+    const dotted = tagWith(
+      stamp({ selected: true, approximate: true }),
+      "data-selection-ring",
+    );
+    expect(dotted).toContain('data-selection-ring="dotted"');
+    expect(dotted).toMatch(/stroke-dasharray="[^"]+"/);
+    const solid = tagWith(stamp({ selected: true }), "data-selection-ring");
+    expect(solid).toContain('data-selection-ring="solid"');
+    expect(solid).not.toContain("stroke-dasharray");
   });
 
-  it("drops every ornament with Ornaments off and keeps the shape, its colour and a plain selection ring", () => {
+  it("keeps the ring in place, faded out, while not selected, so deselecting can fade it", () => {
+    const idle = stamp({ approximate: true });
+    expect(tagWith(idle, "data-selection-ring")).toContain(
+      'data-selection-ring="dotted"',
+    );
+    expect(idle).not.toContain("data-selected");
+    expect(stamp({ selected: true })).toContain("data-selected");
+  });
+
+  it("blooms the petals and pools them into the Marker on selection, with the ring after them", () => {
+    const petals = tagWith(stamp({ selected: true }), 'data-ornament="petals"');
+    expect(petals).toContain("group-data-selected/mark:animate-stamp-petals");
+    const shape = tagWith(stamp({ selected: true }), "data-stamp-body");
+    expect(shape).toContain("group-data-selected/mark:animate-stamp-pool");
+    const ring = tagWith(stamp({ selected: true }), "data-selection-ring");
+    // The ring waits for the petals, then comes in.
+    expect(ring).toMatch(/group-data-selected\/mark:delay-\[/);
+    expect(ring).toContain("group-data-selected/mark:opacity-100");
+  });
+
+  it("skips the petals and brings the ring in at once with reduced motion or Ornaments off", () => {
+    const markup = stamp({ selected: true, approximate: true });
+    const petals = tagWith(markup, 'data-ornament="petals"');
+    expect(petals).toContain("motion-reduce:hidden");
+    expect(petals).toContain("ornaments-off:hidden");
+    const ring = tagWith(markup, "data-selection-ring");
+    expect(ring).toContain("motion-reduce:delay-0!");
+    expect(ring).toContain("ornaments-off:delay-0!");
+    // The ring carries meaning (approximate or exact), so it isn't an ornament.
+    expect(ring).not.toContain("data-ornament");
+  });
+
+  it("drops every ornament with Ornaments off and keeps the shape and its colour", () => {
     for (const markup of [
       stamp({ selected: true, approximate: true, tag: "shown" }),
       stamp({ tone: "other", approximate: true }),
@@ -108,11 +152,8 @@ describe("MarkerStamp", () => {
         markup.match(/<path[^>]*data-stamp-shape[^>]*>/)?.[0],
       ).not.toContain("data-ornament");
     }
-    const selected = stamp({ selected: true });
-    expect(ornaments(selected).length).toBeGreaterThanOrEqual(3);
-    // With the petals gone, selection is still shown by a plain ring.
-    expect(selected).toMatch(
-      /<circle[^>]*data-plain-ring[^>]*class="[^"]*hidden[^"]*ornaments-off:inline/,
+    expect(ornaments(stamp({ selected: true })).length).toBeGreaterThanOrEqual(
+      2,
     );
   });
 

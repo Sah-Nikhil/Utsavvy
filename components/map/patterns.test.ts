@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { drawPattern, MAP_PATTERNS } from "./patterns";
+import {
+  drawPattern,
+  footprintImage,
+  MAP_PATTERNS,
+  MARKER_FOOTPRINT,
+} from "./patterns";
 import type { MapColours } from "./style";
 
 // S15 (issue #48): the printed map's patterns are drawn on a canvas in the
@@ -78,5 +83,20 @@ describe("the map's printed patterns", () => {
       expect(Number.isInteger(width), id).toBe(true);
       expect(Number.isInteger(height), id).toBe(true);
     }
+  });
+});
+
+describe("the Markers' footprint", () => {
+  it("is fully transparent, so it hides labels without drawing anything", () => {
+    const image = footprintImage(2);
+    expect(image.width).toBe(MARKER_FOOTPRINT.size * 2);
+    expect(image.height).toBe(MARKER_FOOTPRINT.size * 2);
+    expect(image.data).toHaveLength(image.width * image.height * 4);
+    expect(image.data.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("covers a Shortlisted Marker's stamp and its selection ring", () => {
+    // The stamp is 40 px; the ring around a selected one reaches about 44 px.
+    expect(MARKER_FOOTPRINT.size).toBeGreaterThanOrEqual(44);
   });
 });

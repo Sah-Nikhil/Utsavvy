@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MAP_PATTERNS } from "./patterns";
-import { buildMapStyle, MAP_TOKENS, type MapColours } from "./style";
+import { MAP_PATTERNS, MARKER_FOOTPRINT } from "./patterns";
+import {
+  buildMapStyle,
+  MAP_TOKENS,
+  VENDOR_FOOTPRINTS,
+  type MapColours,
+} from "./style";
 
 // S15 (issue #48): the Vendor map's own style, built from the map tokens
 // (IMPLEMENTATION_PLAN.md section 7.5). Since 27 Oct it is option B's printed
@@ -87,10 +92,16 @@ describe.each([
     expect(building?.minzoom).toBeGreaterThanOrEqual(14);
   });
 
-  it("reads OpenFreeMap's vector tiles and fonts", () => {
+  it("reads OpenFreeMap's vector tiles and fonts, and nothing else from the network", () => {
     const sources = Object.values(style.sources);
-    expect(sources).toHaveLength(1);
-    expect(sources[0]).toMatchObject({
+    // OpenFreeMap's tiles, and the Vendors' own points, held in the page.
+    expect(sources).toHaveLength(2);
+    expect(style.sources[VENDOR_FOOTPRINTS]).toMatchObject({
+      type: "geojson",
+    });
+    const tiles = sources.filter((s) => s.type === "vector");
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]).toMatchObject({
       type: "vector",
       url: "https://tiles.openfreemap.org/planet",
     });
@@ -98,7 +109,9 @@ describe.each([
   });
 
   it("credits OpenFreeMap, OpenMapTiles and OpenStreetMap on the source", () => {
-    const [source] = Object.values(style.sources);
+    const source = Object.values(style.sources).find(
+      (s) => s.type === "vector",
+    );
     const attribution = (source as { attribution?: string }).attribution ?? "";
     expect(attribution).toContain("OpenFreeMap");
     expect(attribution).toContain("OpenMapTiles");
@@ -112,9 +125,40 @@ describe.each([
         "source-layer"
       ];
       expect(sourceLayer, layer.id).not.toBe("poi");
+      // The one icon is the Markers' own invisible footprint.
+      if (layer.id === VENDOR_FOOTPRINTS) continue;
       const layout = ("layout" in layer ? layer.layout : undefined) ?? {};
       expect(layout, layer.id).not.toHaveProperty("icon-image");
     }
+  });
+
+  it("keeps place and road labels from drawing through the Markers", () => {
+    const footprints = style.layers.find((l) => l.id === VENDOR_FOOTPRINTS);
+    expect(footprints).toMatchObject({
+      type: "symbol",
+      source: VENDOR_FOOTPRINTS,
+      layout: {
+        "icon-image": MARKER_FOOTPRINT.id,
+        // Always placed, and counted when MapLibre places the labels below.
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": false,
+      },
+    });
+    // Above every label layer: MapLibre places the top layer's symbols first,
+    // so a label under a footprint is hidden instead of drawn through it.
+    const ids = style.layers.map((l) => l.id);
+    const at = ids.indexOf(VENDOR_FOOTPRINTS);
+    for (const label of style.layers.filter(
+      (l) => l.type === "symbol" && l.id !== VENDOR_FOOTPRINTS,
+    ))
+      expect(ids.indexOf(label.id), label.id).toBeLessThan(at);
+    // It paints nothing: the icon itself is transparent.
+    expect(paints(style).filter((p) => p.layer === VENDOR_FOOTPRINTS)).toEqual(
+      [],
+    );
+    expect(
+      (footprints as { layout: Record<string, unknown> }).layout,
+    ).not.toHaveProperty("text-field");
   });
 
   it("labels with the Latin name fields only", () => {
@@ -129,6 +173,38 @@ describe.each([
       for (const name of read)
         expect(["name:latin", "name_en", "name_int"], layer.id).toContain(name);
     }
+  });
+});
+
+describe("the Vendors' footprints", () => {
+  it("holds one point per Marker drawn, faint ones smaller", () => {
+    const withPoints = buildMapStyle(COLOURS, {
+      points: [
+        { id: "a", lat: 26.9, lng: 75.8, faint: false },
+        { id: "b", lat: 27.04, lng: 75.89, faint: true },
+      ],
+    });
+    const source = withPoints.sources[VENDOR_FOOTPRINTS] as {
+      data: GeoJSON.FeatureCollection<GeoJSON.Point>;
+    };
+    expect(source.data.features).toHaveLength(2);
+    expect(source.data.features[0]).toMatchObject({
+      geometry: { type: "Point", coordinates: [75.8, 26.9] },
+      properties: { faint: false },
+    });
+    expect(source.data.features[1]!.properties).toMatchObject({ faint: true });
+    const layer = withPoints.layers.find((l) => l.id === VENDOR_FOOTPRINTS);
+    const size = JSON.stringify(
+      (layer as { layout: Record<string, unknown> }).layout["icon-size"],
+    );
+    expect(size).toContain("faint");
+  });
+
+  it("starts empty when no Marker is drawn", () => {
+    const source = printed.sources[VENDOR_FOOTPRINTS] as {
+      data: GeoJSON.FeatureCollection;
+    };
+    expect(source.data.features).toEqual([]);
   });
 });
 
