@@ -119,6 +119,11 @@ test.describe("The demo Event, seeded on a local deployment", () => {
     // Any other Event: no banner.
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/events");
+    // After the reload, wait for the signed-in account before creating, or
+    // the mutation can go out before Convex has the session.
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
     await page.getByRole("button", { name: "New Event" }).click();
     const dialog = page.getByRole("dialog", { name: "New Event" });
     await dialog
