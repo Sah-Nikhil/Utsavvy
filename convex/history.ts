@@ -44,7 +44,8 @@ export type HistoryProblem =
   | "sectionDeleted"
   | "itemDeleted"
   | "tooManySections"
-  | "sectionNotEmpty";
+  | "sectionNotEmpty"
+  | "markerMovedSince";
 
 function refuse(problem: HistoryProblem): never {
   throw new ConvexError({ kind: "HistoryRefused", problem });
@@ -125,6 +126,26 @@ function restorableFields(change: Doc<"changes">): string[] {
   return change.table === "vendors"
     ? fields.filter((f) => f === "marker")
     : fields;
+}
+
+/**
+ * Whether a shared Vendor's Marker has moved since this change, to somewhere
+ * other than the change's own before or after. The Marker is shared by every
+ * Event (ADR 0008) and its moves are recorded only in the moving Event's
+ * history, so putting this change's earlier Marker back would silently undo
+ * another Event's correction (S15, review of #123).
+ */
+function markerMovedSince(
+  table: HistoryTable,
+  doc: Fields,
+  change: Doc<"changes">,
+): boolean {
+  if (table !== "vendors") return false;
+  const current = doc.marker;
+  return (
+    !sameValue(current, (change.after as Fields | null)?.marker) &&
+    !sameValue(current, (change.before as Fields | null)?.marker)
+  );
 }
 
 /**
@@ -544,6 +565,7 @@ export const list = query({
         canRestore =
           fields.length > 0 &&
           !wouldDelete(change, fields) &&
+          !markerMovedSince(table, doc, change) &&
           actionsFor(
             table,
             doc,
@@ -686,6 +708,8 @@ async function putBack(
   if (doc === null) return { kind: "refused", problem: "gone" };
   if (!belongsTo(table, doc, change.eventId))
     return { kind: "denied", reason: "wrongEvent", action: "history.restore" };
+  if (markerMovedSince(table, doc, change))
+    return { kind: "refused", problem: "markerMovedSince" };
 
   const before = { ...(change.before as Fields) };
   // A Function skipped since (X12 deletes its row) can't be tagged again: the
