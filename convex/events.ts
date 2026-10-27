@@ -51,7 +51,7 @@ const STARTING_SECTIONS: readonly {
  * with the 20 px Item gap, and inside the 720 x 560 frame.
  */
 const STARTING_ITEM_SIZE = { w: 332, h: 400 };
-const STARTING_ITEMS: readonly {
+export const STARTING_ITEMS: readonly {
   kind: "budget" | "timeline" | "checklist";
   section: Exclude<SectionKind, "custom">;
   position: { x: number; y: number };

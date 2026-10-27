@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import type { Browser, BrowserContext, TestInfo } from "@playwright/test";
 import { expectNoSeriousA11yViolations } from "./axe";
 import { expect, test, type Page } from "./fixtures";
+import { convexLocal } from "./local-convex";
 
 /**
  * Nudges and @Utsavvy in Comments (S17). Meera (the Owner, the e2e user)
@@ -51,18 +51,9 @@ async function ensureClerkUser(email: string, firstName: string) {
     throw new Error(`Creating the Clerk test user failed: ${created.status}`);
 }
 
+/** Runs an internal function on the local backend; `convexLocal` refuses any other. */
 function convexRun(fn: string, args: Record<string, unknown>): void {
-  // The Convex CLI's own script, run by Node, so no shell mangles the JSON.
-  // On Windows it can trip a libuv assertion after printing; keep its output.
-  try {
-    execFileSync(
-      process.execPath,
-      ["node_modules/convex/bin/main.js", "run", fn, JSON.stringify(args)],
-      { encoding: "utf8" },
-    );
-  } catch (error) {
-    if ((error as { stdout?: string }).stdout === undefined) throw error;
-  }
+  convexLocal(["run", fn, JSON.stringify(args)]);
 }
 
 type Person = { context: BrowserContext; page: Page };
