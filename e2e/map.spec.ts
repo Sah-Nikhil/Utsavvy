@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { expectNoSeriousA11yViolations } from "./axe";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./fixtures";
 
 /**
@@ -116,7 +117,18 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       "aria-label",
       "Rood Mahal, Venue, Quoted, approximate",
     );
-    await expect(rood).toContainText("approximate");
+    // At city zoom the hollow stamp says it quietly; "approximate" is written
+    // under it only on hover or keyboard focus.
+    const roodTag = rood.locator("[data-approximate-tag]");
+    await expect(roodTag).toBeHidden();
+    await rood.hover();
+    await expect(roodTag).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(roodTag).toBeHidden();
+    // Each status has its own shape, drawn in the list's key too.
+    await expect(
+      sheet.getByRole("list", { name: "Marker key" }).getByRole("listitem"),
+    ).toHaveCount(7);
     await expect(
       sheet.locator('[data-marker-id][aria-label^="Wedding Velvet,"]'),
     ).not.toContainText("approximate");
@@ -222,6 +234,68 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       "Umaid Haveli, Venue, Considering",
     );
 
+    // Selecting a Marker: the petals bloom and pool into it, then a ring
+    // comes around it, solid for an exact Marker (Umaid Haveli, just moved)
+    // and dotted for an approximate one.
+    const opacity = (el: ReturnType<typeof sheet.locator>) =>
+      el.evaluate((node) => getComputedStyle(node).opacity);
+    const selected = sheet.locator('[data-marker-id][aria-pressed="true"]');
+    await expect(selected).toHaveAttribute("aria-label", /^Umaid Haveli,/);
+    const petals = selected.locator('[data-ornament="petals"]');
+    await expect
+      .poll(() => petals.evaluate((n) => getComputedStyle(n).animationName))
+      .toBe("stamp-petals");
+    const ring = selected.locator("[data-selection-ring]");
+    await expect(ring).toHaveAttribute("data-selection-ring", "solid");
+    await expect.poll(() => opacity(ring)).toBe("1");
+    await sheet
+      .locator("[data-list-vendor]")
+      .filter({ hasText: "Harika Bagh" })
+      .click();
+    await expect(selected).toHaveAttribute("aria-label", /^Harika Bagh,/);
+    await expect(selected.locator("[data-selection-ring]")).toHaveAttribute(
+      "data-selection-ring",
+      "dotted",
+    );
+    await expect
+      .poll(() => opacity(selected.locator("[data-selection-ring]")))
+      .toBe("1");
+    // Deselecting fades Umaid Haveli's ring back out.
+    await expect
+      .poll(() => opacity(umaid.locator("[data-selection-ring]")))
+      .toBe("0");
+
+    // With Ornaments off the petals go, with the prints; the ring, the shape
+    // and its colour stay.
+    await page.evaluate(() => {
+      document.documentElement.dataset.ornaments = "off";
+    });
+    await expect(selected.locator('[data-ornament="petals"]')).toBeHidden();
+    await expect
+      .poll(() => opacity(selected.locator("[data-selection-ring]")))
+      .toBe("1");
+    await expect(selected.locator("[data-stamp-shape]")).toBeVisible();
+    await expect(
+      sheet.locator('[data-ornament="misregistration"]').first(),
+    ).toBeHidden();
+    await expect(sheet.locator('[data-ornament="diamond"]')).toBeHidden();
+    await expect(sheet.locator(".maplibregl-marker")).toHaveCount(14);
+    await expectNoSeriousA11yViolations(page);
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.ornaments;
+    });
+
+    // With reduced motion there are no petals and the ring is there at once.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await sheet
+      .locator("[data-list-vendor]")
+      .filter({ hasText: "Sapphire Inn" })
+      .click();
+    await expect(selected).toHaveAttribute("aria-label", /^Sapphire Inn,/);
+    await expect(selected.locator('[data-ornament="petals"]')).toBeHidden();
+    expect(await opacity(selected.locator("[data-selection-ring]"))).toBe("1");
+    await page.emulateMedia({ reducedMotion: null });
+
     expect(cspViolations).toEqual([]);
   });
 
@@ -231,9 +305,18 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
   }) => {
     const dir = process.env.E2E_MAP_SHOTS;
     test.skip(!dir, "Set E2E_MAP_SHOTS=<dir> to save the review screenshots");
-    test.setTimeout(180_000);
+    test.setTimeout(240_000);
     mkdirSync(dir!, { recursive: true });
     await seededEvent(page, signIn);
+    const marker = (sheet: Locator, name: string) =>
+      sheet.locator(`[data-marker-id][aria-label^="${name},"]`);
+    /** Selects a Marker on the map and lets the bloom and ring finish. */
+    const select = async (sheet: Locator, name: string) => {
+      await marker(sheet, name).click();
+      // Off the Marker, so its hover tag doesn't show in the picture.
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(900);
+    };
     for (const [label, size] of [
       ["desktop", { width: 1440, height: 900 }],
       ["390", { width: 390, height: 844 }],
@@ -242,17 +325,76 @@ test.describe("the Vendor map, seeded on a local deployment", () => {
       const sheet = await openMap(page, label === "390");
       await page.waitForTimeout(3_000); // the tiles
       await page.screenshot({ path: `${dir}/jaipur-city-${label}.png` });
+      await select(sheet, "Rood Mahal");
+      await page.screenshot({
+        path: `${dir}/jaipur-selected-approximate-${label}.png`,
+      });
+      await select(sheet, "Wedding Velvet");
+      await page.screenshot({
+        path: `${dir}/jaipur-selected-exact-${label}.png`,
+      });
       await sheet
         .locator("[data-list-vendor]")
         .filter({ hasText: "Rood Mahal" })
         .click();
       await page.waitForTimeout(800);
       await sheet.getByRole("button", { name: "Zoom in" }).click();
+      await page.mouse.move(2, 2);
       await page.waitForTimeout(3_000);
       await page.screenshot({ path: `${dir}/jaipur-street-${label}.png` });
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
     }
+
+    // The selection, frozen at three moments: petals blooming, pooling into
+    // the stamp, and the dotted ring in place.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // Let the workspace switch back from the phone layout first.
+    await expect(
+      page.getByRole("navigation", { name: "Workspace" }),
+    ).toBeHidden();
+    await page.waitForTimeout(800);
+    let sheet = await openMap(page);
+    await page.waitForTimeout(3_000);
+    const rood = marker(sheet, "Rood Mahal");
+    const box = (await rood.boundingBox())!;
+    const clip = {
+      x: box.x + box.width / 2 - 70,
+      y: box.y + box.height / 2 - 70,
+      width: 140,
+      height: 140,
+    };
+    await rood.click();
+    await page.evaluate(() =>
+      document.getAnimations().forEach((a) => a.pause()),
+    );
+    await page.mouse.move(2, 2);
+    for (const [n, ms] of [
+      [1, 200],
+      [2, 420],
+      [3, 900],
+    ] as const) {
+      await page.evaluate((t) => {
+        for (const a of document.getAnimations()) a.currentTime = t;
+      }, ms);
+      await page.screenshot({ path: `${dir}/anim-${n}-${ms}ms.png`, clip });
+    }
+    await page.evaluate(() =>
+      document.getAnimations().forEach((a) => a.play()),
+    );
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+
+    // The same view with the Ornaments setting off: flat colours and shapes,
+    // and the ring without petals.
+    await page.evaluate(() => {
+      document.documentElement.dataset.ornaments = "off";
+    });
+    sheet = await openMap(page);
+    await page.waitForTimeout(3_000);
+    await select(sheet, "Rood Mahal");
+    await page.screenshot({ path: `${dir}/jaipur-ornaments-off-desktop.png` });
   });
 });

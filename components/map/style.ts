@@ -3,16 +3,26 @@ import type {
   LayerSpecification,
   StyleSpecification,
 } from "maplibre-gl";
+import { MARKER_FOOTPRINT } from "./patterns";
 
 /*
  * The Vendor map's own style (IMPLEMENTATION_PLAN.md section 7.5): OpenFreeMap's
  * vector tiles (OpenMapTiles schema) drawn with a short list of our own layers,
- * in colours read from the --map-* tokens. Warm paper land, a soft water tint,
- * parks a shade off the land, muted roads with the major ones a little
- * stronger, faint buildings at close zoom and quiet labels on a paper halo.
+ * in colours read from the map tokens.
+ *
+ * The look Sah-Nikhil picked on 27 Oct is a Jaipur block print on the sand
+ * ground: a faint butta printed on the land, a leaf print on parks, lahariya
+ * waves on water, major roads inked in terracotta with a white road inside,
+ * faint buildings at close zoom and quiet umber labels on a sand halo. The
+ * prints are ornaments: with the Ornaments setting off they go, and parks and
+ * water keep their flat colours. The patterns are drawn in patterns.ts.
  *
  * No points of interest and no sprite, so the only symbols on the map are our
- * Markers. Labels read the Latin name fields, because MapLibre can't shape
+ * Markers. Those are DOM elements over the map, so the style also carries an
+ * invisible layer of their footprints (VENDOR_FOOTPRINTS): a transparent icon
+ * per Marker, above every label, which MapLibre's collision makes place and
+ * road labels avoid. The icon is not a paint colour; it has no colour at all.
+ * Labels read the Latin name fields, because MapLibre can't shape
  * Devanagari. Built in the browser, so every colour stays in the token files:
  * this file must never hold a colour of its own.
  */
@@ -20,19 +30,32 @@ import type {
 /** Each map colour and the token it comes from. */
 export const MAP_TOKENS = {
   land: "--map-land",
-  water: "--map-water",
-  park: "--map-park",
+  butta: "--map-print-butta",
+  park: "--map-print-park",
+  leaf: "--map-print-leaf",
+  water: "--map-print-water",
+  wave: "--map-print-wave",
   road: "--map-road",
-  roadMajor: "--map-road-major",
-  building: "--map-building",
-  label: "--map-label",
+  building: "--map-print-building",
+  ink: "--map-print-ink",
+  label: "--map-print-label",
   labelHalo: "--map-label-halo",
-  boundary: "--map-boundary",
 } as const;
 
 export type MapColours = Record<keyof typeof MAP_TOKENS, string>;
 
-/** The --map-* token values, read from the document's computed style when the map mounts. */
+/** The source and layer holding the Markers' invisible footprints. */
+export const VENDOR_FOOTPRINTS = "vendor-footprints";
+
+/** A Marker drawn on the map, for its footprint. Faint ones are smaller. */
+export type MarkerPoint = {
+  id: string;
+  lat: number;
+  lng: number;
+  faint: boolean;
+};
+
+/** The map token values, read from the document's computed style when the map mounts. */
 export function readMapColours(element: Element): MapColours {
   const computed = getComputedStyle(element);
   return Object.fromEntries(
@@ -55,6 +78,7 @@ export const OPENFREEMAP_ATTRIBUTION =
 
 const SOURCE = "openmaptiles";
 const FONT = ["Noto Sans Regular"];
+const ITALIC = ["Noto Sans Italic"];
 
 /** A Latin label: the English name where OpenStreetMap has one, else the transliteration. */
 const LATIN_NAME: ExpressionSpecification = [
@@ -72,136 +96,221 @@ function width(stops: [number, number][]): ExpressionSpecification {
     ...stops.flat(),
   ] as ExpressionSpecification;
 }
-
 const MAJOR_ROADS = ["motorway", "trunk", "primary"];
-const MINOR_ROADS = ["secondary", "tertiary", "minor", "service"];
+const MID_ROADS = ["secondary", "tertiary"];
+const MINOR_ROADS = ["minor", "service"];
 
-export function buildMapStyle(colours: MapColours): StyleSpecification {
+type Layer = LayerSpecification;
+
+/** A vector-tile layer, written without its source. */
+type TileLayer = Layer extends infer L
+  ? L extends { source: string }
+    ? Omit<L, "source">
+    : never
+  : never;
+
+/** A layer drawn from OpenFreeMap's vector source. */
+function tiles(layer: TileLayer): Layer {
+  return { ...layer, source: SOURCE } as Layer;
+}
+
+const ROUND = { "line-cap": "round", "line-join": "round" } as const;
+
+export function buildMapStyle(
+  colours: MapColours,
+  {
+    ornaments = true,
+    points = [],
+  }: { ornaments?: boolean; points?: readonly MarkerPoint[] } = {},
+): StyleSpecification {
   const label = {
     "text-color": colours.label,
     "text-halo-color": colours.labelHalo,
     "text-halo-width": 1.4,
     "text-halo-blur": 0.4,
   };
+  // A print where ornaments are on, the flat colour where they're off.
+  const fill = (pattern: string, colour: string) =>
+    ornaments ? { "fill-pattern": pattern } : { "fill-color": colour };
 
-  const layers: LayerSpecification[] = [
+  const layers: Layer[] = [
     {
       id: "land",
       type: "background",
       paint: { "background-color": colours.land },
     },
-    {
-      id: "park",
-      type: "fill",
-      source: SOURCE,
-      "source-layer": "park",
-      paint: { "fill-color": colours.park },
-    },
-    {
+    ...(ornaments
+      ? [
+          {
+            id: "butta",
+            type: "background",
+            paint: { "background-pattern": "map-butta" },
+          } satisfies Layer,
+        ]
+      : []),
+    tiles({
       id: "landcover",
       type: "fill",
-      source: SOURCE,
       "source-layer": "landcover",
-      filter: [
-        "in",
-        ["get", "class"],
-        ["literal", ["wood", "grass", "farmland"]],
-      ],
-      paint: { "fill-color": colours.park, "fill-opacity": 0.55 },
-    },
-    {
+      filter: ["in", ["get", "class"], ["literal", ["wood", "grass"]]],
+      paint: { ...fill("map-leaf", colours.park), "fill-opacity": 0.75 },
+    }),
+    tiles({
+      id: "park",
+      type: "fill",
+      "source-layer": "park",
+      paint: fill("map-leaf", colours.park),
+    }),
+    tiles({
       id: "water",
       type: "fill",
-      source: SOURCE,
       "source-layer": "water",
-      paint: { "fill-color": colours.water },
-    },
-    {
+      paint: fill("map-lahar", colours.water),
+    }),
+    tiles({
+      id: "water-edge",
+      type: "line",
+      "source-layer": "water",
+      paint: { "line-color": colours.wave, "line-width": 1 },
+    }),
+    tiles({
       id: "waterway",
       type: "line",
-      source: SOURCE,
       "source-layer": "waterway",
       paint: {
-        "line-color": colours.water,
+        "line-color": colours.wave,
         "line-width": width([
-          [10, 0.6],
-          [16, 3],
+          [10, 0.8],
+          [16, 3.5],
         ]),
       },
-    },
-    {
+    }),
+    tiles({
       id: "building",
       type: "fill",
-      source: SOURCE,
       "source-layer": "building",
       minzoom: 14,
       paint: {
         "fill-color": colours.building,
-        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 15.5, 0.7],
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          14,
+          0,
+          15.5,
+          0.85,
+        ],
       },
-    },
-    {
+    }),
+    tiles({
       id: "boundary",
       type: "line",
-      source: SOURCE,
       "source-layer": "boundary",
       filter: ["<=", ["get", "admin_level"], 4],
       paint: {
-        "line-color": colours.boundary,
+        "line-color": colours.ink,
+        "line-opacity": 0.5,
         "line-width": 1,
-        "line-dasharray": [3, 2],
+        "line-dasharray": [5, 2, 1, 2],
       },
-    },
-    {
+    }),
+    tiles({
       id: "road-minor",
       type: "line",
-      source: SOURCE,
       "source-layer": "transportation",
-      minzoom: 11,
+      minzoom: 12.5,
       filter: ["in", ["get", "class"], ["literal", MINOR_ROADS]],
-      layout: { "line-cap": "round", "line-join": "round" },
+      layout: ROUND,
       paint: {
         "line-color": colours.road,
         "line-width": width([
-          [11, 0.5],
+          [12.5, 0.6],
           [14, 2],
           [18, 12],
         ]),
       },
-    },
-    {
-      id: "road-major",
+    }),
+    tiles({
+      id: "road-mid-edge",
       type: "line",
-      source: SOURCE,
       "source-layer": "transportation",
-      filter: ["in", ["get", "class"], ["literal", MAJOR_ROADS]],
-      layout: { "line-cap": "round", "line-join": "round" },
+      minzoom: 11,
+      filter: ["in", ["get", "class"], ["literal", MID_ROADS]],
+      layout: ROUND,
       paint: {
-        "line-color": colours.roadMajor,
+        "line-color": colours.butta,
         "line-width": width([
-          [8, 0.8],
-          [12, 2.4],
-          [14, 4],
+          [11, 2],
+          [14, 5],
           [18, 18],
         ]),
       },
-    },
-    {
+    }),
+    tiles({
+      id: "road-mid",
+      type: "line",
+      "source-layer": "transportation",
+      minzoom: 9.5,
+      filter: ["in", ["get", "class"], ["literal", MID_ROADS]],
+      layout: ROUND,
+      paint: {
+        "line-color": colours.road,
+        "line-width": width([
+          [9.5, 0.6],
+          [12, 1.4],
+          [14, 3],
+          [18, 14],
+        ]),
+      },
+    }),
+    tiles({
+      id: "road-major-ink",
+      type: "line",
+      "source-layer": "transportation",
+      filter: ["in", ["get", "class"], ["literal", MAJOR_ROADS]],
+      layout: ROUND,
+      paint: {
+        "line-color": colours.ink,
+        "line-width": width([
+          [8, 2.4],
+          [12, 4.4],
+          [14, 7],
+          [18, 22],
+        ]),
+      },
+    }),
+    tiles({
+      id: "road-major",
+      type: "line",
+      "source-layer": "transportation",
+      filter: ["in", ["get", "class"], ["literal", MAJOR_ROADS]],
+      layout: ROUND,
+      paint: {
+        "line-color": colours.road,
+        "line-width": width([
+          [8, 1],
+          [12, 2.4],
+          [14, 4.4],
+          [18, 18],
+        ]),
+      },
+    }),
+    tiles({
       id: "label-water",
       type: "symbol",
-      source: SOURCE,
       "source-layer": "water_name",
       layout: {
         "text-field": LATIN_NAME,
-        "text-font": FONT,
+        "text-font": ITALIC,
         "text-size": 12,
+        "text-letter-spacing": 0.05,
       },
       paint: label,
-    },
-    {
+    }),
+    tiles({
       id: "label-road",
       type: "symbol",
-      source: SOURCE,
       "source-layer": "transportation_name",
       minzoom: 13,
       layout: {
@@ -211,11 +320,10 @@ export function buildMapStyle(colours: MapColours): StyleSpecification {
         "text-size": 11,
       },
       paint: label,
-    },
-    {
+    }),
+    tiles({
       id: "label-place",
       type: "symbol",
-      source: SOURCE,
       "source-layer": "place",
       filter: [
         "in",
@@ -232,16 +340,33 @@ export function buildMapStyle(colours: MapColours): StyleSpecification {
           "match",
           ["get", "class"],
           ["city", "town"],
-          15,
+          14,
           ["suburb", "quarter"],
-          12.5,
+          12,
           11.5,
         ],
         "text-max-width": 8,
+        // Keep a label clear of the map's edges rather than cut by them.
+        "text-padding": 6,
+        "symbol-avoid-edges": true,
       },
       paint: label,
-    },
+    }),
   ];
+
+  // Last, so above every label: MapLibre places the top layer's symbols
+  // first, and a label that would cross a footprint is left out.
+  layers.push({
+    id: VENDOR_FOOTPRINTS,
+    type: "symbol",
+    source: VENDOR_FOOTPRINTS,
+    layout: {
+      "icon-image": MARKER_FOOTPRINT.id,
+      "icon-size": ["case", ["get", "faint"], 0.55, 1],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": false,
+    },
+  });
 
   return {
     version: 8,
@@ -252,6 +377,18 @@ export function buildMapStyle(colours: MapColours): StyleSpecification {
         type: "vector",
         url: OPENFREEMAP_SOURCE,
         attribution: OPENFREEMAP_ATTRIBUTION,
+      },
+      [VENDOR_FOOTPRINTS]: {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: points.map((p) => ({
+            type: "Feature",
+            id: p.id,
+            geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+            properties: { faint: p.faint },
+          })),
+        },
       },
     },
     layers,

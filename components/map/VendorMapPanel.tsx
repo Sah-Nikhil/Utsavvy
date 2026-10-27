@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
+import type { FunctionIndex } from "@/components/ui/function-marker";
 import { CategoryIllustration } from "@/components/vendors/CategoryIllustration";
 import {
   CATEGORY_LABELS,
@@ -19,14 +20,27 @@ import { cn } from "@/lib/utils";
 import { budgetLineFor, filterForFunction } from "./filter";
 import { placeVendors } from "./placement";
 import type { MapVendorShown } from "./MapCanvas";
-import { LEGEND, TONE_CLASS, TONE_LABELS, toneOf } from "./markers";
-import { MarkerPin } from "./MarkerPin";
+import {
+  LEGEND,
+  TONE_CLASS,
+  TONE_LABELS,
+  TONE_TEXT_CLASS,
+  toneOf,
+} from "./markers";
+import { StatusGlyph } from "./MarkerStamp";
+import { SectionOrnament } from "@/components/shell/SectionOrnament";
 
 /*
  * The full-screen Vendor map: filters and the list of Vendors beside the map
  * (below it on a phone). Every Vendor with a Marker has a row that shows it on
  * the map and moves focus to its Marker; Vendors without an address are
  * listed here only.
+ *
+ * The panel is option A, "Rangoli atlas", from the look picked on 27 Oct:
+ * Look D's corner pieces, Fraunces headings, the filter chips, a compact key
+ * inside the panel (so it never covers the map), Shortlisted and Others lists
+ * and a diamond between them. Corner pieces and the diamond follow the
+ * Ornaments setting.
  */
 
 const MapCanvas = dynamic(() => import("./MapCanvas"), {
@@ -127,87 +141,101 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-0 md:flex-row">
-      <div className="order-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pt-3 pb-5 md:order-1 md:w-[22rem] md:flex-none md:border-r md:border-rule md:pt-1">
-        <div
-          role="group"
-          aria-label="Category"
-          className="flex flex-wrap gap-1.5"
-        >
-          <Chip
-            selected={category === null}
-            onSelectedChange={() => setCategory(null)}
-          >
-            All
-          </Chip>
-          {VENDOR_CATEGORIES.map((cat) => (
-            <Chip
-              key={cat}
-              selected={category === cat}
-              onSelectedChange={(on) => setCategory(on ? cat : null)}
+      <div className="relative order-2 flex min-h-0 flex-1 flex-col bg-surface-container md:order-1 md:w-[22.5rem] md:flex-none md:border-r md:border-rule">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {/* The corner pieces scroll with the list, so they never cover a row. */}
+          <div className="relative flex min-h-full shrink-0 flex-col gap-3 px-5 pt-3 pb-16 ornaments-off:pb-6">
+            <div aria-hidden className="pointer-events-none absolute inset-2.5">
+              <SectionOrnament />
+            </div>
+            <div
+              role="group"
+              aria-label="Category"
+              className="flex flex-wrap gap-1.5 pl-9 ornaments-off:pl-0"
             >
-              {CATEGORY_CHIPS[cat]}
-            </Chip>
-          ))}
-        </div>
-        {view.functions.length > 0 ? (
-          <div
-            role="group"
-            aria-label="Function"
-            className="flex flex-wrap gap-1.5"
-          >
-            <Chip
-              selected={functionKey === null}
-              onSelectedChange={() => setFunctionKey(null)}
-            >
-              Any Function
-            </Chip>
-            {view.functions.map((fn) => (
               <Chip
-                key={fn.key}
-                selected={functionKey === fn.key}
-                onSelectedChange={(on) => setFunctionKey(on ? fn.key : null)}
+                selected={category === null}
+                onSelectedChange={() => setCategory(null)}
               >
-                {fn.name}
-                {fn.guests !== null ? (
-                  <span className="text-ink-3">· {fn.guests}</span>
-                ) : null}
+                All
               </Chip>
-            ))}
-          </div>
-        ) : null}
-        {functionKey !== null ? (
-          <p className="text-caption text-ink-3">
-            Venues too small for the Guests and Vendors priced above the budget
-            line are hidden. Vendors without a comparable Listed price stay,
-            marked &ldquo;no price&rdquo;.
-          </p>
-        ) : null}
+              {VENDOR_CATEGORIES.map((cat) => (
+                <Chip
+                  key={cat}
+                  selected={category === cat}
+                  onSelectedChange={(on) => setCategory(on ? cat : null)}
+                >
+                  {CATEGORY_CHIPS[cat]}
+                </Chip>
+              ))}
+            </div>
+            {view.functions.length > 0 ? (
+              <div
+                role="group"
+                aria-label="Function"
+                className="flex flex-wrap gap-1.5"
+              >
+                <Chip
+                  selected={functionKey === null}
+                  onSelectedChange={() => setFunctionKey(null)}
+                >
+                  Any Function
+                </Chip>
+                {view.functions.map((fn, i) => (
+                  <Chip
+                    key={fn.key}
+                    selected={functionKey === fn.key}
+                    onSelectedChange={(on) =>
+                      setFunctionKey(on ? fn.key : null)
+                    }
+                    functionIndex={((i % 8) + 1) as FunctionIndex}
+                  >
+                    {fn.name}
+                    {fn.guests !== null ? (
+                      <span className="text-ink-3">· {fn.guests}</span>
+                    ) : null}
+                  </Chip>
+                ))}
+              </div>
+            ) : null}
+            {functionKey !== null ? (
+              <p className="text-caption text-ink-3">
+                Venues too small for the Guests and Vendors priced above the
+                budget line are hidden. Vendors without a comparable Listed
+                price stay, marked &ldquo;no price&rdquo;.
+              </p>
+            ) : null}
 
-        <VendorList
-          title="Shortlisted"
-          empty="No Shortlisted Vendors match. Add Vendors from their cards in the Chat."
-          vendors={shortlisted}
-          selectedId={selectedId}
-          onShow={show}
-        />
-        <VendorList
-          title={`Others in ${cityName}`}
-          empty={`No other Vendors in ${cityName} match.`}
-          vendors={others}
-          selectedId={selectedId}
-          onShow={show}
-        />
-        <PlainList
-          title={`Shortlisted outside ${cityName}`}
-          vendors={outside}
-          detail={(v) => v.locality}
-          note={`outside ${cityName}`}
-        />
-        <PlainList
-          title="Without an address"
-          vendors={noAddress}
-          detail={(v) => (v.areaServed ? `serves ${v.areaServed}` : null)}
-        />
+            <MapKey />
+
+            <VendorList
+              title="Shortlisted"
+              empty="No Shortlisted Vendors match. Add Vendors from their cards in the Chat."
+              vendors={shortlisted}
+              selectedId={selectedId}
+              onShow={show}
+            />
+            <DiamondRule />
+            <VendorList
+              title={`Others in ${cityName}`}
+              empty={`No other Vendors in ${cityName} match.`}
+              vendors={others}
+              selectedId={selectedId}
+              onShow={show}
+            />
+            <PlainList
+              title={`Shortlisted outside ${cityName}`}
+              vendors={outside}
+              detail={(v) => v.locality}
+              note={`outside ${cityName}`}
+            />
+            <PlainList
+              title="Without an address"
+              vendors={noAddress}
+              detail={(v) => (v.areaServed ? `serves ${v.areaServed}` : null)}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="relative order-1 h-[52dvh] shrink-0 overflow-hidden border-b border-rule md:order-2 md:h-auto md:flex-1 md:border-b-0">
@@ -220,7 +248,6 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
           onMove={move}
           reveal={reveal}
         />
-        <Legend />
         {moveError ? (
           <p
             role="alert"
@@ -250,8 +277,14 @@ function VendorList({
   const id = `map-list-${title.replace(/\W+/g, "-").toLowerCase()}`;
   return (
     <section aria-labelledby={id} className="grid gap-1.5">
-      <h3 id={id} className="text-label font-semibold text-ink-2">
-        {title} <span className="font-normal text-ink-3">{vendors.length}</span>
+      <h3
+        id={id}
+        className="font-display text-[15px] leading-tight font-medium text-ink"
+      >
+        {title}{" "}
+        <span className="ml-1 font-text text-[13px] font-normal text-ink-3">
+          {vendors.length}
+        </span>
       </h3>
       {vendors.length === 0 ? (
         <p className="text-caption text-ink-3">{empty}</p>
@@ -259,49 +292,72 @@ function VendorList({
         <ul className="grid gap-0.5">
           {vendors.map((v) => {
             const tone = toneOf(v);
+            const faint = tone === "other";
+            const approximate = v.marker.approximate;
+            const selected = v._id === selectedId;
             return (
               <li key={v._id}>
                 <button
                   type="button"
                   data-list-vendor={v._id}
-                  aria-pressed={v._id === selectedId}
+                  aria-pressed={selected}
                   onClick={() => onShow(v._id)}
                   className={cn(
-                    "state-layer flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left",
+                    "state-layer relative flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2 text-left",
+                    faint ? "py-1" : "py-1.5",
                     "focus-visible:outline-2 focus-visible:outline-focus",
-                    v._id === selectedId && "bg-selected",
+                    selected && "bg-selected",
                   )}
                 >
-                  <MarkerPin
-                    category={v.category}
-                    tone={tone}
-                    approximate={v.marker.approximate}
-                    labelled={false}
-                    className="shrink-0 scale-75"
-                  />
+                  {selected ? (
+                    // The selected row's edge in its status colour.
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-[3px] bg-current",
+                        TONE_CLASS[tone],
+                      )}
+                    />
+                  ) : null}
+                  <span className="grid w-7 shrink-0 place-items-center">
+                    <StatusGlyph
+                      tone={tone}
+                      approximate={approximate}
+                      size={faint ? 14 : 24}
+                    />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="sr-only">Show on the map: </span>
-                    <span className="block truncate text-label font-medium text-ink">
+                    <span
+                      className={cn(
+                        "block truncate font-medium",
+                        faint
+                          ? "text-[13.5px] text-ink-2"
+                          : "text-[14.5px] text-ink",
+                      )}
+                    >
                       {v.name}
                     </span>
-                    <span className="block truncate text-caption text-ink-3">
+                    <span className="block truncate text-caption text-ink-2">
                       {CATEGORY_LABELS[v.category]}
-                      {v.locality ? ` · ${v.locality}` : ""}
+                      {v.locality
+                        ? ` · ${approximate ? "around " : ""}${v.locality}`
+                        : ""}
+                      {approximate ? (
+                        <span className="sr-only">, approximate</span>
+                      ) : null}
                     </span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
-                    {tone !== "other" ? (
+                    {!faint ? (
                       <span
                         className={cn(
                           "text-caption font-semibold",
-                          TONE_CLASS[tone],
+                          TONE_TEXT_CLASS[tone],
                         )}
                       >
                         {TONE_LABELS[tone]}
                       </span>
-                    ) : null}
-                    {v.marker.approximate ? (
-                      <Badge tone="outline">approximate</Badge>
                     ) : null}
                     {v.noPrice ? <Badge tone="outline">no price</Badge> : null}
                   </span>
@@ -331,7 +387,10 @@ function PlainList({
   if (vendors.length === 0) return null;
   return (
     <section aria-labelledby={id} className="grid gap-1.5">
-      <h3 id={id} className="text-label font-semibold text-ink-2">
+      <h3
+        id={id}
+        className="font-display text-[15px] leading-tight font-medium text-ink"
+      >
         {title}
       </h3>
       <ul className="grid gap-1">
@@ -362,7 +421,7 @@ function PlainList({
                   <span
                     className={cn(
                       "text-caption font-semibold",
-                      TONE_CLASS[tone],
+                      TONE_TEXT_CLASS[tone],
                     )}
                   >
                     {TONE_LABELS[tone]}
@@ -379,32 +438,60 @@ function PlainList({
   );
 }
 
-function Legend() {
+/**
+ * The compact key, inside the panel so it never covers the map: each status's
+ * shape and colour, and what a hollow shape means.
+ */
+function MapKey() {
   return (
     <ul
-      aria-label="Marker colours"
-      className="absolute bottom-9 left-3 hidden flex-wrap gap-x-3 gap-y-1 rounded-md bg-surface/90 px-3 py-2 text-caption text-ink-2 shadow-overlay sm:flex sm:max-w-[30rem]"
+      aria-label="Marker key"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-surface-low px-2.5 py-2 text-caption text-ink-2"
     >
       {LEGEND.map((tone) => (
-        <li key={tone} className="flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className={cn(
-              "size-2.5 rounded-full bg-current",
-              TONE_CLASS[tone],
-              tone === "other" && "opacity-60",
-            )}
-          />
+        <li key={tone} className="flex items-center gap-1">
+          <StatusGlyph tone={tone} approximate={tone === "other"} size={13} />
           {TONE_LABELS[tone]}
         </li>
       ))}
-      <li className="flex items-center gap-1.5">
-        <span
-          aria-hidden
-          className="size-2.5 rounded-full border-[1.5px] border-dashed border-ink-2"
+      <li className="flex items-center gap-1">
+        <StatusGlyph
+          tone="considering"
+          approximate
+          size={13}
+          className="text-ink-2"
         />
-        Hollow: approximate
+        hollow = approximate
       </li>
     </ul>
+  );
+}
+
+/** A rule with Look D's diamond between the lists; the diamond is an ornament. */
+function DiamondRule() {
+  return (
+    <div aria-hidden className="flex items-center gap-2.5 px-1 pt-1">
+      <span className="h-px flex-1 bg-rule" />
+      <svg
+        viewBox="0 0 24 24"
+        width="13"
+        height="13"
+        fill="none"
+        data-ornament="diamond"
+        className="ornaments-off:hidden"
+      >
+        <path
+          d="M12 1.5 22.5 12 12 22.5 1.5 12Z"
+          stroke="var(--motif)"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M12 6.5 17.5 12 12 17.5 6.5 12Z"
+          fill="var(--motif-2)"
+          fillOpacity="0.85"
+        />
+      </svg>
+      <span className="h-px flex-1 bg-rule ornaments-off:hidden" />
+    </div>
   );
 }
