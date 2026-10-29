@@ -881,6 +881,7 @@ Parent: Slices. Blocked by: S19a, S12, S14, S15, S16, S17 (and every MUST slice 
 
 ### Acceptance criteria
 - [ ] The demo-path Playwright test walks the script in section 9.3 on the preview (stub model for Assistant replies, real model in the manual rehearsal), with one named step per beat so a beat dropped by the fallback table is skipped by name.
+  - Amended 29 Oct: the full demo-path test runs on a local backend (`E2E_DEMO_LOCAL=1`), and the production rehearsal walks the script twice. CI's preview run covers the demo Event with the existing `e2e/demo.spec.ts` smoke test only. The reason is by design: the reset and check helpers the demo-path test needs refuse any deployment that isn't local.
 - [ ] After S17 has merged, `reset` schedules zero `internal.nudges.check` calls and leaves the demo Event's Chat exactly as seeded.
 - [ ] A full rehearsal on the production URL, after a reset, runs the script twice in a row.
 - [ ] The rehearsal checks the 0:08 beat's live Estimates ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)): the researched ranges are plausible, their sources open, and ₹2,40,000 still falls below the minimum so the flag and "Plan at my budget anyway" appear. If it doesn't, Sah-Nikhil picks a smaller collection for the script's Brief, and the script and narration are updated (IMPLEMENTATION_PLAN.md section 9.3). The demo-path test itself runs with research stubbed.

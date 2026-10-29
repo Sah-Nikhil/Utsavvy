@@ -1,6 +1,7 @@
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import type { Browser, BrowserContext, TestInfo } from "@playwright/test";
 import {
+  DEMO_QUOTE_PASTE,
   PLAN_THE_SANGEET,
   ROHAN_CATERING_NOTE,
   SANGEET_GUESTS_PROPOSAL,
@@ -31,7 +32,8 @@ import { convexLocal } from "./local-convex";
  * It changes a Convex deployment's settings and data, so it runs only against
  * a local deployment: set E2E_DEMO_LOCAL=1 with `bun run dev` on a local
  * backend. `convexLocal` refuses any other deployment. CI's preview run skips
- * it. Set E2E_DEMO_SHOTS=<dir> to also save each beat's screenshot there.
+ * it and runs `e2e/demo.spec.ts` instead (S19b's criterion, amended 29 Oct in
+ * docs/plans/build-slices.md). Set E2E_DEMO_SHOTS=<dir> to also save each beat's screenshot there.
  */
 
 const PHONE = { width: 390, height: 844 };
@@ -44,13 +46,8 @@ const GANESH =
 const DROPPED = new Set<string>([]);
 const QUOTE_BEAT =
   "0:50 WhatsApp Quote → Proposal, Accept, Booked, ₹40,000 over, Suggest cuts Nudge";
-/** Beats an app bug blocks, by name, with the bug. */
-const FIXME = new Map<string, string>([
-  [
-    QUOTE_BEAT,
-    "the pasted Quote gets no Function, because the demo caterer serves the sangeet and the wedding and both have 300 Guests, so it lands on all 5 catering lines and Booked never asks to use it (issue #53 PR, Bugs found)",
-  ],
-]);
+/** Beats an app bug blocks, by name, with the bug: none. */
+const FIXME = new Map<string, string>([]);
 
 function memberEmail(): string {
   const email = process.env.E2E_CLERK_USER_EMAIL;
@@ -341,9 +338,11 @@ test.describe("the demo path, on a local deployment", () => {
 
       await beat(QUOTE_BEAT, async () => {
         await onDemo();
+        // The script's paste names the sangeet (section 9.3, 29 Oct).
         const pasted = convexRun<{ ok: boolean }>("quotes:pasteForLocalCheck", {
           eventId,
           email: memberEmail(),
+          text: DEMO_QUOTE_PASTE,
         });
         expect(pasted.ok).toBe(true);
         const proposal = chat(page).locator("[data-proposal]").last();
@@ -363,20 +362,31 @@ test.describe("the demo path, on a local deployment", () => {
           timeout: 10_000,
         });
 
-        // Estimate, Listed price and Quote side by side on the line.
-        const prices = budget(page)
-          .getByRole("list", { name: "Vendor prices for Catering" })
-          .filter({ hasText: "₹950/plate × 300 = ₹2.85L" });
-        await expect(prices).toHaveCount(1);
+        // The Quote prices the sangeet's catering line, and no other line.
+        await expect(
+          budget(page)
+            .getByRole("list", { name: "Vendor prices for Catering" })
+            .filter({ hasText: "₹950/plate × 300 = ₹2.85L" }),
+        ).toHaveCount(1);
         const row = budget(page)
-          .locator("li[data-entry-id]")
-          .filter({ has: prices });
+          .locator('section[aria-label="Sangeet"] li[data-entry-id]')
+          .filter({
+            has: page.getByRole("button", { name: "Catering", exact: true }),
+          });
+        const prices = row.getByRole("list", {
+          name: "Vendor prices for Catering",
+        });
+        // Estimate, Listed price and Quote side by side, never added up.
         await expect(row).toContainText("₹2,45,000");
+        await expect(row).toContainText("Estimate");
         await expect(row).toContainText("₹3L to ₹6L");
-        await expect(prices).toContainText("starting price");
-        await expect(prices.locator('[data-verdict="over"]')).toHaveText(
-          "₹40,000 over the planned ₹2,45,000",
-        );
+        await expect(prices).toContainText("Listed price");
+        await expect(prices).toContainText("₹850/plate × 300 = ₹2.55L");
+        await expect(prices).toContainText("₹950/plate × 300 = ₹2.85L");
+        // The line's verdict, beside the sangeet's own total.
+        await expect(
+          prices.locator('[data-verdict="over"]').first(),
+        ).toHaveText("₹40,000 over the planned ₹2,45,000");
         await row.scrollIntoViewIfNeeded();
         await shot(page, "0-50-budget-line");
 
@@ -423,25 +433,8 @@ test.describe("the demo path, on a local deployment", () => {
           const nudge = page.locator('[data-chat-row="system"]').filter({
             hasText: "The Budget is now ₹40,000 over. Want me to suggest cuts?",
           });
-          if ((await nudge.count()) === 0) {
-            // 0:50 didn't run: section 10's typed-amount version, where
-            // Rohan types ₹2,85,000 into the sangeet catering line himself.
-            await budget(page)
-              .locator('section[aria-label="Sangeet"] li[data-entry-id]')
-              .filter({
-                has: page.getByRole("button", {
-                  name: "Catering",
-                  exact: true,
-                }),
-              })
-              .getByRole("button", { name: "₹2,45,000" })
-              .click();
-            await budget(page)
-              .getByRole("textbox", { name: "Amount for Catering" })
-              .fill("285000");
-            await page.keyboard.press("Enter");
-            await expect(nudge).toBeVisible({ timeout: 20_000 });
-          }
+          // 1:05 starts where 0:50 left the Budget: ₹40,000 over.
+          await expect(nudge).toBeVisible({ timeout: 20_000 });
           // The reset's own photos are days old in the story: no Nudge asks
           // to match the Theme to them once the Nudge check has run.
           await expect(

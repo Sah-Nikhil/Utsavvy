@@ -3,7 +3,11 @@ import agentTest from "@convex-dev/agent/test";
 import presenceTest from "@convex-dev/presence/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { budgetRollup } from "../components/items/budget/rollup";
-import { DEMO_KEY } from "../seed/demo/meera-weds-rohan";
+import {
+  DEMO_KEY,
+  DEMO_QUOTE_PASTE,
+  HALDI_PHOTOS_LABEL,
+} from "../seed/demo/meera-weds-rohan";
 import { api, components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -1066,5 +1070,98 @@ describe("presence after a reset (S19b)", () => {
       (m) => m.displayName === "judge-member",
     )!;
     expect(rows.map((r) => r.userId)).toEqual([membership._id]);
+  });
+});
+
+describe("the 0:50 WhatsApp Quote (S19b)", () => {
+  it("names the sangeet, so its Quote is for the sangeet alone", async () => {
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    vi.stubEnv("CONVEX_CLOUD_URL", "http://127.0.0.1:3210");
+    const t = setup();
+    const event = await reset(t);
+    await t
+      .withIdentity(identityFor(JUDGES.member))
+      .mutation(api.users.ensureMe, {});
+    const result = await t.action(internal.quotes.pasteForLocalCheck, {
+      eventId: event._id,
+      email: `${JUDGES.member}@example.com`,
+      text: DEMO_QUOTE_PASTE,
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const open = (await rowsOf(t, "proposals", event._id)).filter(
+      (p) => p.status === "open",
+    );
+    expect(open).toHaveLength(1);
+    expect(open[0]!.changes[0]!.values).toMatchObject({
+      amount: 950,
+      unit: "per_plate",
+      guests: 300,
+      functionKeys: ["sangeet"],
+      note: "live counters extra",
+    });
+  });
+});
+
+describe("afterResetForLocalCheck (S19b)", () => {
+  const LATER = 60 * 60 * 1000;
+
+  it("counts only the demo Event's pending Nudge checks, past any number of other scheduled calls", async () => {
+    vi.stubEnv("CONVEX_CLOUD_URL", "http://127.0.0.1:3210");
+    const t = setup();
+    const event = await reset(t);
+    const otherId = await t
+      .withIdentity(identityFor(JUDGES.viewer))
+      .mutation(api.events.create, {
+        name: "Not the demo",
+        eventType: "birthday",
+      });
+    await t.run(async (ctx) => {
+      await ctx.scheduler.runAfter(LATER, internal.nudges.check, {
+        eventId: otherId,
+      });
+    });
+    const check = () => t.action(internal.demo.afterResetForLocalCheck, {});
+    expect((await check()).pendingNudgeChecks).toBe(0);
+
+    // One for the demo Event, then more than a page of others after it.
+    await t.run(async (ctx) => {
+      await ctx.scheduler.runAfter(LATER, internal.nudges.check, {
+        eventId: event._id,
+      });
+      for (let i = 0; i < 600; i++)
+        await ctx.scheduler.runAfter(LATER, internal.nudges.check, {
+          eventId: otherId,
+        });
+    });
+    expect((await check()).pendingNudgeChecks).toBe(1);
+  });
+});
+
+describe("Rohan's haldi photos in the history (S19b)", () => {
+  it("are one group with its label", async () => {
+    const t = setup();
+    const event = await reset(t);
+    const member = t.withIdentity(identityFor(JUDGES.member));
+    const titles: (string | null)[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const page: {
+        page: { groupTitle: string | null }[];
+        isDone: boolean;
+        continueCursor: string;
+      } = await member.query(api.history.list, {
+        eventId: event._id,
+        paginationOpts: { cursor, numItems: 50 },
+      });
+      titles.push(...page.page.map((row) => row.groupTitle));
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    expect(
+      titles.filter((title) => title?.includes(HALDI_PHOTOS_LABEL)),
+    ).toEqual([
+      `Rohan: ${HALDI_PHOTOS_LABEL} (2 changes)`,
+      `Rohan: ${HALDI_PHOTOS_LABEL} (2 changes)`,
+    ]);
   });
 });

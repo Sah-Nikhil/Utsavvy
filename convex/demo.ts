@@ -1,6 +1,9 @@
 import { createThread, listMessages, saveMessage } from "@convex-dev/agent";
 import { Presence } from "@convex-dev/presence";
-import type { WithoutSystemFields } from "convex/server";
+import {
+  paginationOptsValidator,
+  type WithoutSystemFields,
+} from "convex/server";
 import { v } from "convex/values";
 import { addDays } from "../lib/brief/dates";
 import { assumeFunctionDetails } from "../lib/brief/functions";
@@ -54,6 +57,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import {
   env,
+  internalAction,
   internalMutation,
   internalQuery,
   type MutationCtx,
@@ -709,7 +713,7 @@ async function addLibraryPhoto(
   photo: LibraryPhoto,
   by: Id<"memberships">,
   functionKey: string | null,
-  groupLabel: string | null,
+  group: GroupOptions,
 ) {
   const { sectionId, position } = await placeNewItem(seed.ctx, {
     eventId: seed.eventId,
@@ -747,7 +751,7 @@ async function addLibraryPhoto(
       },
     },
     member(by),
-    { groupLabel },
+    group,
   );
 }
 
@@ -764,7 +768,9 @@ async function seedVibePick(seed: Seeder, people: People) {
   seed.at(5, 1);
   const photos = VIBE_PICK_PHOTOS.map(libraryPhoto);
   for (const photo of photos) {
-    await addLibraryPhoto(seed, photo, meera, null, "The vibe pick");
+    await addLibraryPhoto(seed, photo, meera, null, {
+      groupLabel: "The vibe pick",
+    });
   }
   const picked = vibeTheme(
     { palette: [], styleWords: [], decorKeywords: [] },
@@ -1220,7 +1226,9 @@ async function seedMemberAdds(seed: Seeder, people: People) {
       libraryPhoto(pexelsId),
       rohan,
       "haldi",
-      HALDI_PHOTOS_LABEL,
+      // A seed-only key, the same on every reset, so the history shows the
+      // two photos as one group.
+      { groupKey: `${DEMO_KEY}:haldi-photos`, groupLabel: HALDI_PHOTOS_LABEL },
     );
   }
   seed.at(4, 3);
@@ -1908,17 +1916,25 @@ function refuseOutsideLocal() {
   }
 }
 
-/**
- * What the demo Event holds straight after a reset, for the demo-path browser
- * test (issue #53): the `internal.nudges.check` calls still waiting, the
- * Nudges, and the Chat's messages oldest first. Refuses anything but a local
- * deployment.
- */
-export const afterResetForLocalCheck = internalQuery({
+const SCHEDULED_PAGE = 200;
+
+/** Whether a scheduled call is `internal.nudges.check` and hasn't finished. */
+function isPendingNudgeCheck(
+  call: { name: string; args: unknown[]; state: { kind: string } },
+  eventId: Id<"events">,
+): boolean {
+  if (!/^nudges(\.js)?:check$/.test(call.name)) return false;
+  if (call.state.kind !== "pending" && call.state.kind !== "inProgress")
+    return false;
+  const [args] = call.args as [{ eventId?: string } | undefined];
+  return args?.eventId === eventId;
+}
+
+/** The demo Event's ID, Nudges and Chat, oldest message first. */
+export const demoStateForLocalCheck = internalQuery({
   args: {},
   returns: v.object({
     eventId: v.id("events"),
-    pendingNudgeChecks: v.number(),
     nudges: v.number(),
     chat: v.array(v.object({ role: v.string(), text: v.string() })),
   }),
@@ -1930,16 +1946,6 @@ export const afterResetForLocalCheck = internalQuery({
       .unique();
     if (event === null || event.agentThreadId === null)
       throw new Error("Run demo:reset first");
-    // The newest scheduled calls are enough: a reset's own would be among them.
-    const scheduled = await ctx.db.system
-      .query("_scheduled_functions")
-      .order("desc")
-      .take(500);
-    const pendingNudgeChecks = scheduled.filter(
-      (s) =>
-        /^nudges(\.js)?:check$/.test(s.name) &&
-        (s.state.kind === "pending" || s.state.kind === "inProgress"),
-    ).length;
     const nudges = await ctx.db
       .query("nudges")
       .withIndex("by_event_trigger_target_day", (q) =>
@@ -1952,12 +1958,77 @@ export const afterResetForLocalCheck = internalQuery({
     });
     return {
       eventId: event._id,
-      pendingNudgeChecks,
       nudges: nudges.length,
       chat: page
         .map((m) => ({ role: m.message?.role ?? "", text: m.text ?? "" }))
         .reverse(),
     };
+  },
+});
+
+/** One page of scheduled calls: how many are the Event's unfinished Nudge checks. */
+export const pendingNudgeChecksPageForLocalCheck = internalQuery({
+  args: { eventId: v.id("events"), paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    pending: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, { eventId, paginationOpts }) => {
+    refuseOutsideLocal();
+    const result = await ctx.db.system
+      .query("_scheduled_functions")
+      .paginate(paginationOpts);
+    return {
+      pending: result.page.filter((call) => isPendingNudgeCheck(call, eventId))
+        .length,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
+  },
+});
+
+/**
+ * What the demo Event holds straight after a reset, for the demo-path browser
+ * test (issue #53): its unfinished `internal.nudges.check` calls, counted
+ * over every scheduled call a page at a time, its Nudges, and its Chat oldest
+ * first. Refuses anything but a local deployment.
+ */
+export const afterResetForLocalCheck = internalAction({
+  args: {},
+  returns: v.object({
+    eventId: v.id("events"),
+    pendingNudgeChecks: v.number(),
+    nudges: v.number(),
+    chat: v.array(v.object({ role: v.string(), text: v.string() })),
+  }),
+  handler: async (
+    ctx,
+  ): Promise<{
+    eventId: Id<"events">;
+    pendingNudgeChecks: number;
+    nudges: number;
+    chat: { role: string; text: string }[];
+  }> => {
+    refuseOutsideLocal();
+    const state: {
+      eventId: Id<"events">;
+      nudges: number;
+      chat: { role: string; text: string }[];
+    } = await ctx.runQuery(internal.demo.demoStateForLocalCheck, {});
+    let pendingNudgeChecks = 0;
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { pending: number; isDone: boolean; continueCursor: string } =
+        await ctx.runQuery(internal.demo.pendingNudgeChecksPageForLocalCheck, {
+          eventId: state.eventId,
+          paginationOpts: { cursor, numItems: SCHEDULED_PAGE },
+        });
+      pendingNudgeChecks += page.pending;
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    return { ...state, pendingNudgeChecks };
   },
 });
 
