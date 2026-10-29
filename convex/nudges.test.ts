@@ -647,6 +647,33 @@ describe("the new Inspiration Nudge", () => {
     expect(await nudgeLines(s)).toEqual([]);
   });
 
+  it("still posts for a photo a Member added today in some other labelled group", async () => {
+    const s = await setUp();
+    await addInspiration(s, "Rohan", "Haldi marigolds", "Haldi photos");
+    await settle(s);
+    expect(await nudgeLines(s)).toEqual([
+      "Rohan added a haldi marigolds photo. Want me to update the Theme to match?",
+    ]);
+  });
+
+  it("decides 'new' by the creation change's own time, not the row's: a photo recorded as added yesterday gets no Nudge", async () => {
+    // The demo reset writes its rows today but dates their history back a
+    // few days; only the creation change's `at` says when the photo was added.
+    const s = await setUp();
+    const itemId = await addInspiration(s, "Rohan", "Haldi marigolds");
+    await s.t.run(async (ctx) => {
+      const creation = await ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", itemId))
+        .first();
+      await ctx.db.patch("changes", creation!._id, {
+        at: Date.parse("2026-10-27T23:00:00+05:30"),
+      });
+    });
+    await settle(s);
+    expect(await nudgeLines(s)).toEqual([]);
+  });
+
   it("words a long description, no description and a library photo plainly", () => {
     expect(
       inspirationLine("Rohan", {

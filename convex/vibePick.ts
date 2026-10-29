@@ -3,6 +3,7 @@ import {
   isVibeCandidate,
   setForBrief,
   VIBE_PICK,
+  VIBE_PICK_LABEL,
   vibePickCandidates,
   vibeTheme,
 } from "../lib/brief/vibeSets";
@@ -45,9 +46,6 @@ async function loadEvent(
     throw new ConvexError({ kind: "NotFound", what: "event" });
   return event;
 }
-
-/** The history label of a vibe pick's writes. */
-const VIBE_PICK_LABEL = "The vibe pick";
 
 /** This Event's live stock library Inspirations, by Pexels id. */
 async function libraryItems(
