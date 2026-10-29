@@ -1,4 +1,5 @@
 import { createThread, listMessages, saveMessage } from "@convex-dev/agent";
+import { Presence } from "@convex-dev/presence";
 import type { WithoutSystemFields } from "convex/server";
 import { v } from "convex/values";
 import { addDays } from "../lib/brief/dates";
@@ -341,6 +342,11 @@ async function clearEvent(
       .withIndex("by_event_at", (q) => q.eq("eventId", eventId))
       .take(MAX_ROWS),
   );
+
+  // The Canvas room (@convex-dev/presence, keyed by the Event's ID) lists
+  // people by membership. Those memberships are gone now, and a room still
+  // listing one makes `canvas:list` refuse everyone (S19b, issue #53).
+  await new Presence(components.presence).removeRoom(ctx, eventId);
 
   // The component pages through a long thread with its own scheduled
   // deletions; the app schedules nothing.

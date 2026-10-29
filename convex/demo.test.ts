@@ -1,5 +1,6 @@
 import { listMessages } from "@convex-dev/agent";
 import agentTest from "@convex-dev/agent/test";
+import presenceTest from "@convex-dev/presence/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { budgetRollup } from "../components/items/budget/rollup";
 import { DEMO_KEY } from "../seed/demo/meera-weds-rohan";
@@ -58,6 +59,7 @@ afterEach(() => {
 function setup() {
   const t = newTest();
   agentTest.register(t);
+  presenceTest.register(t);
   return t;
 }
 type T = ReturnType<typeof setup>;
@@ -1036,5 +1038,33 @@ describe("api.demo.isDemo, for the banner", () => {
     expect(
       await stranger.query(api.demo.isDemo, { eventId: "not-an-id" }),
     ).toBe(false);
+  });
+});
+
+describe("presence after a reset (S19b)", () => {
+  it("keeps the Canvas open for whoever was in the room before the reset", async () => {
+    const t = setup();
+    const event = await reset(t);
+    const member = t.withIdentity(identityFor(JUDGES.member));
+    const heartbeat = (sessionId: string) =>
+      member.mutation(api.canvas.heartbeat, {
+        roomId: event._id,
+        userId: "ignored",
+        sessionId,
+        interval: 10_000,
+      });
+    await heartbeat("open-tab");
+
+    // The reset gives judge-member a new membership; the room must not still
+    // list the old one, or the Canvas's presence query refuses everyone, and
+    // a tab left open must be able to heartbeat as the new membership.
+    await reset(t);
+    await heartbeat("open-tab");
+    const { roomToken } = await heartbeat("after-a-reload");
+    const rows = await member.query(api.canvas.list, { roomToken });
+    const membership = (await rowsOf(t, "memberships", event._id)).find(
+      (m) => m.displayName === "judge-member",
+    )!;
+    expect(rows.map((r) => r.userId)).toEqual([membership._id]);
   });
 });
