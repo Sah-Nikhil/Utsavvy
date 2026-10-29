@@ -443,6 +443,13 @@ export const SUGGESTIONS_DISMISSED = [
 export const VIBE_PICK_PHOTOS = [33417236, 38721726, 33331285] as const;
 /** Two haldi photos Rohan added from the library. */
 export const HALDI_PHOTOS = [31002035, 19569602] as const;
+/**
+ * The history group Rohan's two haldi photos arrive in. A labelled group also
+ * keeps them out of the new-photo Nudge, which counts photos by when their
+ * row was written: a reset writes every row today, and Rohan added these days
+ * ago (S19b, issue #53).
+ */
+export const HALDI_PHOTOS_LABEL = "Haldi photos from the stock library";
 
 // ---------------------------------------------------------------------------
 // Later edits, each one a history group
