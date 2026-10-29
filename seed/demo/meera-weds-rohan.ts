@@ -443,6 +443,13 @@ export const SUGGESTIONS_DISMISSED = [
 export const VIBE_PICK_PHOTOS = [33417236, 38721726, 33331285] as const;
 /** Two haldi photos Rohan added from the library. */
 export const HALDI_PHOTOS = [31002035, 19569602] as const;
+/**
+ * The label of the history group Rohan's two haldi photos arrive in. The
+ * label also keeps them out of the new-photo Nudge, which counts photos by
+ * when their row was written: a reset writes every row today, and Rohan added
+ * these days ago (S19b, issue #53).
+ */
+export const HALDI_PHOTOS_LABEL = "Haldi photos from the stock library";
 
 // ---------------------------------------------------------------------------
 // Later edits, each one a history group
@@ -577,6 +584,15 @@ export const DECORATOR_QUOTE = {
   note: string;
   by: PersonaKey;
 };
+
+/**
+ * The caterer's WhatsApp message the demo pastes at 0:50 (IMPLEMENTATION_PLAN.md
+ * section 9.3). It names the sangeet: the caterer serves the sangeet and the
+ * wedding, both for 300 Guests, so a message without a Function can't say
+ * which line its Quote prices (29 Oct, S19b).
+ */
+export const DEMO_QUOTE_PASTE =
+  "Sangeet: Veg 950/plate for 300 pax, live counters extra";
 
 /** Papa's Comment on the first Venue's card. */
 export const PAPA_VENUE_COMMENT =

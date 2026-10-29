@@ -13,6 +13,7 @@ import type {
   ProposalOpHandler,
   ProposedChange,
 } from "../../../lib/types/proposals";
+import { DEMO_QUOTE_PASTE } from "../../../seed/demo/meera-weds-rohan";
 import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { env, type MutationCtx, type QueryCtx } from "../../_generated/server";
@@ -360,6 +361,22 @@ registerStubObject({
     unit: "per_plate",
     guests: 300,
     functions: [],
+    note: "live counters extra",
+  } satisfies QuoteExtraction,
+});
+/**
+ * The demo script's paste (IMPLEMENTATION_PLAN.md section 9.3), which names
+ * the sangeet. It contains the worked example, so it is registered after it
+ * and wins for its own text only.
+ */
+registerStubObject({
+  promptIncludes: DEMO_QUOTE_PASTE,
+  object: {
+    found: true,
+    amount: 950,
+    unit: "per_plate",
+    guests: 300,
+    functions: ["sangeet"],
     note: "live counters extra",
   } satisfies QuoteExtraction,
 });

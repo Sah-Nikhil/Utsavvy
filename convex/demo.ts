@@ -1,5 +1,9 @@
-import { createThread, saveMessage } from "@convex-dev/agent";
-import type { WithoutSystemFields } from "convex/server";
+import { createThread, listMessages, saveMessage } from "@convex-dev/agent";
+import { Presence } from "@convex-dev/presence";
+import {
+  paginationOptsValidator,
+  type WithoutSystemFields,
+} from "convex/server";
 import { v } from "convex/values";
 import { addDays } from "../lib/brief/dates";
 import { assumeFunctionDetails } from "../lib/brief/functions";
@@ -21,6 +25,7 @@ import type { SectionKind } from "../lib/types/canvas";
 import type { ChangeOp, HistoryTable } from "../lib/types/history";
 import { SOFT_DELETE_TABLES } from "../lib/types/history";
 import type { PricedEstimate } from "../lib/types";
+import type { ToolResult } from "./assistant/tools/core";
 import {
   ADITI_NOTE,
   CATERING_THREAD,
@@ -35,6 +40,7 @@ import {
   DEMO_SHORTLIST,
   type DemoRole,
   HALDI_PHOTOS,
+  HALDI_PHOTOS_LABEL,
   PAPA_VENUE_COMMENT,
   PLAN_THE_SANGEET,
   type PersonaKey,
@@ -47,11 +53,13 @@ import {
   VIBE_PICK_PHOTOS,
 } from "../seed/demo/meera-weds-rohan";
 import starterSet from "../seed/jaipur-vendors.json";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import {
   env,
+  internalAction,
   internalMutation,
+  internalQuery,
   type MutationCtx,
   query,
 } from "./_generated/server";
@@ -62,7 +70,7 @@ import { STARTING_ITEMS } from "./events";
 import { INSPIRATION_CARD_SIZE } from "./inspirations";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
-import { MODELS } from "./lib/models";
+import { MODELS, STUB_MODEL } from "./lib/models";
 import { istDay } from "./lib/time";
 import { newInviteToken, peopleSnapshot } from "./people";
 import {
@@ -338,6 +346,11 @@ async function clearEvent(
       .withIndex("by_event_at", (q) => q.eq("eventId", eventId))
       .take(MAX_ROWS),
   );
+
+  // The Canvas room (@convex-dev/presence, keyed by the Event's ID) lists
+  // people by membership. Those memberships are gone now, and a room still
+  // listing one makes `canvas:list` refuse everyone (S19b, issue #53).
+  await new Presence(components.presence).removeRoom(ctx, eventId);
 
   // The component pages through a long thread with its own scheduled
   // deletions; the app schedules nothing.
@@ -700,7 +713,7 @@ async function addLibraryPhoto(
   photo: LibraryPhoto,
   by: Id<"memberships">,
   functionKey: string | null,
-  groupLabel: string | null,
+  group: GroupOptions,
 ) {
   const { sectionId, position } = await placeNewItem(seed.ctx, {
     eventId: seed.eventId,
@@ -738,7 +751,7 @@ async function addLibraryPhoto(
       },
     },
     member(by),
-    { groupLabel },
+    group,
   );
 }
 
@@ -755,7 +768,9 @@ async function seedVibePick(seed: Seeder, people: People) {
   seed.at(5, 1);
   const photos = VIBE_PICK_PHOTOS.map(libraryPhoto);
   for (const photo of photos) {
-    await addLibraryPhoto(seed, photo, meera, null, "The vibe pick");
+    await addLibraryPhoto(seed, photo, meera, null, {
+      groupLabel: "The vibe pick",
+    });
   }
   const picked = vibeTheme(
     { palette: [], styleWords: [], decorKeywords: [] },
@@ -1206,7 +1221,15 @@ async function seedMemberAdds(seed: Seeder, people: People) {
   const aditi = people.byKey.get("aditi")!;
   seed.at(4);
   for (const pexelsId of HALDI_PHOTOS) {
-    await addLibraryPhoto(seed, libraryPhoto(pexelsId), rohan, "haldi", null);
+    await addLibraryPhoto(
+      seed,
+      libraryPhoto(pexelsId),
+      rohan,
+      "haldi",
+      // A seed-only key, the same on every reset, so the history shows the
+      // two photos as one group.
+      { groupKey: `${DEMO_KEY}:haldi-photos`, groupLabel: HALDI_PHOTOS_LABEL },
+    );
   }
   seed.at(4, 3);
   const size = { w: 300, h: 200 };
@@ -1880,5 +1903,235 @@ export const isDemo = query({
     }
     const event = await ctx.db.get("events", eventId);
     return event !== null && event.demoKey === DEMO_KEY;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Local browser checks only (S19b, e2e/demo-path.spec.ts)
+
+function refuseOutsideLocal() {
+  const url = env.CONVEX_CLOUD_URL ?? "";
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    throw new Error("Only for a local Convex deployment");
+  }
+}
+
+const SCHEDULED_PAGE = 200;
+
+/** Whether a scheduled call is `internal.nudges.check` and hasn't finished. */
+function isPendingNudgeCheck(
+  call: { name: string; args: unknown[]; state: { kind: string } },
+  eventId: Id<"events">,
+): boolean {
+  if (!/^nudges(\.js)?:check$/.test(call.name)) return false;
+  if (call.state.kind !== "pending" && call.state.kind !== "inProgress")
+    return false;
+  const [args] = call.args as [{ eventId?: string } | undefined];
+  return args?.eventId === eventId;
+}
+
+/** The demo Event's ID, Nudges and Chat, oldest message first. */
+export const demoStateForLocalCheck = internalQuery({
+  args: {},
+  returns: v.object({
+    eventId: v.id("events"),
+    nudges: v.number(),
+    chat: v.array(v.object({ role: v.string(), text: v.string() })),
+  }),
+  handler: async (ctx) => {
+    refuseOutsideLocal();
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_demoKey", (q) => q.eq("demoKey", DEMO_KEY))
+      .unique();
+    if (event === null || event.agentThreadId === null)
+      throw new Error("Run demo:reset first");
+    const nudges = await ctx.db
+      .query("nudges")
+      .withIndex("by_event_trigger_target_day", (q) =>
+        q.eq("eventId", event._id),
+      )
+      .take(MAX_ROWS);
+    const { page } = await listMessages(ctx, components.agent, {
+      threadId: event.agentThreadId,
+      paginationOpts: { cursor: null, numItems: 100 },
+    });
+    return {
+      eventId: event._id,
+      nudges: nudges.length,
+      chat: page
+        .map((m) => ({ role: m.message?.role ?? "", text: m.text ?? "" }))
+        .reverse(),
+    };
+  },
+});
+
+/** One page of scheduled calls: how many are the Event's unfinished Nudge checks. */
+export const pendingNudgeChecksPageForLocalCheck = internalQuery({
+  args: { eventId: v.id("events"), paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    pending: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, { eventId, paginationOpts }) => {
+    refuseOutsideLocal();
+    const result = await ctx.db.system
+      .query("_scheduled_functions")
+      .paginate(paginationOpts);
+    return {
+      pending: result.page.filter((call) => isPendingNudgeCheck(call, eventId))
+        .length,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
+  },
+});
+
+/**
+ * What the demo Event holds straight after a reset, for the demo-path browser
+ * test (issue #53): its unfinished `internal.nudges.check` calls, counted
+ * over every scheduled call a page at a time, its Nudges, and its Chat oldest
+ * first. Refuses anything but a local deployment.
+ */
+export const afterResetForLocalCheck = internalAction({
+  args: {},
+  returns: v.object({
+    eventId: v.id("events"),
+    pendingNudgeChecks: v.number(),
+    nudges: v.number(),
+    chat: v.array(v.object({ role: v.string(), text: v.string() })),
+  }),
+  handler: async (
+    ctx,
+  ): Promise<{
+    eventId: Id<"events">;
+    pendingNudgeChecks: number;
+    nudges: number;
+    chat: { role: string; text: string }[];
+  }> => {
+    refuseOutsideLocal();
+    const state: {
+      eventId: Id<"events">;
+      nudges: number;
+      chat: { role: string; text: string }[];
+    } = await ctx.runQuery(internal.demo.demoStateForLocalCheck, {});
+    let pendingNudgeChecks = 0;
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { pending: number; isDone: boolean; continueCursor: string } =
+        await ctx.runQuery(internal.demo.pendingNudgeChecksPageForLocalCheck, {
+          eventId: state.eventId,
+          paginationOpts: { cursor, numItems: SCHEDULED_PAGE },
+        });
+      pendingNudgeChecks += page.pending;
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    return { ...state, pendingNudgeChecks };
+  },
+});
+
+/**
+ * The 1:05 beat's cuts without a chat model: the stub answers "Suggest cuts"
+ * with text only, so this answers the Member's latest Nudge request through
+ * the real `propose` path. The cuts take Outfits and Invitations to their
+ * Estimates' low end (₹42,000 freed), which brings the Budget back within its
+ * ₹25,00,000 after the ₹2.85L Quote, and leaves the decor alone, as Meera
+ * asked on the catering line. Refuses anything but a local deployment.
+ */
+export const cutsForLocalCheck = internalMutation({
+  args: { email: v.string() },
+  returns: v.object({ proposalId: v.id("proposals") }),
+  handler: async (ctx, { email }): Promise<{ proposalId: Id<"proposals"> }> => {
+    refuseOutsideLocal();
+    const event = await findDemoEvent(ctx);
+    if (event === null) throw new Error("Run demo:reset first");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    const membership =
+      user &&
+      (await ctx.db
+        .query("memberships")
+        .withIndex("by_event_user", (q) =>
+          q.eq("eventId", event._id).eq("userId", user._id),
+        )
+        .unique());
+    if (!membership) throw new Error(`${email} is not in the demo Event`);
+    const asked = (
+      await ctx.db
+        .query("runs")
+        .withIndex("by_event_created", (q) => q.eq("eventId", event._id))
+        .order("desc")
+        .take(20)
+    ).find((r) => r.source === "nudge" && r.requestedBy === membership._id);
+    if (asked === undefined)
+      throw new Error('Tap "Suggest cuts" on the Nudge first');
+
+    const budget = (
+      await ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", event._id).eq("kind", "budget"),
+        )
+        .take(5)
+    ).find((item) => item.deletedAt === null);
+    if (!budget) throw new Error("The demo Event has no Budget");
+    const lines = await ctx.db
+      .query("entries")
+      .withIndex("by_item", (q) => q.eq("itemId", budget._id))
+      .take(500);
+    const cut = (label: string) => {
+      const line = lines.find(
+        (e) =>
+          e.kind === "budget" &&
+          e.deletedAt === null &&
+          e.fields.label === label,
+      );
+      if (!line) throw new Error(`No ${label} line on the demo Budget`);
+      return {
+        op: "updateEntry" as const,
+        entryId: line._id,
+        expectedVersion: line.version,
+        patch: {
+          kind: "budget" as const,
+          amount: { estimateLow: true as const },
+        },
+      };
+    };
+
+    const runId = await ctx.db.insert("runs", {
+      eventId: event._id,
+      requestedBy: membership._id,
+      source: "nudge",
+      // The stub has already answered the Nudge's request; a run on that
+      // message would fold the card into its reply, so this one stands alone.
+      messageId: null,
+      commentId: null,
+      status: "running",
+      stoppedBy: null,
+      model: STUB_MODEL,
+      createdAt: Date.now(),
+      startedAt: Date.now(),
+      endedAt: null,
+    });
+    const result: ToolResult = await ctx.runMutation(
+      internal.proposals.proposeForRun,
+      {
+        runId,
+        eventId: event._id,
+        forMembershipId: membership._id,
+        toolCallId: "check_cuts",
+        summary:
+          "Bring Outfits and Invitations to the low end of their Estimates",
+        replaces: null,
+        changes: [cut("Outfits"), cut("Invitations")],
+      },
+    );
+    await ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() });
+    if (!result.ok) throw new Error(result.message);
+    return { proposalId: result.proposalId as Id<"proposals"> };
   },
 });
