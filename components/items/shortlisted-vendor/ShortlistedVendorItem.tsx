@@ -15,6 +15,7 @@ import {
   LINK_STATUS_LABELS,
   type LinkStatus,
 } from "@/components/vendors/cards";
+import { HandTypedVendorCard } from "@/components/vendors/HandTypedVendorCard";
 import { VendorCard } from "@/components/vendors/VendorCard";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,8 @@ import { cn } from "@/lib/utils";
  * Quoted · Wedding: Booked") and its Quotes (S12: add one, see how it adds
  * up, and once Booked say yes to using it as the line's amount). Booking a
  * link marks its Entry done. Another Event that shortlisted the same Vendor
- * never sees these.
+ * never sees these. A hand-typed Vendor (X7) shows its own card instead:
+ * only what a Member typed, private to this Event.
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -55,7 +57,8 @@ export function ShortlistedVendorItem({
 
   const view = data?.view ?? null;
   const canManage = data?.canManage ?? false;
-  const title = view?.card.vendor.name ?? "Shortlisted Vendor";
+  const title =
+    view?.card?.vendor.name ?? view?.handTyped?.name ?? "Shortlisted Vendor";
 
   return (
     <ItemFrame
@@ -144,12 +147,19 @@ export function ShortlistedVendorItem({
               </ul>
             )}
           </section>
-          <VendorCard
-            vendor={view.card}
-            eventLayer={null}
-            city={data.city}
-            className="border-0 bg-transparent p-0"
-          />
+          {view.card ? (
+            <VendorCard
+              vendor={view.card}
+              eventLayer={null}
+              city={data.city}
+              className="border-0 bg-transparent p-0"
+            />
+          ) : (
+            <HandTypedVendorCard
+              vendor={view.handTyped}
+              canManage={canManage}
+            />
+          )}
         </>
       )}
       {error ? (

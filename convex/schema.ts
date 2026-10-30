@@ -358,6 +358,27 @@ export default defineSchema({
     .index("by_item", ["shortlistItemId"])
     .index("by_entry", ["checklistEntryId"]),
 
+  /**
+   * A Vendor a Member typed in because it has no website (X7, vendors.md
+   * "Adding a Vendor by hand"). Private to one Event and holds only what the
+   * Member typed: no Listed prices, provenance or summary.
+   */
+  privateVendors: defineTable({
+    eventId: v.id("events"),
+    name: v.string(),
+    /** A fixed category key, or null with `freeLabel` set (as on checklist Entries). */
+    vendorCategory: v.union(v.string(), v.null()),
+    freeLabel: v.union(v.string(), v.null()),
+    phone: v.union(v.string(), v.null()),
+    /** The area the Member typed, such as "Malviya Nagar". */
+    area: v.union(v.string(), v.null()),
+    /** Only a Marker a Member dropped; never geocoded. */
+    marker: v.union(v.object({ lat: v.number(), lng: v.number() }), v.null()),
+    createdBy: actorValidator,
+    createdAt: v.number(),
+    version: v.number(),
+  }).index("by_event", ["eventId"]),
+
   /** The newest per link is current. Never pooled. Versioned so Restore can track it. */
   quotes: defineTable({
     eventId: v.id("events"),
