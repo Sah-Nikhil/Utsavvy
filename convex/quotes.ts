@@ -865,6 +865,20 @@ const extractionValidator = v.object({
   note: v.union(v.string(), v.null()),
 });
 
+/**
+ * The key of the one Proposal a pasted Quote gets for a link and its
+ * Functions (a `toolCalls` row holding its ID). It starts with the Event, so
+ * the demo reset finds the Event's rows by prefix.
+ */
+export function quoteChoiceKey(
+  eventId: string,
+  pasteId: string,
+  linkId: string,
+  functionKeys: readonly string[],
+): string {
+  return `quoteChoice:${eventId}:${pasteId}:${linkId}:${functionKeys.join(",")}`;
+}
+
 /** The Functions a piece of text names, by name or key, whatever the case. */
 export function functionsNamedIn(
   functions: readonly Doc<"eventFunctions">[],
@@ -937,12 +951,53 @@ function answerChoice(
 ): { key: string } | { unclear: true } | { none: true } {
   if (UNSURE_ANSWER.test(text) || UNSURE_HINDI.test(text))
     return { unclear: true };
-  const picked = functionsAnsweredIn(functions, text).filter((key) =>
-    options.some((fn) => fn.key === key),
+  // Every Function it names counts, a choice or not: "Wedding or Haldi" is
+  // two, even when only the wedding is one of the choices.
+  const named = functionsAnsweredIn(functions, text);
+  if (named.length > 1) return { unclear: true };
+  const key = named[0];
+  if (key === undefined || !options.some((fn) => fn.key === key))
+    return { none: true };
+  return { key };
+}
+
+/**
+ * Whether an open Proposal can still be accepted as it is, so a repeated
+ * answer may hand it back: open, not expired, asked by someone who may still
+ * post, and guarding the link and checklist Entry at the versions the new
+ * change would guard. A card that went out of date gets a fresh one instead.
+ */
+async function stillLive(
+  ctx: MutationCtx,
+  proposal: Doc<"proposals"> | null,
+  change: AddQuoteChange,
+): Promise<boolean> {
+  if (
+    proposal === null ||
+    proposal.status !== "open" ||
+    proposal.expiresAt <= Date.now() ||
+    proposal.changes.length !== 1
+  )
+    return false;
+  const [old] = proposal.changes;
+  if (old!.op !== "addQuote" || old!.values.linkId !== change.values.linkId)
+    return false;
+  const same = (a: AddQuoteChange["guards"], b: AddQuoteChange["guards"]) =>
+    a.length === b.length &&
+    a.every((g) =>
+      b.some(
+        (h) =>
+          h.table === g.table && h.docId === g.docId && h.version === g.version,
+      ),
+    );
+  if (!same(old!.guards, change.guards)) return false;
+  const asker = await ctx.db.get("memberships", proposal.requestedBy);
+  return (
+    asker !== null &&
+    asker.status === "active" &&
+    !asker.blocked &&
+    can(asker.role, "chat.post")
   );
-  if (picked.length > 1) return { unclear: true };
-  if (picked.length === 0) return { none: true };
-  return { key: picked[0]! };
 }
 
 type Cover =
@@ -1184,12 +1239,18 @@ export const proposeForRun = internalMutation({
           values: { linkId: link._id, ...fields, fileId: null },
         };
         const line = await describeAddQuote(ctx, change);
-        // One answer makes one Proposal: a second tool call, or the Member
-        // saying it again later, gets the open card back (review of #128).
+        // One paste makes one Proposal per link and Functions: a second tool
+        // call, or the Member saying it again later, gets the live card back
+        // (reviews of #128).
+        const pasteId =
+          pasteMessageId ??
+          (run.source === "comment" && run.commentId !== null
+            ? `comment:${run.commentId}`
+            : run.messageId);
         const choiceKey =
-          pasteMessageId === null
+          pasteId === null
             ? null
-            : `quoteChoice:${pasteMessageId}:${link._id}:${functionKeys.join(",")}`;
+            : quoteChoiceKey(args.eventId, pasteId, link._id, functionKeys);
         const chosen =
           choiceKey === null
             ? null
@@ -1205,7 +1266,7 @@ export const proposeForRun = internalMutation({
           const open = proposalId
             ? await ctx.db.get("proposals", proposalId)
             : null;
-          if (open !== null && open.status === "open")
+          if (open !== null && (await stillLive(ctx, open, change)))
             return {
               ok: true,
               proposalId: open._id,

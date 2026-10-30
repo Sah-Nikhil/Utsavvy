@@ -981,6 +981,92 @@ describe("a Quote pasted from WhatsApp", () => {
       expect(open).toHaveLength(1);
     });
 
+    it("refuses an answer that names one of the choices and another Function too", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      // The haldi has 150 Guests, so it isn't one of the choices.
+      await withHaldi(s);
+      const { answerRun, pasteMessageId } = await answered(
+        s,
+        "Wedding or Haldi",
+      );
+      const result = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(result).toMatchObject({ ok: false, reason: "unclearAnswer" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("makes a new card when the open one went out of date before the Member repeated the answer", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const { answerRun, pasteMessageId } = await answered(s, "Wedding");
+      const first = (await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      )) as unknown as { proposalId: Id<"proposals"> };
+      await endRun(s, answerRun);
+      // A Member edits the caterer Entry: the first card is out of date now.
+      const version = await s.t.run(async (ctx) => {
+        const entry = (await ctx.db.get("entries", s.caterer))!;
+        await ctx.db.patch("entries", s.caterer, {
+          version: entry.version + 1,
+        });
+        return entry.version + 1;
+      });
+      const again = await pastedRequest(s, "Wedding");
+      const second = (await proposePasted(
+        s,
+        again,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      )) as unknown as { ok: boolean; proposalId: Id<"proposals"> };
+      expect(second.ok).toBe(true);
+      expect(second.proposalId).not.toBe(first.proposalId);
+      const fresh = await s.t.run((ctx) =>
+        ctx.db.get("proposals", second.proposalId),
+      );
+      expect(fresh!.changes[0]!.guards).toContainEqual({
+        table: "entries",
+        docId: s.caterer,
+        version,
+      });
+      // Saying it once more gets that new card back, not a third one.
+      await endRun(s, again);
+      const third = (await proposePasted(
+        s,
+        await pastedRequest(s, "Wedding"),
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      )) as unknown as { proposalId: Id<"proposals"> };
+      expect(third.proposalId).toBe(second.proposalId);
+    });
+
+    it("makes one card for a paste that names its Function, however often the tool is called", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s, `SANGEET: ${PASTE}`);
+      const named = { ...EXTRACTED, functions: ["sangeet"] };
+      const first = await proposePasted(s, runId, named);
+      const second = await proposePasted(s, runId, named);
+      expect(first).toMatchObject({ ok: true });
+      expect(second).toMatchObject({
+        ok: true,
+        proposalId: (first as unknown as { proposalId: string }).proposalId,
+      });
+      const open = (await proposalsOf(s)).filter((p) => p.status === "open");
+      expect(open).toHaveLength(1);
+    });
+
     describe("refuses a pasteMessageId that isn't an earlier Member paste in this Event's Chat", () => {
       async function refusedFor(
         s: Setup,

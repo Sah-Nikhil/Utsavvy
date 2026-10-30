@@ -232,6 +232,19 @@ async function clearEvent(
     await drop("toolCalls", keys);
   }
   await drop("runs", runs);
+  // A pasted Quote's one-Proposal rows are "quoteChoice:<eventId>:..."
+  // (`quoteChoiceKey` in convex/quotes.ts).
+  await drop(
+    "toolCalls",
+    await ctx.db
+      .query("toolCalls")
+      .withIndex("by_key", (q) =>
+        q
+          .gte("key", `quoteChoice:${eventId}:`)
+          .lt("key", `quoteChoice:${eventId};`),
+      )
+      .take(MAX_ROWS),
+  );
 
   // A pasted Quote's screenshot goes with its Quote.
   const quotes = bounded(
