@@ -3270,6 +3270,23 @@ export function repriceBudget(
     if (JSON.stringify(fields) !== JSON.stringify(l.fields))
       lines.push({ id: l.id, version: l.version, fields });
   });
+  // A line the cascade couldn't price for the new city (review of #134):
+  // its old range goes, so it shows "No Estimate yet" and the check counts it
+  // among the lines with no Estimate, but its amount stays.
+  for (const l of state.lines) {
+    if (l.kept || !ranges.has(l.id) || ranges.get(l.id) !== null) continue;
+    if (storedRange(l.fields) === null) continue;
+    lines.push({
+      id: l.id,
+      version: l.version,
+      fields: {
+        ...l.fields,
+        estimate: null,
+        plannedAmount: entryAmount(l.fields),
+        belowUsualRange: false,
+      },
+    });
+  }
   const unallocated = priced.budgetCheck.unallocated;
   const contingency = Math.max(0, budget - linesTotal - unallocated);
   // The Budget check over every line, at the prices it now rests on.
@@ -4130,42 +4147,11 @@ export async function runCityReprice(
             proposalId,
             city: args.city,
           });
-    let prices = stored ?? (await cityPrices(ctx, state, state.city, deps));
-    // A line priced for the old city that the cascade couldn't price for the
-    // new one (review of #134): look it up again, and if it still has no
-    // price, nothing lands, so no old-city Estimate stays as if current and
-    // the notice's Try again re-prices every line later.
-    const unpriced = () =>
-      new Set(
-        prices
-          .filter(
-            (p) =>
-              p.range === null &&
-              storedRange(state.lines.find((l) => l.id === p.id)!.fields) !==
-                null,
-          )
-          .map((p) => p.id),
-      );
-    let missing = unpriced();
-    if (missing.size > 0 && stored !== null) {
-      const again = await cityPrices(
-        ctx,
-        { ...state, lines: state.lines.filter((l) => missing.has(l.id)) },
-        state.city,
-        deps,
-      );
-      prices = prices.map((p) => again.find((a) => a.id === p.id) ?? p);
-      missing = unpriced();
-    }
-    if (missing.size > 0)
-      throw new Error(
-        `no ${args.city} price for ${missing.size} line${missing.size === 1 ? "" : "s"}`,
-      );
     await ctx.runMutation(internal.plan.applyCityPrices, {
       eventId: args.eventId,
       city: args.city,
       actor: args.actor,
-      prices,
+      prices: stored ?? (await cityPrices(ctx, state, state.city, deps)),
     });
   } catch (error) {
     console.warn(

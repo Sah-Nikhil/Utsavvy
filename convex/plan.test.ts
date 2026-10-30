@@ -2374,9 +2374,9 @@ describe("trying a failed city re-price again", () => {
 
   // Review of #118, M1: Try again applies the prices the card was made from.
   // Review of #134: a line the cascade can't price for the new city must not
-  // keep its old city's Estimate as if current. The re-price waits instead,
-  // with its Try again, until every line it re-prices has a new-city price.
-  it("waits for every line, with Try again, when the cascade fails a free-label line for the new city", async () => {
+  // keep its old city's Estimate as if current. Its range goes, its amount
+  // stays, and every other line re-prices.
+  it("clears the range of a free-label line the cascade can't price for the new city, keeps its amount, and re-prices the rest", async () => {
     const s = await jaipurAtSummary();
     await planWith(s, jaipurWeddingDraft);
     const lineId = await s.t.run(async (ctx) => {
@@ -2473,34 +2473,41 @@ describe("trying a failed city re-price again", () => {
     await settle(s);
     await runCityReprice(actionCtx(s.t), args, failing);
 
+    await settle(s);
     const mehndi = async () =>
       (await budgetEntries(s)).find((e) => e._id === lineId)!.fields;
-    // Nothing was re-priced, and the notice offers Try again.
-    expect((await mehndi()).estimate!.basis.unitLow).toBe(20000);
-    expect(await receptionBasis(s)).toMatch(/Y tier/);
+    // The fixed-category lines re-priced for Mumbai, and the step landed.
+    expect(await receptionBasis(s)).toMatch(/X tier/);
     expect(
       await s.asMeera.query(api.plan.cityRepriceStatus, {
         eventId: s.eventId,
         proposalId: proposal!._id,
       }),
-    ).toMatchObject({ state: "failed" });
-
-    // Once the cascade can price it, the step lands for every line.
-    await runCityReprice(actionCtx(s.t), args, {
-      claudeReachable: () => false,
-      knowledge: async (input) => ({
-        model: "stub",
-        results: input.lines.map((l) => ({
-          key: l.key,
-          unitLow: 45000,
-          unitHigh: 60000,
-          reasoning: "Mumbai prices",
-        })),
-      }),
+    ).toMatchObject({ state: "landed" });
+    // The free-label line has no Estimate now, but keeps its amount.
+    const fields = await mehndi();
+    expect(fields.estimate).toBeNull();
+    expect(entryAmount(fields)).toBe(20000);
+    // The check and the note count it among the lines with no Estimate.
+    const { event } = await s.t.run(async (ctx) => ({
+      event: (await ctx.db.get("events", s.eventId))!,
+    }));
+    const priced = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line" && e.fields.estimate !== null,
+    ).length;
+    expect(event.budgetCheck!.basis!.lines).toBe(priced);
+    const note = await s.t.run(async (ctx) => {
+      const item = (
+        await ctx.db
+          .query("items")
+          .withIndex("by_event_kind", (q) =>
+            q.eq("eventId", s.eventId).eq("kind", "budget"),
+          )
+          .take(5)
+      ).find((i) => i.deletedAt === null)!;
+      return item.kind === "budget" ? item.data.note : null;
     });
-    await settle(s);
-    expect((await mehndi()).estimate!.basis.unitLow).toBe(45000);
-    expect(await receptionBasis(s)).toMatch(/X tier/);
+    expect(note).toMatch(/1 line has no Estimate yet and counts as zero\./);
   });
 
   it("Try again applies the prices stored with the Proposal, without a new lookup", async () => {
