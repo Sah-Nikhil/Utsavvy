@@ -4130,11 +4130,42 @@ export async function runCityReprice(
             proposalId,
             city: args.city,
           });
+    let prices = stored ?? (await cityPrices(ctx, state, state.city, deps));
+    // A line priced for the old city that the cascade couldn't price for the
+    // new one (review of #134): look it up again, and if it still has no
+    // price, nothing lands, so no old-city Estimate stays as if current and
+    // the notice's Try again re-prices every line later.
+    const unpriced = () =>
+      new Set(
+        prices
+          .filter(
+            (p) =>
+              p.range === null &&
+              storedRange(state.lines.find((l) => l.id === p.id)!.fields) !==
+                null,
+          )
+          .map((p) => p.id),
+      );
+    let missing = unpriced();
+    if (missing.size > 0 && stored !== null) {
+      const again = await cityPrices(
+        ctx,
+        { ...state, lines: state.lines.filter((l) => missing.has(l.id)) },
+        state.city,
+        deps,
+      );
+      prices = prices.map((p) => again.find((a) => a.id === p.id) ?? p);
+      missing = unpriced();
+    }
+    if (missing.size > 0)
+      throw new Error(
+        `no ${args.city} price for ${missing.size} line${missing.size === 1 ? "" : "s"}`,
+      );
     await ctx.runMutation(internal.plan.applyCityPrices, {
       eventId: args.eventId,
       city: args.city,
       actor: args.actor,
-      prices: stored ?? (await cityPrices(ctx, state, state.city, deps)),
+      prices,
     });
   } catch (error) {
     console.warn(
