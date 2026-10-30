@@ -133,6 +133,10 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     const draft = sheet.locator("[data-hand-typed-marker]");
     await expect(draft).toBeFocused();
     await expect(draft).toHaveAttribute("aria-label", `New Marker for ${NAME}`);
+    // While placing, the list control says what it does now (review N4).
+    await expect(
+      row.getByRole("button", { name: `Cancel Marker placement: ${NAME}` }),
+    ).toHaveText("Cancel");
     await page.keyboard.press("Escape");
     await expect(draft).toHaveCount(0);
     await expect(row).toContainText("No Marker yet");
