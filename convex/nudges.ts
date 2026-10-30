@@ -1,6 +1,7 @@
 import { saveMessage } from "@convex-dev/agent";
 import { ConvexError, v } from "convex/values";
 import { can } from "../lib/access/permissions";
+import { VIBE_PICK_LABEL } from "../lib/brief/vibeSets";
 import { formatINR } from "../lib/format";
 import type { SelectionTarget } from "../lib/types/canvas";
 import type { WriteEvent } from "../lib/types/history";
@@ -312,10 +313,13 @@ function istDayStart(dayIst: string): number {
 }
 
 /**
- * Photos a Member added today. References are left out: the Assistant can't
- * open Pinterest or Instagram (ADR 0014), so it couldn't match the Theme to
- * one. So are photos added in a labelled group, such as the vibe pick, which
- * set the Theme as they arrive.
+ * Photos a Member added today. "Today" is when the photo's creation change
+ * says it was added, in IST, not when its row was written: the demo reset
+ * writes every row today but dates its history back a few days. References
+ * are left out: the Assistant can't open Pinterest or Instagram (ADR 0014),
+ * so it couldn't match the Theme to one. So are photos the vibe pick added,
+ * which set the Theme as they arrive. A photo in any other labelled group
+ * still gets its Nudge.
  *
  * An upload's Nudge reads "Aditi added a photo.": the check runs as the photo
  * arrives, before `describeUpload` has written what it shows, and the
@@ -339,7 +343,9 @@ async function checkInspirations(
       .query("changes")
       .withIndex("by_doc", (q) => q.eq("docId", item._id))
       .first();
-    if (creation === null || creation.groupLabel !== null) continue;
+    if (creation === null || creation.op !== "create") continue;
+    if (istDay(creation.at) !== dayIst) continue;
+    if (creation.groupLabel === VIBE_PICK_LABEL) continue;
     const adder = await ctx.db.get("memberships", item.data.addedBy);
     await post(ctx, {
       eventId: event._id,

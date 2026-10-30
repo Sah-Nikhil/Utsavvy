@@ -647,6 +647,86 @@ describe("the new Inspiration Nudge", () => {
     expect(await nudgeLines(s)).toEqual([]);
   });
 
+  it("still posts for a photo a Member added today in some other labelled group", async () => {
+    const s = await setUp();
+    await addInspiration(s, "Rohan", "Haldi marigolds", "Haldi photos");
+    await settle(s);
+    expect(await nudgeLines(s)).toEqual([
+      "Rohan added a haldi marigolds photo. Want me to update the Theme to match?",
+    ]);
+  });
+
+  it("decides 'new' by the creation change's own time, not the row's: a photo recorded as added yesterday gets no Nudge", async () => {
+    // The demo reset writes its rows today but dates their history back a
+    // few days; only the creation change's `at` says when the photo was added.
+    const s = await setUp();
+    const itemId = await addInspiration(s, "Rohan", "Haldi marigolds");
+    await s.t.run(async (ctx) => {
+      const creation = await ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", itemId))
+        .first();
+      await ctx.db.patch("changes", creation!._id, {
+        at: Date.parse("2026-10-27T23:00:00+05:30"),
+      });
+    });
+    await settle(s);
+    expect(await nudgeLines(s)).toEqual([]);
+  });
+
+  describe("the IST day boundary", () => {
+    const ist = (time: string) => Date.parse(`${time}+05:30`);
+    /** Adds Rohan's photo at `addedAt`, then runs the check at `checkedAt`. */
+    async function addThenCheck(addedAt: number, checkedAt: number) {
+      vi.setSystemTime(addedAt);
+      const s = await setUp();
+      await addInspiration(s, "Rohan", "Haldi marigolds");
+      vi.setSystemTime(checkedAt);
+      await settle(s);
+      return await nudgeLines(s);
+    }
+    const nudge =
+      "Rohan added a haldi marigolds photo. Want me to update the Theme to match?";
+
+    it("leaves a photo added at 23:59:59 IST alone when the check runs at 00:00 IST", async () => {
+      expect(
+        await addThenCheck(
+          ist("2026-10-27T23:59:59"),
+          ist("2026-10-28T00:00:00"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("posts for a photo added at 00:00 IST, the first moment of the day", async () => {
+      expect(
+        await addThenCheck(
+          ist("2026-10-28T00:00:00"),
+          ist("2026-10-28T00:00:30"),
+        ),
+      ).toEqual([nudge]);
+    });
+
+    it("counts IST days, not UTC: 05:00 and 05:31 IST are the same day across UTC midnight", async () => {
+      // 27 Oct 23:30 UTC and 28 Oct 00:01 UTC.
+      expect(
+        await addThenCheck(
+          ist("2026-10-28T05:00:00"),
+          ist("2026-10-28T05:31:00"),
+        ),
+      ).toEqual([nudge]);
+    });
+
+    it("counts IST days, not UTC: 23:00 and 01:00 IST are different days within one UTC day", async () => {
+      // 27 Oct 17:30 UTC and 27 Oct 19:30 UTC.
+      expect(
+        await addThenCheck(
+          ist("2026-10-27T23:00:00"),
+          ist("2026-10-28T01:00:00"),
+        ),
+      ).toEqual([]);
+    });
+  });
+
   it("words a long description, no description and a library photo plainly", () => {
     expect(
       inspirationLine("Rohan", {
