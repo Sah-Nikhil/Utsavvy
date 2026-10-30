@@ -17,7 +17,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MapVendor, MapView } from "@/convex/map";
-import { approximateTag, markerLabel, toneOf } from "./markers";
+import {
+  approximateTag,
+  markerLabel,
+  toneOf,
+  TONE_LABELS,
+  type MarkerTone,
+} from "./markers";
 import { MarkerStamp } from "./MarkerStamp";
 import {
   footprintImage,
@@ -53,6 +59,16 @@ export type MapVendorShown = MapVendor & {
   noPrice: boolean;
 };
 
+/** A hand-typed Vendor's Marker, which a Member dropped (issue #136). */
+export type HandTypedPin = {
+  id: Id<"privateVendors">;
+  name: string;
+  category: string;
+  categoryLabel: string;
+  tone: MarkerTone;
+  marker: { lat: number; lng: number } | null;
+};
+
 export type MapCanvasProps = {
   city: MapView["city"];
   vendors: MapVendorShown[];
@@ -62,6 +78,12 @@ export type MapCanvasProps = {
   onMove: (id: Id<"vendors">, lat: number, lng: number) => void;
   /** Fly to this Vendor's Marker and focus it; `n` repeats the same request. */
   reveal: { id: Id<"vendors">; n: number } | null;
+  /** The Event's hand-typed Vendors; those with a Marker are drawn. */
+  handTyped?: HandTypedPin[];
+  /** The hand-typed Vendor whose Marker the next click on the map drops. */
+  placing?: Id<"privateVendors"> | null;
+  /** Drops or moves a hand-typed Vendor's Marker. */
+  onPlace?: (id: Id<"privateVendors">, lat: number, lng: number) => void;
 };
 
 const STREET_ZOOM = 15;
@@ -125,6 +147,9 @@ export default function MapCanvas({
   onSelect,
   onMove,
   reveal,
+  handTyped = [],
+  placing = null,
+  onPlace,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -304,7 +329,14 @@ export default function MapCanvas({
           touchPitch={false}
           pitchWithRotate={false}
           attributionControl={false}
-          onClick={() => onSelect(null)}
+          onClick={(e) => {
+            if (placing !== null && onPlace) {
+              onPlace(placing, e.lngLat.lat, e.lngLat.lng);
+              return;
+            }
+            onSelect(null);
+          }}
+          cursor={placing !== null ? "crosshair" : undefined}
           onLoad={(e) => {
             if (look && "colours" in look) addImages(e.target, look.colours);
           }}
@@ -359,6 +391,32 @@ export default function MapCanvas({
               </Marker>
             );
           })}
+          {handTyped.map((pin) =>
+            pin.marker === null ? null : (
+              <Marker
+                key={pin.id}
+                latitude={pin.marker.lat}
+                longitude={pin.marker.lng}
+                anchor="center"
+                draggable={canMove && onPlace !== undefined}
+                onDragEnd={(e) => onPlace?.(pin.id, e.lngLat.lat, e.lngLat.lng)}
+              >
+                <span
+                  role="img"
+                  data-hand-typed-marker={pin.id}
+                  aria-label={`${pin.name}, ${pin.categoryLabel}, ${TONE_LABELS[pin.tone]}, Marker placed by a Member`}
+                  className="block"
+                >
+                  <MarkerStamp
+                    category={pin.category}
+                    tone={pin.tone}
+                    approximate={false}
+                    tag="none"
+                  />
+                </span>
+              </Marker>
+            ),
+          )}
         </Map>
       ) : (
         <div className="size-full bg-[var(--map-land)]" />

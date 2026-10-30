@@ -1,0 +1,164 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import type { TestInfo } from "@playwright/test";
+import { expectNoSeriousA11yViolations } from "./axe";
+import { expect, test, type Page } from "./fixtures";
+import { localDeploymentProblem } from "./local-convex";
+
+/**
+ * A hand-typed Vendor's Marker (issue #136): a Member types in the family's
+ * caterer, opens the Vendor map, chooses "Drop a Marker" and clicks the map.
+ * The Marker appears, labelled as placed by a Member, and the list says so.
+ * Desktop and 390 × 844, axe on each.
+ *
+ * Seeds a local Convex deployment (`canvas:seedLocalCheck`,
+ * `entries:seedPlanForLocalCheck`, `map:seedForLocalCheck`), so it runs only
+ * with E2E_MAP_LOCAL=1 against `bun run dev` on a local backend. Set
+ * E2E_136_SHOTS=<dir> to also save the screenshots there.
+ */
+
+const PHONE = { width: 390, height: 844 };
+const DESKTOP = { width: 1280, height: 800 };
+const NAME = "Sharma ji Caterers";
+
+function ownerEmail(): string {
+  const email = process.env.E2E_CLERK_USER_EMAIL;
+  if (!email) throw new Error("Set E2E_CLERK_USER_EMAIL to sign in.");
+  return email;
+}
+
+function convexRun(fn: string, args: Record<string, unknown>): string {
+  const problem = localDeploymentProblem(process.env);
+  if (problem !== null) throw new Error(`Refusing to seed ${fn}: ${problem}`);
+  // The Convex CLI's own script, run by Node, so no shell mangles the JSON.
+  // On Windows it can trip a libuv assertion after printing; keep its output.
+  let out: string;
+  try {
+    out = execFileSync(
+      process.execPath,
+      ["node_modules/convex/bin/main.js", "run", fn, JSON.stringify(args)],
+      { encoding: "utf8" },
+    );
+  } catch (error) {
+    const stdout = (error as { stdout?: string }).stdout;
+    if (!stdout) throw error;
+    out = stdout;
+  }
+  return out.trim() === "" ? "" : (JSON.parse(out.trim()) as string);
+}
+
+async function shot(page: Page, testInfo: TestInfo, name: string) {
+  const dir = process.env.E2E_136_SHOTS;
+  if (dir) mkdirSync(dir, { recursive: true });
+  await page.screenshot({
+    path: dir ? join(dir, name) : testInfo.outputPath(name),
+  });
+}
+
+async function openMap(page: Page, phone = false) {
+  if (phone) {
+    const nav = page.getByRole("navigation", { name: "Workspace" });
+    await expect(nav).toBeVisible();
+    await nav.getByRole("button", { name: "Canvas" }).click();
+  }
+  await page.getByRole("button", { name: "Map", exact: true }).first().click();
+  const sheet = page.getByRole("dialog", { name: "Vendors on the map" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.locator("[data-map-ready] canvas")).toBeVisible({
+    timeout: 20_000,
+  });
+  return sheet;
+}
+
+test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () => {
+  test.skip(
+    process.env.E2E_MAP_LOCAL !== "1",
+    "Seeds a local Convex deployment; set E2E_MAP_LOCAL=1",
+  );
+
+  test("a Member drops a Marker for the family's caterer and it shows as placed by a Member", async ({
+    page,
+    signIn,
+    cspViolations,
+  }, testInfo) => {
+    test.setTimeout(150_000);
+    await page.setViewportSize(DESKTOP);
+    await signIn();
+    await page.goto("/events");
+    await expect(page.locator("[data-account-ready]")).toBeVisible({
+      timeout: 20_000,
+    });
+    const eventId = convexRun("canvas:seedLocalCheck", {
+      email: ownerEmail(),
+      items: 3,
+    });
+    convexRun("entries:seedPlanForLocalCheck", { eventId });
+    convexRun("map:seedForLocalCheck", { eventId });
+    await page.goto(`/events/${eventId}`);
+    await expect(page.locator(".react-flow__node-section")).toHaveCount(4, {
+      timeout: 20_000,
+    });
+
+    // Type in the family's caterer.
+    await page
+      .locator('[data-canvas-item="checklist"]')
+      .getByRole("button", { name: "Find Vendors for Caterer" })
+      .click();
+    const finder = page.getByRole("dialog", { name: "Find Vendors: Caterer" });
+    const form = finder.getByRole("form", {
+      name: "Add to Canvas: hand-typed Vendor",
+    });
+    await form.getByLabel("Name").fill(NAME);
+    await form.getByLabel("Area (optional)").fill("Malviya Nagar");
+    await form.getByRole("button", { name: "Add to Canvas" }).click();
+    await expect(
+      finder.getByRole("status").filter({ hasText: "Added" }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(finder).toBeHidden();
+
+    // On the map it is listed with no Marker; a Member drops one.
+    const sheet = await openMap(page);
+    const row = sheet.locator("[data-hand-typed-vendor]").filter({
+      hasText: NAME,
+    });
+    await expect(row).toContainText("no Marker yet");
+    await expect(sheet.locator("[data-hand-typed-marker]")).toHaveCount(0);
+    await row.getByRole("button", { name: `Drop a Marker: ${NAME}` }).click();
+    await expect(sheet.getByRole("status")).toContainText(
+      `Click the map where ${NAME} is.`,
+    );
+    await sheet.locator("[data-map-ready] canvas").click();
+    await expect(row).toContainText("Marker placed by a Member", {
+      timeout: 10_000,
+    });
+    const marker = sheet.locator("[data-hand-typed-marker]");
+    await expect(marker).toHaveCount(1);
+    await expect(marker).toHaveAttribute(
+      "aria-label",
+      new RegExp(`^${NAME}, Caterer, .*Marker placed by a Member$`),
+    );
+    await expect(
+      row.getByRole("button", { name: `Move the Marker: ${NAME}` }),
+    ).toBeVisible();
+    await expectNoSeriousA11yViolations(page);
+    await shot(page, testInfo, "1-marker-dropped-desktop.png");
+
+    // A phone shows the same list and Marker.
+    await page.setViewportSize(PHONE);
+    await page.reload();
+    const phoneSheet = await openMap(page, true);
+    const phoneRow = phoneSheet
+      .locator("[data-hand-typed-vendor]")
+      .filter({ hasText: NAME });
+    await expect(phoneRow).toContainText("Marker placed by a Member");
+    await expect(phoneSheet.locator("[data-hand-typed-marker]")).toHaveCount(1);
+    await expectNoSeriousA11yViolations(page);
+    await shot(page, testInfo, "2-map-390.png");
+    await phoneRow.scrollIntoViewIfNeeded();
+    await shot(page, testInfo, "3-list-390.png");
+
+    expect(cspViolations).toEqual([]);
+  });
+});

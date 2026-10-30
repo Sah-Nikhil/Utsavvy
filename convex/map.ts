@@ -113,6 +113,8 @@ export type MapHandTypedVendor = {
   _id: Id<"privateVendors">;
   itemId: Id<"items">;
   name: string;
+  /** A fixed category key, for the stamp's drawing; "" for a free label. */
+  category: string;
   /** "Caterer", or the free label as typed. */
   categoryLabel: string;
   area: string | null;
@@ -269,6 +271,7 @@ export const view = query({
             _id: row._id,
             itemId: item._id,
             name: row.name,
+            category: row.freeLabel ? "" : (row.vendorCategory ?? ""),
             categoryLabel: handTypedLabel(row),
             area: row.area,
             marker: row.marker,
