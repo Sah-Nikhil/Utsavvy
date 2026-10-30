@@ -42,6 +42,7 @@ import {
   planItemOf,
   rescaleEstimate,
 } from "../../entries";
+import { repriceForNewTotal } from "../../plan";
 import { estimateLines, type EstimateDeps } from "../../estimates";
 import { requireAccessFor } from "../../lib/access";
 import { AccessDenied } from "../../lib/errors";
@@ -717,7 +718,16 @@ export const setBudgetTotalOp: ProposalOpHandler<"setBudgetTotal"> = {
       patch: { budgetTotal: change.values.budgetTotal },
       ...(await writeOptions(ctx, change, actor)),
     });
-    return [change.docId];
+    // The plan's lines re-price for the new total. The post-write hook
+    // schedules the Budget check and note's recompute (issue #102, review of
+    // #130).
+    const repriced = await repriceForNewTotal(
+      ctx,
+      change.docId,
+      change.values.budgetTotal,
+      actor,
+    );
+    return [change.docId, ...repriced];
   },
 };
 

@@ -22,6 +22,8 @@ import { formatINR, formatLakh } from "../lib/format";
 import {
   amountAt,
   amountAtMost,
+  budgetCheckNote,
+  uncheckedBudgetNote,
   deadlineDate,
   isLeadKey,
   LEAD_TIMES,
@@ -88,6 +90,7 @@ import {
   withModelFallback,
 } from "./lib/models";
 import { istDay } from "./lib/time";
+import type { WriteEvent } from "../lib/types/history";
 import { assistantInsert, assistantWrite, memberWrite } from "./lib/write";
 import { enqueueRun } from "./runs";
 
@@ -1454,6 +1457,243 @@ const CATERING = /^(catering_|party_catering$|prasad|cultural_snacks$)/;
 /** Lines that are a meal, for the Budget note's "because of five meals". */
 const MEALS = /^(catering_|party_catering$)/;
 
+/** "Catering is about 45% of the budget because of 5 meals", from 30% up. */
+function cateringNote(
+  catering: number,
+  budget: number,
+  meals: number,
+): string | null {
+  const share = Math.round((catering / budget) * 100);
+  if (share < 30) return null;
+  return `Catering is about ${share}% of the budget${meals > 1 ? ` because of ${meals} meals` : ""}.`;
+}
+
+/**
+ * Recomputes the Budget check and the Budget note from the plan as it stands
+ * (issue #102 and the review of #130). Both are derived: the bands from each
+ * line's stored per-unit range against the Budget total, the Contingency and
+ * Unallocated as the Budget holds them, the note from that same check plus
+ * the catering share of the stored lines. Neither is history: they are
+ * rewritten here after every change they rest on, including Undo all and
+ * Restore (`budgetAfterWrite`), so the note and the badge always agree.
+ *
+ * With no line priced from a range there is no band: the check is cleared
+ * and the note says the total isn't checked yet. Nothing runs before the plan
+ * (no Budget Item) or while the first plan is being written.
+ */
+async function recomputeBudget(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+): Promise<void> {
+  const event = await ctx.db.get("events", eventId);
+  if (
+    event === null ||
+    event.budgetTotal === null ||
+    event.briefState === "planning"
+  )
+    return;
+  const item = await planItemOf(ctx, eventId, "budget");
+  if (item === null || item.kind !== "budget") return;
+  const budget = event.budgetTotal;
+  const lines: DraftBudgetLine[] = [];
+  const ranges: (LineEstimate | null)[] = [];
+  let contingency = 0;
+  let unallocated = 0;
+  let researched = 0;
+  let allAtHigh = true;
+  let catering = 0;
+  const mealFunctions = new Set<string>();
+  for (const e of await ctx.db
+    .query("entries")
+    .withIndex("by_event_kind", (q) =>
+      q.eq("eventId", eventId).eq("kind", "budget"),
+    )
+    .take(MAX_PLAN_ENTRIES)) {
+    if (e.deletedAt !== null || e.kind !== "budget") continue;
+    if (e.fields.role === "contingency") {
+      contingency += e.fields.plannedAmount ?? 0;
+      continue;
+    }
+    if (e.fields.role === "unallocated") {
+      unallocated += e.fields.plannedAmount ?? 0;
+      continue;
+    }
+    lines.push({
+      category: e.fields.category ?? e.fields.label,
+      quantity: e.fields.quantity,
+      unit: e.fields.unit,
+    });
+    const basis = e.fields.estimate?.basis;
+    ranges.push(
+      basis
+        ? {
+            unit: basis.unit,
+            unitLow: basis.unitLow,
+            unitHigh: basis.unitHigh,
+            basis,
+          }
+        : null,
+    );
+    if (basis?.kind === "researched") researched++;
+    // At its high end as `pricePlan` places it above the high: a line a
+    // Member set or got a Quote for may sit below.
+    if (
+      basis &&
+      entryAmount(e.fields) !==
+        amountAtMost(basis.unit, basis.unitHigh, e.fields.quantity)
+    )
+      allAtHigh = false;
+    if (e.fields.category !== null && MEALS.test(e.fields.category)) {
+      catering += entryAmount(e.fields);
+      if (e.functionKey !== null) mealFunctions.add(e.functionKey);
+    }
+  }
+  const city = event.city?.name ?? null;
+  const missing = ranges.filter((r) => r === null).length;
+  let check: BudgetCheck | null = null;
+  let checkNote: string;
+  if (missing === lines.length) {
+    checkNote = uncheckedBudgetNote(budget, missing);
+  } else {
+    const priced = pricePlan({ functions: [], eventWide: lines }, ranges, {
+      budget,
+      contingencyShare: event.contingencyShare,
+      households: event.households,
+      city,
+    });
+    check = {
+      ...priced.budgetCheck,
+      contingency,
+      unallocated,
+      // Only the lines priced from a range; the note counts the others.
+      basis: { researched, lines: lines.length - missing },
+    };
+    checkNote =
+      budgetCheckNote(check, budget, { city, missing, allAtHigh }) ?? "";
+  }
+  const parts = [
+    checkNote,
+    cateringNote(catering, budget, mealFunctions.size),
+  ].filter((n): n is string => n !== null && n !== "");
+  const note = parts.length > 0 ? parts.join(" ") : null;
+  if (JSON.stringify(event.budgetCheck) !== JSON.stringify(check))
+    await ctx.db.patch("events", eventId, { budgetCheck: check });
+  if (item.data.note !== note)
+    await ctx.db.patch("items", item._id, { data: { ...item.data, note } });
+}
+
+type Relink = {
+  proposalId: Id<"proposals"> | null;
+  forMembershipId: Id<"memberships">;
+  acceptedBy: Id<"memberships"> | null;
+};
+
+/**
+ * This mutation's Budget recheck per Event: the scheduled call and whether it
+ * relinks the checklist, or "inline" when the mutation recomputes in place.
+ */
+const budgetRecheckIn = new WeakMap<
+  object,
+  Map<
+    Id<"events">,
+    { id: Id<"_scheduled_functions">; relink: Relink | null } | "inline"
+  >
+>();
+
+function budgetRechecks(ctx: MutationCtx) {
+  let rechecks = budgetRecheckIn.get(ctx);
+  if (rechecks === undefined) {
+    rechecks = new Map();
+    budgetRecheckIn.set(ctx, rechecks);
+  }
+  return rechecks;
+}
+
+/**
+ * Schedules `internal.plan.recheckBudget` for an Event at most once per
+ * mutation (review of #130). A plain recheck already scheduled gives way to
+ * one that relinks the checklist; a relinking one, or an Event this mutation
+ * recomputes in place, takes no second call.
+ */
+async function scheduleBudgetRecheck(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  relink: Relink | null,
+): Promise<void> {
+  const rechecks = budgetRechecks(ctx);
+  const current = rechecks.get(eventId);
+  if (current === "inline") return;
+  if (current !== undefined) {
+    if (current.relink !== null || relink === null) return;
+    await ctx.scheduler.cancel(current.id);
+  }
+  const id = await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
+    eventId,
+    relink,
+  });
+  rechecks.set(eventId, { id, relink });
+}
+
+/** Marks an Event this mutation recomputes in place, cancelling any recheck already scheduled. */
+async function recomputeInPlace(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+): Promise<void> {
+  const rechecks = budgetRechecks(ctx);
+  const current = rechecks.get(eventId);
+  if (current !== undefined && current !== "inline")
+    await ctx.scheduler.cancel(current.id);
+  rechecks.set(eventId, "inline");
+}
+
+/** Whether a write moves something the Budget check or note rests on. */
+function movesBudget(event: WriteEvent): boolean {
+  const before = event.before as Record<string, unknown> | null;
+  const after = event.after as Record<string, unknown> | null;
+  switch (event.table) {
+    case "events":
+      return (
+        before?.budgetTotal !== after?.budgetTotal ||
+        JSON.stringify(before?.city ?? null) !==
+          JSON.stringify(after?.city ?? null)
+      );
+    case "entries":
+      return (after ?? before)?.kind === "budget";
+    case "items": {
+      if ((after ?? before)?.kind !== "budget") return false;
+      const note = (doc: Record<string, unknown> | null) =>
+        (doc?.data as { note?: unknown } | undefined)?.note ?? null;
+      return (
+        event.op !== "update" ||
+        note(before) !== note(after) ||
+        before?.deletedAt !== after?.deletedAt
+      );
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * Post-write hook (review of #130): after any write, by a Member or the
+ * Assistant, that moves the Budget total, the city, a budget Entry or the
+ * Budget note of a planned Event, schedules `recomputeBudget` once per
+ * mutation, so the derived check and note follow every edit, Restore and
+ * Undo all. It runs after the whole mutation, so an Undo all or an accepted
+ * Proposal is recomputed once, from its final state. Nothing is scheduled
+ * while the first plan is being written; its last step re-checks the Budget.
+ */
+export async function budgetAfterWrite(
+  ctx: MutationCtx,
+  event: WriteEvent,
+): Promise<void> {
+  if (!movesBudget(event)) return;
+  if (budgetRechecks(ctx).has(event.eventId)) return;
+  const row = await ctx.db.get("events", event.eventId);
+  if (row === null || row.briefState !== "planned") return;
+  await scheduleBudgetRecheck(ctx, event.eventId, null);
+}
+
 /**
  * The pricing step over a validated draft: `pricePlan` over the budget lines'
  * cascade ranges, costed Suggestions at the same position in their ranges,
@@ -1508,21 +1748,18 @@ export function pricePlanDraft(
   });
 
   // "Catering is about 45% of the budget because of five meals" (first-brief.md).
-  const notes = priced.note ? [priced.note] : [];
   const catering = budgetLines.reduce(
     (sum, l, i) =>
       MEALS.test(l.category) ? sum + (priced.entries[i]?.amount ?? 0) : sum,
     0,
   );
-  const share = Math.round((catering / input.event.budget) * 100);
   const meals = draft.functions.filter((fn) =>
     fn.budgetEntries.some((l) => MEALS.test(l.category)),
   ).length;
-  if (share >= 30) {
-    notes.push(
-      `Catering is about ${share}% of the budget${meals > 1 ? ` because of ${meals} meals` : ""}.`,
-    );
-  }
+  const notes = [
+    priced.note,
+    cateringNote(catering, input.event.budget, meals),
+  ].filter((n): n is string => n !== null);
 
   return {
     runId: input.runId,
@@ -2149,11 +2386,7 @@ export const end = internalMutation({
         toolCallId: "plan:end",
       });
       // A plan that stopped part-way gets the Budget check of what it wrote.
-      if (wrote)
-        await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-          eventId,
-          relink: null,
-        });
+      if (wrote) await scheduleBudgetRecheck(ctx, eventId, null);
     }
     if (run.status !== "running" && run.status !== "stopping") return null;
     if (outcome === "failed") {
@@ -3807,14 +4040,13 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
     }
     // Once the whole Accept has landed, the Budget check follows the plan and
     // the Vendor checklist follows a swapped Venue or decor line.
+    // One recheck for the whole Accept: it replaces the plain one the
+    // post-write hook scheduled for these writes.
     if (actor.kind === "assistant") {
-      await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-        eventId: event._id,
-        relink: {
-          proposalId: actor.proposalId,
-          forMembershipId: actor.forMembershipId,
-          acceptedBy: actor.acceptedBy,
-        },
+      await scheduleBudgetRecheck(ctx, event._id, {
+        proposalId: actor.proposalId,
+        forMembershipId: actor.forMembershipId,
+        acceptedBy: actor.acceptedBy,
       });
     }
     return [event._id, ...touched, ...moved, ...repriced];
@@ -4184,19 +4416,10 @@ export const applyCityPrices = internalMutation({
         args.actor,
         "city",
       );
-      const priced = args.prices.filter((p) => p.range !== null);
-      await ctx.db.patch("events", args.eventId, {
-        // Derived from the plan's lines, like the Brief's own check.
-        budgetCheck: {
-          ...repriced.budgetCheck,
-          basis: {
-            researched: priced.filter(
-              (p) => p.range!.basis.kind === "researched",
-            ).length,
-            lines: priced.length,
-          },
-        },
-      });
+      // The check and the note follow the new prices, here rather than in a
+      // second scheduled recheck.
+      await recomputeInPlace(ctx, args.eventId);
+      await recomputeBudget(ctx, args.eventId);
       return null;
     };
     // Once per Proposal: a step that runs again (a retry) writes nothing more.
@@ -4273,9 +4496,10 @@ async function relinkChecklist(
 }
 
 /**
- * The Budget check over the plan's own lines, after an accepted essential
- * change: the bands from each line's stored per-unit range, the Contingency
- * and Unallocated as the Budget holds them.
+ * After an accepted essential change, a new total, a plan that stopped
+ * part-way, or a Restore or Undo all that moves the Budget: relinks the
+ * Vendor checklist for an accepted Proposal, then recomputes the Budget
+ * check and note (`recomputeBudget`).
  */
 export const recheckBudget = internalMutation({
   args: {
@@ -4297,59 +4521,32 @@ export const recheckBudget = internalMutation({
         ...relink,
         proposalId: relink.proposalId,
       });
-    const event = await ctx.db.get("events", eventId);
-    if (event === null || event.budgetTotal === null) return null;
-    const entries = (
-      await ctx.db
-        .query("entries")
-        .withIndex("by_event_kind", (q) =>
-          q.eq("eventId", eventId).eq("kind", "budget"),
-        )
-        .take(MAX_PLAN_ENTRIES)
-    ).filter((e) => e.deletedAt === null);
-    const lines: DraftBudgetLine[] = [];
-    const ranges: (LineEstimate | null)[] = [];
-    let contingency = 0;
-    let unallocated = 0;
-    for (const e of entries) {
-      if (e.kind !== "budget") continue;
-      if (e.fields.role === "contingency")
-        contingency += e.fields.plannedAmount ?? 0;
-      else if (e.fields.role === "unallocated")
-        unallocated += e.fields.plannedAmount ?? 0;
-      else {
-        lines.push({
-          category: e.fields.category ?? e.fields.label,
-          quantity: e.fields.quantity,
-          unit: e.fields.unit,
-        });
-        const basis = e.fields.estimate?.basis;
-        ranges.push(
-          basis
-            ? {
-                unit: basis.unit,
-                unitLow: basis.unitLow,
-                unitHigh: basis.unitHigh,
-                basis,
-              }
-            : null,
-        );
-      }
-    }
-    if (lines.length === 0) return null;
-    const priced = pricePlan({ functions: [], eventWide: lines }, ranges, {
-      budget: event.budgetTotal,
-      contingencyShare: event.contingencyShare,
-      households: event.households,
-    });
-    await ctx.db.patch("events", eventId, {
-      budgetCheck: {
-        ...priced.budgetCheck,
-        contingency,
-        unallocated,
-        ...(event.budgetCheck?.basis ? { basis: event.budgetCheck.basis } : {}),
-      },
-    });
+    await recomputeBudget(ctx, eventId);
     return null;
   },
 });
+
+/**
+ * Accepting a new Budget total (`setBudgetTotal`) re-prices the plan as an
+ * accepted budget change does (section 3.5: "a budget change re-runs the same
+ * arithmetic over the stored ranges"): every line the Assistant priced moves
+ * to the plan's position for the new total, lines a Member set or got a Quote
+ * for stay, and the Contingency and Unallocated take the rest. Written as
+ * part of the accepted Proposal; no research and no model call.
+ */
+export async function repriceForNewTotal(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  budget: number,
+  actor: Actor,
+): Promise<Id<"entries">[]> {
+  const current = await essentialInputOf(ctx, eventId, istDay(Date.now()));
+  if (current === null || current.budgetItemId === null) return [];
+  return await writeRepriced(
+    ctx,
+    current,
+    repriceBudget(current, budget),
+    actor,
+    "setBudgetTotal",
+  );
+}

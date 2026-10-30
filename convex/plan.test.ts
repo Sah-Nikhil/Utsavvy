@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { budgetRollup } from "../components/items/budget/rollup";
+import { budgetRollup, entryAmount } from "../components/items/budget/rollup";
+import { formatINR } from "../lib/format";
 import {
   aaravBirthday,
   jaipurWedding,
@@ -1497,6 +1498,515 @@ describe("changing an essential after the plan", () => {
     await s.t.finishAllScheduledFunctions(() => {});
     const { event } = await rollupOf(s);
     expect(event.budgetCheck?.band).toBe("belowMinimum");
+  });
+
+  // Issue #102: the Budget Item kept the note the first plan wrote, so after a
+  // move to Mumbai it still said "is below the typical" beside a "Below the
+  // usual minimum" badge. The note follows every new Budget check.
+  const budgetNote = (s: S) =>
+    s.t.run(async (ctx) => {
+      const items = await ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", s.eventId).eq("kind", "budget"),
+        )
+        .take(5);
+      const item = items.find((i) => i.deletedAt === null);
+      return item?.kind === "budget" ? item.data.note : null;
+    });
+
+  it("rewrites the Budget note when a budget Proposal changes the band", async () => {
+    const { s } = await plannedJaipur();
+    const first = await budgetNote(s);
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2000000 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    const check = event.budgetCheck!;
+    const note = await budgetNote(s);
+    expect(note).not.toBe(first);
+    expect(check.band).toBe("tight");
+    expect(note).toMatch(
+      /^₹20L is below the typical ₹[\d.]+L for this plan, so Estimates sit near the low end\./,
+    );
+  });
+
+  /** An open setBudgetTotal Proposal, as the Assistant would make it for the Owner. */
+  const setBudgetTotalProposal = (s: S, budgetTotal: number) =>
+    s.t.run(async (ctx) => {
+      const owner = (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner")!;
+      const event = (await ctx.db.get("events", s.eventId))!;
+      return await ctx.db.insert("proposals", {
+        eventId: s.eventId,
+        runId: null,
+        requestedBy: owner._id,
+        origin: { kind: "chat" },
+        summary: `Budget total to ${budgetTotal}`,
+        changes: [
+          {
+            op: "setBudgetTotal",
+            table: "events",
+            docId: s.eventId,
+            expectedVersion: event.version,
+            guards: [],
+            values: { budgetTotal },
+          },
+        ],
+        status: "open",
+        decidedBy: null,
+        decidedAt: null,
+        replacedBy: null,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        createdAt: Date.now(),
+      });
+    });
+
+  /** The Budget check and note as the plan's current state gives them. */
+  const derived = async (s: S) => {
+    await s.t.mutation(internal.plan.recheckBudget, {
+      eventId: s.eventId,
+      relink: null,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    return { check: event.budgetCheck, note: await budgetNote(s) };
+  };
+
+  const amountsOf = async (s: S) =>
+    new Map(
+      (await budgetEntries(s)).map((e) => [e._id, entryAmount(e.fields)]),
+    );
+
+  // Review of #130, H2: IMPLEMENTATION_PLAN.md section 3.5 says a budget
+  // change "re-runs the same arithmetic over the stored ranges", so a new
+  // total re-prices the lines as an accepted budget change does.
+  it("an accepted setBudgetTotal Proposal re-prices the lines over their stored ranges, and the roll-up meets the new total", async () => {
+    const { s, weddingCateringId } = await plannedJaipur();
+    const before = await amountsOf(s);
+    const proposalId = await setBudgetTotalProposal(s, 10_000_000);
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toEqual({ ok: true });
+    await s.t.finishAllScheduledFunctions(() => {});
+
+    const { event, rollup } = await rollupOf(s);
+    expect(event.budgetTotal).toBe(10_000_000);
+    expect(rollup.total).toBe(10_000_000);
+    expect(event.budgetCheck?.band).toBe("aboveHigh");
+    // Every line the Assistant priced moved to its high end; Meera's own stayed.
+    const lines = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line",
+    );
+    for (const line of lines) {
+      if (line._id === weddingCateringId) {
+        // Kept below its own high end, so the note can't say every Estimate sits there.
+        expect(entryAmount(line.fields)).toBe(390000);
+        expect(390000).toBeLessThan(line.fields.estimate!.high);
+        continue;
+      }
+      if (line.fields.estimate === null) continue;
+      // At the top of its range, a rounding step below its high at most.
+      expect(line.fields.estimate.amount).toBeLessThanOrEqual(
+        line.fields.estimate.high,
+      );
+      expect(line.fields.estimate.amount).toBeGreaterThan(
+        (line.fields.estimate.low + line.fields.estimate.high) / 2,
+      );
+      expect(entryAmount(line.fields)).toBeGreaterThanOrEqual(
+        before.get(line._id)!,
+      );
+    }
+    const unallocated = (await budgetEntries(s)).find(
+      (e) => e.fields.role === "unallocated",
+    )!;
+    expect(entryAmount(unallocated.fields)).toBe(rollup.unallocated);
+    expect(rollup.unallocated).toBeGreaterThan(0);
+    expect(event.budgetCheck?.unallocated).toBe(rollup.unallocated);
+    expect(await budgetNote(s)).toMatch(
+      new RegExp(
+        `^₹100L is above the high end of ₹[\\d.]+L for this plan, so there's room for every Estimate at its high end and ${formatINR(rollup.unallocated).replace(/[.]/g, "\\.")} is Unallocated\\.`,
+      ),
+    );
+
+    // A second Accept changes nothing more.
+    const after = await amountsOf(s);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(await amountsOf(s)).toEqual(after);
+  });
+
+  it("an out-of-date setBudgetTotal Proposal changes neither the total nor the lines", async () => {
+    const { s } = await plannedJaipur();
+    const proposalId = await setBudgetTotalProposal(s, 10_000_000);
+    await s.asAditi.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "tradition", tradition: "Marwari" },
+    });
+    const before = await amountsOf(s);
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toMatchObject({ ok: false, reason: "outOfDate" });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetTotal).toBe(2500000);
+    expect(await amountsOf(s)).toEqual(before);
+  });
+
+  // Review of #130, H1: the check and the note are derived from the plan, so
+  // an Undo all or a Restore that moves what they rest on recomputes both.
+  it("Undo all of an accepted setBudgetTotal puts the check and note back with the total", async () => {
+    const { s } = await plannedJaipur();
+    const baseline = await derived(s);
+    const totalBefore = (await rollupOf(s)).rollup.total;
+    // Comfortable for this plan, so the re-price adds no Unallocated row.
+    const proposalId = await setBudgetTotalProposal(s, 3_500_000);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect((await rollupOf(s)).event.budgetCheck?.band).toBe("comfortable");
+
+    expect(
+      await s.asMeera.mutation(api.history.undoGroup, {
+        groupKey: proposalId,
+      }),
+    ).toMatchObject({ message: "Undid 28 of 28" });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event, rollup } = await rollupOf(s);
+    expect(event.budgetTotal).toBe(2500000);
+    expect(rollup.total).toBe(totalBefore);
+    expect(event.budgetCheck).toEqual(baseline.check);
+    expect(await budgetNote(s)).toBe(baseline.note);
+  });
+
+  it("Restoring the Budget note on its own leaves it as the check says", async () => {
+    const { s } = await plannedJaipur();
+    const baseline = await derived(s);
+    const noteChange = await s.t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("changes")
+        .withIndex("by_event_at", (q) => q.eq("eventId", s.eventId))
+        .take(500);
+      return rows.find(
+        (c) =>
+          c.table === "items" &&
+          (c.after as { kind?: string }).kind === "budget" &&
+          (c.before as { data?: { note: string | null } } | null)?.data
+            ?.note === null &&
+          (c.after as { data: { note: string | null } }).data.note !== null,
+      )!;
+    });
+    await s.asMeera.mutation(api.history.restore, {
+      changeId: noteChange._id,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(await budgetNote(s)).toBe(baseline.note);
+    expect((await rollupOf(s)).event.budgetCheck).toEqual(baseline.check);
+  });
+
+  it("Undo all of an accepted city change puts the check and note back with the old prices", async () => {
+    const { s } = await plannedJaipur();
+    const baseline = await derived(s);
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const proposal = await openProposal(s);
+    await acceptNext(s);
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.city?.tier === "X",
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect((await rollupOf(s)).event.budgetCheck).not.toEqual(baseline.check);
+
+    await s.asMeera.mutation(api.history.undoGroup, {
+      groupKey: proposal._id,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.city?.name).toBe("Jaipur");
+    expect(event.budgetCheck).toEqual(baseline.check);
+    expect(await budgetNote(s)).toBe(baseline.note);
+  });
+
+  // Review of #130, M: with no line priced from a range there is no band.
+  it("a plan with no lines left has no band, and its note says so for the current total", async () => {
+    const { s } = await plannedJaipur();
+    await s.t.run(async (ctx) => {
+      for (const e of await ctx.db
+        .query("entries")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", s.eventId).eq("kind", "budget"),
+        )
+        .take(200))
+        await ctx.db.patch("entries", e._id, { deletedAt: Date.now() });
+    });
+    const proposalId = await setBudgetTotalProposal(s, 3_000_000);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck).toBeNull();
+    expect(await budgetNote(s)).toBe(
+      "There are no budget lines yet, so ₹30L isn't checked against typical prices.",
+    );
+  });
+
+  it("a plan whose lines all lack an Estimate has no band, and its note counts them for the current total", async () => {
+    const { s, weddingCateringId } = await plannedJaipur();
+    const lineCount = await s.t.run(async (ctx) => {
+      let n = 0;
+      for (const e of await ctx.db
+        .query("entries")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", s.eventId).eq("kind", "budget"),
+        )
+        .take(200)) {
+        if (e.kind !== "budget" || e.deletedAt !== null) continue;
+        if (e.fields.role !== "line") {
+          await ctx.db.patch("entries", e._id, { deletedAt: Date.now() });
+          continue;
+        }
+        if (e._id === weddingCateringId) {
+          await ctx.db.patch("entries", e._id, { deletedAt: Date.now() });
+          continue;
+        }
+        await ctx.db.patch("entries", e._id, {
+          fields: { ...e.fields, estimate: null, plannedAmount: null },
+        });
+        n++;
+      }
+      return n;
+    });
+    expect(lineCount).toBeGreaterThan(1);
+    const proposalId = await setBudgetTotalProposal(s, 3_000_000);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck).toBeNull();
+    expect(await budgetNote(s)).toBe(
+      `${lineCount} lines have no Estimate yet and count as zero, so ₹30L isn't checked against typical prices.`,
+    );
+  });
+
+  // Review of #130, round 2, M1: an Entry edit moves the check and the note too.
+  const receptionCatering = async (s: S) =>
+    (await budgetEntries(s)).find(
+      (e) =>
+        e.functionKey === "reception" && e.fields.category === "catering_main",
+    )!;
+
+  it("a Member's quantity edit on a budget line recomputes the check's thresholds and the catering share", async () => {
+    const { s } = await plannedJaipur();
+    const baseline = await derived(s);
+    const line = await receptionCatering(s);
+    await s.asMeera.mutation(api.entries.update, {
+      entryId: line._id,
+      patch: { kind: "budget", quantity: line.fields.quantity * 3 },
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck!.minimum).toBeGreaterThan(baseline.check!.minimum);
+    expect(event.budgetCheck!.typical).toBeGreaterThan(baseline.check!.typical);
+    const note = await budgetNote(s);
+    expect(note).not.toBe(baseline.note);
+    expect(note).toMatch(/Catering is about \d+% of the budget/);
+    expect(note?.match(/Catering is about (\d+)%/)?.[1]).not.toBe(
+      baseline.note?.match(/Catering is about (\d+)%/)?.[1],
+    );
+  });
+
+  it("an accepted updateEntry Proposal on a budget line recomputes the check and the note", async () => {
+    const { s } = await plannedJaipur();
+    const baseline = await derived(s);
+    const line = await receptionCatering(s);
+    const proposalId = await s.t.run(async (ctx) => {
+      const owner = (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner")!;
+      return await ctx.db.insert("proposals", {
+        eventId: s.eventId,
+        runId: null,
+        requestedBy: owner._id,
+        origin: { kind: "chat" },
+        summary: "Reception for more Guests",
+        changes: [
+          {
+            op: "updateEntry",
+            table: "entries",
+            docId: line._id,
+            expectedVersion: line.version,
+            guards: [],
+            values: {
+              patch: { fields: { quantity: line.fields.quantity * 3 } },
+            },
+          },
+        ],
+        status: "open",
+        decidedBy: null,
+        decidedAt: null,
+        replacedBy: null,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        createdAt: Date.now(),
+      });
+    });
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toEqual({ ok: true });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck!.minimum).toBeGreaterThan(baseline.check!.minimum);
+    expect(await budgetNote(s)).not.toBe(baseline.note);
+  });
+
+  // Review of #130, round 2, M2: the basis counts only lines with a range.
+  it("counts only priced lines in the check's basis when some lines have no Estimate", async () => {
+    const { s } = await plannedJaipur();
+    const lines = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line" && e.fields.estimate !== null,
+    );
+    const unpriced = lines.slice(0, 2);
+    await s.t.run(async (ctx) => {
+      for (const e of unpriced)
+        await ctx.db.patch("entries", e._id, {
+          fields: { ...e.fields, estimate: null },
+        });
+    });
+    const { check, note } = await derived(s);
+    const priced = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line" && e.fields.estimate !== null,
+    ).length;
+    expect(check!.basis).toEqual({ researched: 0, lines: priced });
+    expect(note).toMatch(/2 lines have no Estimate yet and count as zero\./);
+  });
+
+  // Review of #130, round 3: one recheck per Accept, never a second plain one.
+  const rechecks = (s: S) =>
+    s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect())
+        .filter(
+          (f) =>
+            /^plan(\.js)?:recheckBudget$/.test(f.name) &&
+            f.state.kind !== "canceled",
+        )
+        .map((f) => (f.args[0] as { relink: unknown }).relink),
+    );
+
+  it("an accepted setBudgetTotal schedules the Budget recheck once", async () => {
+    const { s } = await plannedJaipur();
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = (await rechecks(s)).length;
+    const proposalId = await setBudgetTotalProposal(s, 3_500_000);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect((await rechecks(s)).slice(before)).toEqual([null]);
+  });
+
+  it("an accepted essential budget change schedules one recheck, the one that relinks the checklist", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2_200_000 },
+    });
+    const proposal = await openProposal(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = (await rechecks(s)).length;
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposal._id,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const after = (await rechecks(s)).slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ proposalId: proposal._id });
+  });
+
+  it("an accepted city change schedules one recheck, and its new prices recompute in place", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const proposal = await openProposal(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = (await rechecks(s)).length;
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposal._id,
+    });
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.city?.tier === "X",
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    const after = (await rechecks(s)).slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ proposalId: proposal._id });
+  });
+
+  it("rewrites the Budget note to match the badge after a ₹20L plan moves to Mumbai", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2000000 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(await budgetNote(s)).toMatch(/is below the typical/);
+
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    await acceptNext(s);
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.budgetCheck?.minimum === 2370500,
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck?.band).toBe("belowMinimum");
+    const note = await budgetNote(s);
+    expect(note).not.toMatch(/typical/);
+    expect(note).toMatch(
+      /^A plan like this in Mumbai usually starts at about ₹23\.7L\. You're about ₹3\.7L short\./,
+    );
   });
 
   // Issue #102, review of #114 L5: the city Accept doesn't depend on the lines.

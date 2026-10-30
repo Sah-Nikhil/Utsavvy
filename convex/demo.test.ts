@@ -1189,4 +1189,14 @@ describe("Rohan's haldi photos in the history (S19b)", () => {
       `Rohan: ${HALDI_PHOTOS_LABEL} (2 changes)`,
     ]);
   });
+
+  it("bring no new-photo Nudge after a reset, because their history dates them days back", async () => {
+    const t = setup();
+    const event = await reset(t);
+    // A Nudge check runs as any later write would trigger it. The photos'
+    // rows were written today, but their creation changes say four days ago.
+    await t.mutation(internal.nudges.check, { eventId: event._id });
+    const nudges = await rowsOf(t, "nudges", event._id);
+    expect(nudges.filter((n) => n.trigger === "newInspiration")).toEqual([]);
+  });
 });

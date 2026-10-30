@@ -693,6 +693,18 @@ function BudgetCheckPanel({
 }) {
   const check = brief.budgetCheck;
   const city = brief.city?.name ?? "your city";
+  // A planned Event with no line priced from a range has no band (#102).
+  if (brief.briefState === "planned" && check === null) {
+    return (
+      <section
+        className="rounded-md bg-surface-sunk px-3 py-3 text-label text-ink-2"
+        data-budget-check="unchecked"
+      >
+        No budget line has an Estimate yet, so the budget isn&apos;t checked
+        against typical prices.
+      </section>
+    );
+  }
   if (brief.checking || check === null) {
     return (
       <section

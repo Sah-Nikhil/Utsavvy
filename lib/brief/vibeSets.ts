@@ -28,6 +28,9 @@ export const VIBE_PICK = {
   page: 12,
 } as const;
 
+/** The history label of the vibe pick's writes; its photos set the Theme as they arrive. */
+export const VIBE_PICK_LABEL = "The vibe pick";
+
 /**
  * The Brief's vibe pick set, or null when its kind of Event has none yet and
  * the step is skipped: the North Indian Hindu set for that Tradition, the
