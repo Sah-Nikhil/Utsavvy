@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import { Pencil, Phone, UserPen } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -16,13 +17,20 @@ import type { HandTypedView } from "@/convex/vendors";
 import { formatINR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { CategoryIllustration } from "./CategoryIllustration";
-import { HandTypedVendorForm } from "./HandTypedVendorForm";
+import {
+  HandTypedVendorForm,
+  type HandTypedValues,
+} from "./HandTypedVendorForm";
 
 /*
  * A hand-typed Vendor's card (X7, vendors.md "Adding a Vendor by hand"): only
  * what a Member typed (name, phone, area), labelled as such, plus an Estimate
  * for its category. It never shows Listed prices: a Member records a Quote
  * after talking to the Vendor. It is private to the Event.
+ *
+ * Editing starts from the version the card showed. If someone saved a newer
+ * edit meanwhile, the save is refused, the dialog says so and the form
+ * reloads their values, so nobody's edit is silently overwritten.
  */
 
 const UNIT_LABELS: Record<string, string> = {
@@ -32,6 +40,32 @@ const UNIT_LABELS: Record<string, string> = {
   per_function: "per Function",
   per_event: "for the whole event",
 };
+
+type EditBase = { version: number; values: HandTypedValues };
+
+/** The current values a `VersionConflict` carries, or null for any other error. */
+function conflictBase(error: unknown): EditBase | null {
+  if (!(error instanceof ConvexError)) return null;
+  const data = error.data as {
+    kind?: unknown;
+    currentVersion?: unknown;
+    current?: { name?: unknown; phone?: unknown; area?: unknown };
+  } | null;
+  if (
+    data?.kind !== "VersionConflict" ||
+    typeof data.currentVersion !== "number"
+  )
+    return null;
+  const text = (value: unknown) => (typeof value === "string" ? value : null);
+  return {
+    version: data.currentVersion,
+    values: {
+      name: text(data.current?.name) ?? "",
+      phone: text(data.current?.phone),
+      area: text(data.current?.area),
+    },
+  };
+}
 
 /** Keeps digits and a leading + so the phone number can be dialled. */
 function telHref(phone: string): string {
@@ -48,7 +82,20 @@ export function HandTypedVendorCard({
   className?: string;
 }) {
   const [editing, setEditing] = useState(false);
+  const [base, setBase] = useState<EditBase | null>(null);
+  const [conflict, setConflict] = useState(false);
   const edit = useMutation(api.vendors.editHandTyped);
+
+  function openEditor(open: boolean) {
+    if (open) {
+      setBase({
+        version: vendor.version,
+        values: { name: vendor.name, phone: vendor.phone, area: vendor.area },
+      });
+      setConflict(false);
+    }
+    setEditing(open);
+  }
   const { estimate } = vendor;
 
   return (
@@ -72,7 +119,7 @@ export function HandTypedVendorCard({
           </p>
         </div>
         {canManage ? (
-          <Dialog open={editing} onOpenChange={setEditing}>
+          <Dialog open={editing} onOpenChange={openEditor}>
             <DialogTrigger
               render={
                 <Button
@@ -89,15 +136,28 @@ export function HandTypedVendorCard({
               title={`Edit ${vendor.name}`}
               description="Only what you type is kept, and only this Event sees it."
             >
-              <div className="mt-4">
+              <div className="mt-4 grid gap-3">
+                {conflict ? (
+                  <p
+                    role="alert"
+                    className="rounded-md bg-warn-soft px-3 py-2 text-label text-ink"
+                  >
+                    Someone else changed this Vendor while you were editing. The
+                    form now shows their version; make your change again and
+                    save.
+                  </p>
+                ) : null}
                 <HandTypedVendorForm
+                  key={base?.version ?? vendor.version}
                   idPrefix={`edit-${vendor._id}`}
                   categoryLabel={vendor.categoryLabel}
-                  initial={{
-                    name: vendor.name,
-                    phone: vendor.phone,
-                    area: vendor.area,
-                  }}
+                  initial={
+                    base?.values ?? {
+                      name: vendor.name,
+                      phone: vendor.phone,
+                      area: vendor.area,
+                    }
+                  }
                   submitLabel="Save"
                   busyLabel="Saving…"
                   secondary={
@@ -108,8 +168,19 @@ export function HandTypedVendorCard({
                     </DialogClose>
                   }
                   onSubmit={async (values) => {
-                    await edit({ privateVendorId: vendor._id, ...values });
-                    setEditing(false);
+                    try {
+                      await edit({
+                        privateVendorId: vendor._id,
+                        expectedVersion: base?.version ?? vendor.version,
+                        ...values,
+                      });
+                      setEditing(false);
+                    } catch (error) {
+                      const current = conflictBase(error);
+                      if (current === null) throw error;
+                      setBase(current);
+                      setConflict(true);
+                    }
                   }}
                 />
               </div>

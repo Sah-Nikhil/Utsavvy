@@ -13,11 +13,16 @@ import {
 import { can } from "../lib/access/permissions";
 import type { LineEstimate } from "../lib/pricing/pricePlan";
 import type { Actor, MemberActor } from "../lib/types/actors";
+import { cityTierValidator, eventTypeValidator } from "../lib/types/brief";
+import { lineEstimateValidator } from "../lib/types/estimates";
 import type { HistoryTable } from "../lib/types/history";
 import starterSet from "../seed/jaipur-vendors.json";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import {
+  internalAction,
   internalMutation,
+  internalQuery,
   mutation,
   query,
   type MutationCtx,
@@ -25,9 +30,20 @@ import {
 } from "./_generated/server";
 import { placeNewItem } from "./canvas";
 import { nextOrder, planItemOf } from "./entries";
-import { cachedOrTableEstimate } from "./estimates";
+import {
+  cachedOrTableEstimate,
+  estimateLines,
+  liveEstimateDeps,
+  type EstimateCtx,
+  type EstimateDeps,
+} from "./estimates";
 import { requireAccess } from "./lib/access";
-import { privateVendorIdOf, sharedVendorIdOf } from "./lib/vendors";
+import { VersionConflict } from "./lib/errors";
+import {
+  loadPrivateVendorForEvent,
+  privateVendorIdOf,
+  sharedVendorIdOf,
+} from "./lib/vendors";
 import {
   memberInsert,
   memberWrite,
@@ -625,8 +641,9 @@ function handTypedCategoryLabel(row: Doc<"privateVendors">): string {
  * The Estimate on a hand-typed Vendor's card. Only its category (or free
  * label) and the Event's city are looked up, never what the Member typed
  * about the Vendor. A query never searches: it reads the city's cached
- * researched range (ADR 0013) or the reference table, else there is no
- * Estimate yet.
+ * researched range (ADR 0013) or the reference table, and for a free label
+ * the result `estimateHandTyped` stored from the full cascade; else there is
+ * no Estimate yet.
  */
 async function handTypedEstimate(
   ctx: QueryCtx,
@@ -650,16 +667,29 @@ async function handTypedEstimate(
       asOf,
     );
   }
-  const label = row.freeLabel ?? row.vendorCategory;
+  const label = handTypedLabel(row);
   if (!label) return null;
-  return await cachedOrTableEstimate(
-    ctx,
-    pricing.city,
-    pricing.tier,
-    label,
-    "per_event",
-    asOf,
+  return (
+    (await cachedOrTableEstimate(
+      ctx,
+      pricing.city,
+      pricing.tier,
+      label,
+      HAND_TYPED_FREE_LABEL_UNIT,
+      asOf,
+    )) ??
+    row.estimate ??
+    null
   );
+}
+
+/** A free-label hand-typed Vendor is priced for the whole event, one unit. */
+const HAND_TYPED_FREE_LABEL_UNIT = "per_event";
+
+/** The label a hand-typed Vendor without a fixed category is priced by, or null for a fixed one. */
+function handTypedLabel(row: Doc<"privateVendors">): string | null {
+  if (row.vendorCategory && isVendorCategory(row.vendorCategory)) return null;
+  return row.freeLabel ?? row.vendorCategory;
 }
 
 async function shortlistedView(
@@ -669,11 +699,13 @@ async function shortlistedView(
   asOf: number | null,
 ): Promise<ShortlistedView | null> {
   const vendorId = sharedVendorIdOf(item);
-  const privateId = privateVendorIdOf(item);
   const vendor = vendorId && (await ctx.db.get("vendors", vendorId));
-  const typed = privateId && (await ctx.db.get("privateVendors", privateId));
   // Another Event's hand-typed Vendor is never shown, whatever the Item says.
-  const own = typed && typed.eventId === event._id ? typed : null;
+  const own = await loadPrivateVendorForEvent(
+    ctx,
+    event._id,
+    privateVendorIdOf(item),
+  );
   if (!vendor && !own) return null;
   const links = await linksOf(ctx, item._id);
   // One Function linked: price the card for it; several or none: Event-wide.
@@ -1010,13 +1042,20 @@ export const link = mutation({
     );
     const actor: MemberActor = { kind: "member", membershipId: membership._id };
     const vendorId = sharedVendorIdOf(item);
-    if (vendorId === null)
+    if (vendorId === null) {
+      const own = await loadPrivateVendorForEvent(
+        ctx,
+        item.eventId,
+        privateVendorIdOf(item),
+      );
+      if (own === null) notFound("privateVendor");
       return await linkHandTyped(ctx, {
         eventId: item.eventId,
         itemId: item._id,
         checklistEntryId: args.checklistEntryId,
         insert: memberInserter(ctx, actor),
       });
+    }
     return await shortlistIn(ctx, {
       eventId: item.eventId,
       vendorId,
@@ -1178,14 +1217,30 @@ export const addHandTyped = mutation({
       checklistEntryId: entry._id,
       insert,
     });
+    // A free label has no table row: the full cascade prices it in an action,
+    // from the label and the Event's city only.
+    if (
+      freeLabel !== null ||
+      !isVendorCategory(entry.fields.vendorCategory ?? "")
+    )
+      await ctx.scheduler.runAfter(0, internal.vendors.estimateHandTypedNow, {
+        privateVendorId,
+      });
     return { privateVendorId, itemId, linkId };
   },
 });
 
-/** "Edit" on a hand-typed Vendor's card: its name, phone and area. The category stays the Entry's. */
+/**
+ * "Edit" on a hand-typed Vendor's card: its name, phone and area. The
+ * category stays the Entry's. `expectedVersion` is the version the card
+ * showed; a newer edit by someone else refuses this one with
+ * `VersionConflict` (carrying the current values), so a stale form never
+ * overwrites it.
+ */
 export const editHandTyped = mutation({
   args: {
     privateVendorId: v.id("privateVendors"),
+    expectedVersion: v.number(),
     name: v.string(),
     phone: v.union(v.string(), v.null()),
     area: v.union(v.string(), v.null()),
@@ -1200,15 +1255,137 @@ export const editHandTyped = mutation({
       "vendor.manage",
     );
     const actor: MemberActor = { kind: "member", membershipId: membership._id };
+    const patch = {
+      name: typedName(args.name),
+      phone: typedPhone(args.phone),
+      area: typedArea(args.area),
+    };
+    if (row.version !== args.expectedVersion)
+      throw new VersionConflict({
+        table: "privateVendors",
+        id: row._id,
+        expectedVersion: args.expectedVersion,
+        currentVersion: row.version,
+        current: {
+          name: row.name,
+          phone: row.phone,
+          area: row.area,
+          version: row.version,
+        },
+      });
     return await memberWrite(ctx, {
       table: "privateVendors",
       id: row._id,
-      patch: {
-        name: typedName(args.name),
-        phone: typedPhone(args.phone),
-        area: typedArea(args.area),
-      },
+      patch,
       actor,
     });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// The free-label Estimate (ADR 0013, approved on #62 question 4)
+
+/**
+ * What pricing a free-label hand-typed Vendor may see: its label and the
+ * Event's city, tier and type. Never its name, phone or area.
+ */
+export const handTypedPricing = internalQuery({
+  args: { privateVendorId: v.id("privateVendors") },
+  returns: v.union(
+    v.object({
+      eventId: v.id("events"),
+      label: v.string(),
+      city: v.string(),
+      tier: cityTierValidator,
+      eventType: eventTypeValidator,
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, { privateVendorId }) => {
+    const row = await ctx.db.get("privateVendors", privateVendorId);
+    if (row === null) return null;
+    const label = handTypedLabel(row);
+    const event = await ctx.db.get("events", row.eventId);
+    if (label === null || event === null || event.city === null) return null;
+    return {
+      eventId: event._id,
+      label,
+      city: event.city.name,
+      tier: event.city.tier,
+      eventType: event.eventType,
+    };
+  },
+});
+
+/** Stores the cascade's result. Not a Member's edit, so it doesn't bump the version a card holds. */
+export const saveHandTypedEstimate = internalMutation({
+  args: {
+    privateVendorId: v.id("privateVendors"),
+    label: v.string(),
+    estimate: lineEstimateValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("privateVendors", args.privateVendorId);
+    // The Entry's label can't change under a hand-typed Vendor today; a
+    // result for another label would be stale, so it is dropped.
+    if (row === null || handTypedLabel(row) !== args.label) return null;
+    await ctx.db.patch("privateVendors", row._id, { estimate: args.estimate });
+    return null;
+  },
+});
+
+/**
+ * Runs the estimate cascade (cache, research, the reference table, the
+ * Assistant's own estimate) for a free-label hand-typed Vendor, through the
+ * same `estimateLines` the Assistant's `addEntry` uses, with one line: the
+ * label, one unit for the whole event. Only the label and the Event's city
+ * reach research, the knowledge call and the shared cache.
+ */
+export async function estimateHandTyped(
+  ctx: EstimateCtx,
+  privateVendorId: Id<"privateVendors">,
+  deps?: Partial<EstimateDeps>,
+): Promise<void> {
+  const pricing = await ctx.runQuery(internal.vendors.handTypedPricing, {
+    privateVendorId,
+  });
+  if (pricing === null) return;
+  const [range] = await estimateLines(
+    ctx,
+    {
+      eventId: pricing.eventId,
+      city: pricing.city,
+      tier: pricing.tier,
+      eventType: pricing.eventType,
+      lines: [
+        {
+          category: pricing.label,
+          quantity: 1,
+          unit: HAND_TYPED_FREE_LABEL_UNIT,
+        },
+      ],
+    },
+    deps,
+  );
+  if (!range) return;
+  await ctx.runMutation(internal.vendors.saveHandTypedEstimate, {
+    privateVendorId,
+    label: pricing.label,
+    estimate: range,
+  });
+}
+
+/** Scheduled by `addHandTyped` for a free label. A failed model call leaves "No Estimate yet". */
+export const estimateHandTypedNow = internalAction({
+  args: { privateVendorId: v.id("privateVendors") },
+  returns: v.null(),
+  handler: async (ctx, { privateVendorId }) => {
+    try {
+      await estimateHandTyped(ctx, privateVendorId, liveEstimateDeps());
+    } catch (error) {
+      console.error("Hand-typed Vendor Estimate failed", error);
+    }
+    return null;
   },
 });

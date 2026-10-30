@@ -1,15 +1,22 @@
 /// <reference types="vite/client" />
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { createStartingSections } from "./canvas";
+import {
+  stubEstimateDeps,
+  type EstimateCtx,
+  type KnowledgeInput,
+  type ResearchInput,
+} from "./estimates";
 import {
   identityFor,
   insertEvent,
   newTest,
   seedMembership,
 } from "./lib/test.helpers";
+import { estimateHandTyped } from "./vendors";
 
 // X7 (issue #62): hand-typed Vendors (vendors.md, "Adding a Vendor by hand").
 // A Member types a Vendor with no website; it is private to the Event, holds
@@ -253,6 +260,7 @@ describe("editing a hand-typed Vendor", () => {
     });
     const { version } = await as(t, a).mutation(api.vendors.editHandTyped, {
       privateVendorId: added.privateVendorId,
+      expectedVersion: 1,
       name: "Sharma ji Caterers & Sweets",
       phone: "0141 270 1234",
       area: null,
@@ -277,6 +285,7 @@ describe("editing a hand-typed Vendor", () => {
     await expect(
       t.withIdentity(identityFor("Dadi")).mutation(api.vendors.editHandTyped, {
         privateVendorId: added.privateVendorId,
+        expectedVersion: 2,
         name: "Changed",
         phone: null,
         area: null,
@@ -329,6 +338,7 @@ describe("a hand-typed Vendor stays private to its Event", () => {
     await expect(
       as(t, b).mutation(api.vendors.editHandTyped, {
         privateVendorId: added.privateVendorId,
+        expectedVersion: 1,
         name: "Taken over",
         phone: null,
         area: null,
@@ -384,23 +394,261 @@ describe("the hand-typed Vendor card", () => {
     });
     expect(view.canManage).toBe(true);
   });
+});
 
-  it("has no Estimate yet for a free label with nothing researched", async () => {
+// ---------------------------------------------------------------------------
+// Review of #129, round 1
+
+/** An action context for code that runs the estimate cascade, over convex-test. */
+function actionCtx(t: T): EstimateCtx {
+  type Call = (ref: unknown, args: unknown) => Promise<unknown>;
+  return {
+    runQuery: t.query as Call,
+    runMutation: t.mutation as Call,
+    runAction: t.action as Call,
+  } as unknown as EstimateCtx;
+}
+
+const SECRET = "Kabir's secret caterer";
+
+/** Event A's Shortlisted Vendor Item that points at Event B's hand-typed Vendor. */
+async function crossEventItem(t: T, a: Seeded, b: Seeded) {
+  const inB = await as(t, b).mutation(api.vendors.addHandTyped, {
+    eventId: b.eventId,
+    checklistEntryId: b.entries.caterer,
+    name: SECRET,
+    phone: "+91 90000 00000",
+    area: "Vaishali Nagar",
+  });
+  const itemId = await t.run(async (ctx) => {
+    const section = await ctx.db
+      .query("sections")
+      .withIndex("by_event", (q) => q.eq("eventId", a.eventId))
+      .first();
+    return await ctx.db.insert("items", {
+      eventId: a.eventId,
+      sectionId: section!._id,
+      kind: "shortlistedVendor",
+      position: { x: 0, y: 0 },
+      size: null,
+      functionKey: null,
+      data: { privateVendorId: inB.privateVendorId },
+      createdBy: { kind: "member", membershipId: a.member },
+      version: 1,
+      deletedAt: null,
+    });
+  });
+  return { itemId, inB };
+}
+
+describe("another Event's hand-typed Vendor behind a malformed Item", () => {
+  it("is never named to the Assistant from a Comment ask", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const b = await setup(t, "Kabir");
+    const { itemId } = await crossEventItem(t, a, b);
+    const commentId = await t.run((ctx) =>
+      ctx.db.insert("comments", {
+        eventId: a.eventId,
+        itemId,
+        target: { kind: "item", itemId },
+        rootId: null,
+        author: { kind: "member", membershipId: a.member },
+        body: "@Utsavvy who is this?",
+        resolved: false,
+        createdAt: Date.now(),
+        editedAt: null,
+      }),
+    );
+    const runId = await as(t, a).mutation(api.commentAsks.ask, { commentId });
+    const context = await t.query(internal.commentAsks.runContext, {
+      runId: runId!,
+    });
+    expect(context?.on).toBe("a Shortlisted Vendor");
+    expect(JSON.stringify(context)).not.toContain(SECRET);
+  });
+
+  it("can't be linked to an Entry, and isn't shown on the Canvas", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const b = await setup(t, "Kabir");
+    const { itemId } = await crossEventItem(t, a, b);
+    await expect(
+      as(t, a).mutation(api.vendors.link, {
+        itemId,
+        checklistEntryId: a.entries.mehendiArtist,
+      }),
+    ).rejects.toThrow(/NotFound/);
+    const view = await as(t, a).query(api.vendors.forItem, { itemId });
+    expect(view.view).toBeNull();
+    expect(JSON.stringify(view)).not.toContain(SECRET);
+  });
+});
+
+describe("editing from a stale card", () => {
+  it("refuses the second of two edits made from version 1 and keeps version 2", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const added = await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.caterer,
+      ...SHARMA,
+    });
+    await as(t, a).mutation(api.vendors.editHandTyped, {
+      privateVendorId: added.privateVendorId,
+      expectedVersion: 1,
+      name: SHARMA.name,
+      phone: "0141 270 1234",
+      area: SHARMA.area,
+    });
+    await expect(
+      as(t, a).mutation(api.vendors.editHandTyped, {
+        privateVendorId: added.privateVendorId,
+        expectedVersion: 1,
+        name: SHARMA.name,
+        phone: SHARMA.phone,
+        area: "Mansarovar",
+      }),
+    ).rejects.toThrow(/VersionConflict/);
+    expect(
+      await t.run((ctx) => ctx.db.get("privateVendors", added.privateVendorId)),
+    ).toMatchObject({
+      version: 2,
+      phone: "0141 270 1234",
+      area: "Malviya Nagar",
+    });
+  });
+});
+
+describe("a removed or blocked Member", () => {
+  it("can neither add nor edit a hand-typed Vendor", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const added = await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.caterer,
+      ...SHARMA,
+    });
+    await t.run(async (ctx) => {
+      await seedMembership(ctx, {
+        clerkId: "Aditi",
+        status: "removed",
+        eventId: a.eventId,
+      });
+      await seedMembership(ctx, {
+        clerkId: "Papa",
+        blocked: true,
+        eventId: a.eventId,
+      });
+    });
+    for (const clerkId of ["Aditi", "Papa"]) {
+      const who = t.withIdentity(identityFor(clerkId));
+      await expect(
+        who.mutation(api.vendors.addHandTyped, {
+          eventId: a.eventId,
+          checklistEntryId: a.entries.caterer,
+          ...SHARMA,
+        }),
+      ).rejects.toThrow(/AccessDenied/);
+      await expect(
+        who.mutation(api.vendors.editHandTyped, {
+          privateVendorId: added.privateVendorId,
+          expectedVersion: 1,
+          name: "Changed",
+          phone: null,
+          area: null,
+        }),
+      ).rejects.toThrow(/AccessDenied/);
+    }
+  });
+});
+
+const REKHA = { name: "Rekha aunty", phone: "98290 55555", area: "Raja Park" };
+
+describe("a free-label hand-typed Vendor's Estimate", () => {
+  it("is queued when the Vendor is added, and not for a fixed category", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const queuedEstimates = async () =>
+      (
+        await t.run((ctx) =>
+          ctx.db.system.query("_scheduled_functions").collect(),
+        )
+      ).filter((f) => f.name.includes("estimateHandTyped"));
+    await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.caterer,
+      ...SHARMA,
+    });
+    expect(await queuedEstimates()).toEqual([]);
+    await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.mehendiArtist,
+      ...REKHA,
+    });
+    expect(await queuedEstimates()).toHaveLength(1);
+  });
+
+  it("runs the cascade on the free label only: a research miss falls to the Assistant's knowledge, and the card shows it", async () => {
     const t = newTest();
     const a = await setup(t);
     const added = await as(t, a).mutation(api.vendors.addHandTyped, {
       eventId: a.eventId,
       checklistEntryId: a.entries.mehendiArtist,
-      name: "Rekha aunty",
-      phone: null,
-      area: null,
+      ...REKHA,
     });
+    const seen: (ResearchInput | KnowledgeInput)[] = [];
+    const research = vi.fn(async (input: ResearchInput) => {
+      seen.push(input);
+      return null;
+    });
+    const knowledge = vi.fn(async (input: KnowledgeInput) => {
+      seen.push(input);
+      return {
+        model: "claude-haiku-5-5",
+        results: [
+          {
+            key: input.lines[0]!.key,
+            unitLow: 8000,
+            unitHigh: 15000,
+            reasoning:
+              "Mehendi artists in Jaipur charge about this a function.",
+          },
+        ],
+      };
+    });
+    await estimateHandTyped(actionCtx(t), added.privateVendorId, {
+      ...stubEstimateDeps,
+      claudeReachable: () => true,
+      research,
+      knowledge,
+    });
+    expect(research).toHaveBeenCalledTimes(1);
+    expect(knowledge).toHaveBeenCalledTimes(1);
+    const prompts = JSON.stringify(seen);
+    expect(prompts).toContain("Mehendi artist");
+    for (const typed of Object.values(REKHA))
+      expect(prompts).not.toContain(typed);
+
     const view = await as(t, a).query(api.vendors.forItem, {
       itemId: added.itemId,
     });
     expect(view.view?.handTyped).toMatchObject({
       categoryLabel: "Mehendi artist",
-      estimate: null,
+      estimate: {
+        unitLow: 8000,
+        unitHigh: 15000,
+        basis: expect.objectContaining({ kind: "assistantKnowledge" }),
+      },
     });
+    // The Estimate is not a Member's edit, so the version a card holds stays valid.
+    expect(view.view?.handTyped?.version).toBe(1);
+
+    // Nothing the Member typed reached the shared cache.
+    const cache = JSON.stringify(
+      await t.run((ctx) => ctx.db.query("estimateCache").collect()),
+    );
+    for (const typed of Object.values(REKHA))
+      expect(cache).not.toContain(typed);
   });
 });

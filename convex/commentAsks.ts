@@ -35,7 +35,11 @@ import { ASSISTANT_NAME, looksLikeAssistant, memberName } from "./chat";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { once } from "./lib/idempotency";
-import { privateVendorIdOf, sharedVendorIdOf } from "./lib/vendors";
+import {
+  loadPrivateVendorForEvent,
+  privateVendorIdOf,
+  sharedVendorIdOf,
+} from "./lib/vendors";
 import schema from "./schema";
 import { checkQueueRoom, enqueueRun } from "./runs";
 
@@ -127,8 +131,11 @@ async function targetName(
     const vendorId = sharedVendorIdOf(item);
     const vendor = vendorId && (await ctx.db.get("vendors", vendorId));
     if (vendor) return vendor.name;
-    const privateId = privateVendorIdOf(item);
-    const typed = privateId && (await ctx.db.get("privateVendors", privateId));
+    const typed = await loadPrivateVendorForEvent(
+      ctx,
+      item.eventId,
+      privateVendorIdOf(item),
+    );
     if (typed) return typed.name;
   }
   if (item.kind === "suggestion") return item.data.title;

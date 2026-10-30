@@ -150,6 +150,44 @@ test.describe("hand-typed Vendors, seeded on a local deployment", () => {
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(item).toContainText("Mansarovar");
+
+    // A stale form: the dialog opens here, a second tab saves first, and this
+    // save is refused with the newer values reloaded.
+    await item.getByRole("button", { name: "Edit Sharma ji Caterers" }).click();
+    await expect(dialog).toBeVisible();
+    const other = await page.context().newPage();
+    await other.goto(`/events/${eventId}`);
+    await waitForCanvas(other);
+    const otherItem = other
+      .locator('[data-canvas-item="shortlistedVendor"]')
+      .filter({ hasText: "Sharma ji Caterers" });
+    await otherItem
+      .getByRole("button", { name: "Edit Sharma ji Caterers" })
+      .click();
+    const otherDialog = other.getByRole("dialog", {
+      name: "Edit Sharma ji Caterers",
+    });
+    await otherDialog.getByLabel("Phone (optional)").fill("0141 270 1234");
+    await otherDialog.getByRole("button", { name: "Save" }).click();
+    await expect(otherDialog).toBeHidden({ timeout: 10_000 });
+    await other.close();
+    await dialog.getByLabel("Area (optional)").fill("Vaishali Nagar");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog.getByRole("alert")).toContainText(
+      "Someone else changed this Vendor while you were editing.",
+      { timeout: 10_000 },
+    );
+    await expect(dialog.getByLabel("Phone (optional)")).toHaveValue(
+      "0141 270 1234",
+    );
+    await expect(dialog.getByLabel("Area (optional)")).toHaveValue(
+      "Mansarovar",
+    );
+    await expectNoSeriousA11yViolations(page);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(item).toContainText("0141 270 1234");
+    await expect(item).toContainText("Mansarovar");
     await expectNoSeriousA11yViolations(page);
     // A wider window so the card sits clear of the Chat for its screenshot.
     await page.setViewportSize({ width: 1680, height: 1050 });
