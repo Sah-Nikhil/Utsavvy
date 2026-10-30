@@ -125,11 +125,27 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     });
     await expect(row).toContainText("no Marker yet");
     await expect(sheet.locator("[data-hand-typed-marker]")).toHaveCount(0);
-    await row.getByRole("button", { name: `Drop a Marker: ${NAME}` }).click();
+    // Keyboard only (review of PR 139): Drop a Marker puts a new Marker in
+    // the middle of the map with focus on it; Escape cancels it.
+    const drop = row.getByRole("button", { name: `Drop a Marker: ${NAME}` });
+    await drop.focus();
+    await page.keyboard.press("Enter");
+    const draft = sheet.locator("[data-hand-typed-marker]");
+    await expect(draft).toBeFocused();
+    await expect(draft).toHaveAttribute("aria-label", `New Marker for ${NAME}`);
+    await page.keyboard.press("Escape");
+    await expect(draft).toHaveCount(0);
+    await expect(row).toContainText("no Marker yet");
+
+    // Again: the arrow keys move it and Enter saves it.
+    await drop.focus();
+    await page.keyboard.press("Enter");
+    await expect(draft).toBeFocused();
     await expect(sheet.getByRole("status")).toContainText(
-      `Click the map where ${NAME} is.`,
+      `Click the map where ${NAME} is`,
     );
-    await sheet.locator("[data-map-ready] canvas").click();
+    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
     await expect(row).toContainText("Marker placed by a Member", {
       timeout: 10_000,
     });
@@ -139,6 +155,15 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
       "aria-label",
       new RegExp(`^${NAME}, Caterer, .*Marker placed by a Member$`),
     );
+
+    // The placed Marker moves with the keyboard too.
+    const before = (await marker.boundingBox())!;
+    await marker.focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(async () => (await marker.boundingBox())!.y, { timeout: 10_000 })
+      .toBeGreaterThan(before.y + 20);
     await expect(
       row.getByRole("button", { name: `Move the Marker: ${NAME}` }),
     ).toBeVisible();

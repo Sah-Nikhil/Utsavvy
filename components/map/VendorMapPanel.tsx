@@ -287,13 +287,15 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
           handTyped={pins}
           placing={placing}
           onPlace={place}
+          onCancelPlace={() => setPlacing(null)}
         />
         {placingName ? (
           <p
             role="status"
             className="absolute bottom-10 left-1/2 -translate-x-1/2 rounded-md bg-surface-container px-3 py-1.5 text-label text-ink shadow-overlay"
           >
-            Click the map where {placingName} is.
+            Click the map where {placingName} is, or move the Marker with the
+            arrow keys and press Enter.
           </p>
         ) : null}
         {moveError ? (

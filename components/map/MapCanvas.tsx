@@ -84,6 +84,8 @@ export type MapCanvasProps = {
   placing?: Id<"privateVendors"> | null;
   /** Drops or moves a hand-typed Vendor's Marker. */
   onPlace?: (id: Id<"privateVendors">, lat: number, lng: number) => void;
+  /** Escape while placing: nothing is saved. */
+  onCancelPlace?: () => void;
 };
 
 const STREET_ZOOM = 15;
@@ -150,6 +152,7 @@ export default function MapCanvas({
   handTyped = [],
   placing = null,
   onPlace,
+  onCancelPlace,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -165,6 +168,85 @@ export default function MapCanvas({
     lat: number;
     lng: number;
   } | null>(null);
+
+  // A hand-typed Vendor's Marker being placed or moved with the keyboard
+  // (review of PR 139): it starts where the Marker is, or at the middle of the
+  // map for a new one, and Enter saves it.
+  const [pinDraft, setPinDraft] = useState<{
+    id: Id<"privateVendors">;
+    lat: number;
+    lng: number;
+  } | null>(null);
+  useEffect(() => {
+    if (placing === null) return;
+    const pin = handTyped.find((p) => p.id === placing);
+    const middle = mapRef.current?.getCenter();
+    const start =
+      pin?.marker ??
+      (middle ? { lat: middle.lat, lng: middle.lng } : city?.centre);
+    if (!start) return;
+    const frame = requestAnimationFrame(() =>
+      setPinDraft({ id: placing, lat: start.lat, lng: start.lng }),
+    );
+    return () => cancelAnimationFrame(frame);
+    // Only a new placing request starts a draft, not new data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placing]);
+
+  // Focus a draft being placed once its Marker is in the page, so the arrow
+  // keys move it at once. The map attaches Markers after rendering them.
+  const draftId = pinDraft?.id ?? null;
+  useEffect(() => {
+    if (draftId === null || draftId !== placing) return;
+    const timer = setTimeout(
+      () =>
+        holder.current
+          ?.querySelector<HTMLButtonElement>(
+            `[data-hand-typed-marker="${draftId}"]`,
+          )
+          ?.focus({ preventScroll: true }),
+      50,
+    );
+    return () => clearTimeout(timer);
+  }, [draftId, placing]);
+
+  function nudgePin(
+    pin: HandTypedPin,
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) {
+    const map = mapRef.current;
+    if (!map || !onPlace) return;
+    const step = event.shiftKey ? 60 : 12;
+    const moves: Record<string, [number, number]> = {
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+    };
+    const current =
+      pinDraft?.id === pin.id
+        ? pinDraft
+        : pin.marker
+          ? { id: pin.id, ...pin.marker }
+          : null;
+    if (current === null) return;
+    if (event.key in moves) {
+      event.preventDefault();
+      const [dx, dy] = moves[event.key]!;
+      const point = map.project([current.lng, current.lat]);
+      const moved = map.unproject([point.x + dx, point.y + dy]);
+      setPinDraft({ id: pin.id, lat: moved.lat, lng: moved.lng });
+    } else if (event.key === "Enter" && pinDraft?.id === pin.id) {
+      event.preventDefault();
+      onPlace(pin.id, pinDraft.lat, pinDraft.lng);
+      setPinDraft(null);
+    } else if (event.key === "Escape" && pinDraft?.id === pin.id) {
+      event.preventDefault();
+      event.stopPropagation();
+      setPinDraft(null);
+      onCancelPlace?.();
+    }
+  }
 
   useEffect(() => {
     // Read the map tokens once the map's element is in the document.
@@ -331,6 +413,7 @@ export default function MapCanvas({
           attributionControl={false}
           onClick={(e) => {
             if (placing !== null && onPlace) {
+              setPinDraft(null);
               onPlace(placing, e.lngLat.lat, e.lngLat.lng);
               return;
             }
@@ -391,36 +474,59 @@ export default function MapCanvas({
               </Marker>
             );
           })}
-          {handTyped.map((pin) =>
-            pin.marker === null ? null : (
+          {handTyped.map((pin) => {
+            // A new Marker's draft shows only while it is being placed.
+            const drafting =
+              pinDraft?.id === pin.id &&
+              (pin.marker !== null || placing === pin.id);
+            const at = drafting ? pinDraft : pin.marker;
+            if (at === null) return null;
+            const movable = canMove && onPlace !== undefined;
+            const placed = pin.marker !== null;
+            return (
               <Marker
                 key={pin.id}
-                latitude={pin.marker.lat}
-                longitude={pin.marker.lng}
+                latitude={at.lat}
+                longitude={at.lng}
                 anchor="center"
-                draggable={canMove && onPlace !== undefined}
-                onDragEnd={(e) => onPlace?.(pin.id, e.lngLat.lat, e.lngLat.lng)}
+                draggable={movable}
+                onDragEnd={(e) => {
+                  setPinDraft(null);
+                  onPlace?.(pin.id, e.lngLat.lat, e.lngLat.lng);
+                }}
               >
-                <span
-                  role="img"
+                <button
+                  type="button"
                   data-hand-typed-marker={pin.id}
-                  aria-label={`${pin.name}, ${pin.categoryLabel}, ${TONE_LABELS[pin.tone]}, Marker placed by a Member`}
-                  className="block"
+                  aria-label={
+                    placed
+                      ? `${pin.name}, ${pin.categoryLabel}, ${TONE_LABELS[pin.tone]}, Marker placed by a Member`
+                      : `New Marker for ${pin.name}`
+                  }
+                  aria-describedby={movable ? "map-place-hint" : undefined}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={movable ? (e) => nudgePin(pin, e) : undefined}
+                  className="group/stamp block cursor-pointer rounded-full outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
                 >
                   <MarkerStamp
                     category={pin.category}
                     tone={pin.tone}
                     approximate={false}
+                    selected={drafting}
                     tag="none"
                   />
-                </span>
+                </button>
               </Marker>
-            ),
-          )}
+            );
+          })}
         </Map>
       ) : (
         <div className="size-full bg-[var(--map-land)]" />
       )}
+      <p id="map-place-hint" className="sr-only">
+        Placed by a Member: use the arrow keys and then Enter to put it where
+        the Vendor is, or drag it. Escape cancels.
+      </p>
       <p id="map-move-hint" className="sr-only">
         Approximate: drag it, or use the arrow keys and then Enter, to put it
         where the Vendor really is. Escape puts it back.
