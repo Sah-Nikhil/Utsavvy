@@ -172,9 +172,37 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     await expect
       .poll(async () => (await marker.boundingBox())!.y, { timeout: 10_000 })
       .toBeGreaterThan(before.y + 20);
-    await expect(
-      row.getByRole("button", { name: `Move the Marker: ${NAME}` }),
-    ).toBeVisible();
+    const moveControl = row.getByRole("button", {
+      name: `Move the Marker: ${NAME}`,
+    });
+    await expect(moveControl).toBeVisible();
+
+    // Pressing the control again cancels a move, and the nudged draft goes
+    // with it: the Marker is back where it was saved, and Enter saves nothing
+    // (review of PR 139, low).
+    await expect
+      .poll(async () => (await marker.boundingBox())!.y, { timeout: 10_000 })
+      .toBeGreaterThan(before.y + 20);
+    const saved = (await marker.boundingBox())!;
+    await moveControl.click();
+    const cancelMove = row.getByRole("button", {
+      name: `Cancel Marker move: ${NAME}`,
+    });
+    await expect(cancelMove).toHaveText("Cancel");
+    await expect(marker).toBeFocused();
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(async () => (await marker.boundingBox())!.x)
+      .toBeGreaterThan(saved.x + 20);
+    await cancelMove.click();
+    await expect(moveControl).toBeVisible();
+    await expect
+      .poll(async () => (await marker.boundingBox())!.x)
+      .toBeLessThan(saved.x + 2);
+    await marker.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(1_000);
+    expect((await marker.boundingBox())!.x).toBeLessThan(saved.x + 2);
 
     // "Show" flies to the Marker and focuses it (review of PR 139).
     await sheet.locator("[data-map-ready] canvas").focus();
