@@ -123,7 +123,7 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     const row = sheet.locator("[data-hand-typed-vendor]").filter({
       hasText: NAME,
     });
-    await expect(row).toContainText("no Marker yet");
+    await expect(row).toContainText("No Marker yet");
     await expect(sheet.locator("[data-hand-typed-marker]")).toHaveCount(0);
     // Keyboard only (review of PR 139): Drop a Marker puts a new Marker in
     // the middle of the map with focus on it; Escape cancels it.
@@ -135,7 +135,7 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     await expect(draft).toHaveAttribute("aria-label", `New Marker for ${NAME}`);
     await page.keyboard.press("Escape");
     await expect(draft).toHaveCount(0);
-    await expect(row).toContainText("no Marker yet");
+    await expect(row).toContainText("No Marker yet");
 
     // Again: the arrow keys move it and Enter saves it.
     await drop.focus();
@@ -167,6 +167,11 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     await expect(
       row.getByRole("button", { name: `Move the Marker: ${NAME}` }),
     ).toBeVisible();
+
+    // "Show" flies to the Marker and focuses it (review of PR 139).
+    await sheet.locator("[data-map-ready] canvas").focus();
+    await row.getByRole("button", { name: `Show on the map: ${NAME}` }).click();
+    await expect(marker).toBeFocused();
     await expectNoSeriousA11yViolations(page);
     await shot(page, testInfo, "1-marker-dropped-desktop.png");
 

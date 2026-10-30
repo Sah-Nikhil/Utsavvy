@@ -108,9 +108,10 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
   const [category, setCategory] = useState<VendorCategory | null>(null);
   const [functionKey, setFunctionKey] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<Id<"vendors"> | null>(null);
-  const [reveal, setReveal] = useState<{ id: Id<"vendors">; n: number } | null>(
-    null,
-  );
+  const [reveal, setReveal] = useState<{
+    id: Id<"vendors"> | Id<"privateVendors">;
+    n: number;
+  } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
 
   const listed = useMemo(
@@ -265,6 +266,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
               canPlace={view.canMove && view.city?.centre != null}
               placing={placing}
               onPlace={(id) => setPlacing((p) => (p === id ? null : id))}
+              onShow={(id) => setReveal((r) => ({ id, n: (r?.n ?? 0) + 1 }))}
             />
             <PlainList
               title="Without an address"
@@ -427,11 +429,13 @@ function HandTypedList({
   canPlace,
   placing,
   onPlace,
+  onShow,
 }: {
   vendors: MapHandTypedVendor[];
   canPlace: boolean;
   placing: Id<"privateVendors"> | null;
   onPlace: (id: Id<"privateVendors">) => void;
+  onShow: (id: Id<"privateVendors">) => void;
 }) {
   const id = useId();
   if (vendors.length === 0) return null;
@@ -465,10 +469,23 @@ function HandTypedList({
                 <span className="block truncate text-caption text-ink-3">
                   {v.categoryLabel}
                   {v.area ? ` · ${v.area}` : ""}
-                  {" · "}
-                  {v.marker ? "Marker placed by a Member" : "no Marker yet"}
+                </span>
+                {/* Its own line, so it is never cut short on a phone. */}
+                <span className="block text-caption text-ink-3">
+                  {v.marker ? "Marker placed by a Member" : "No Marker yet"}
                 </span>
               </span>
+              {v.marker ? (
+                <Button
+                  size="sm"
+                  variant="text"
+                  className="shrink-0"
+                  aria-label={`Show on the map: ${v.name}`}
+                  onClick={() => onShow(v._id)}
+                >
+                  Show
+                </Button>
+              ) : null}
               {canPlace ? (
                 <Button
                   size="sm"

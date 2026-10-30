@@ -76,8 +76,8 @@ export type MapCanvasProps = {
   selectedId: Id<"vendors"> | null;
   onSelect: (id: Id<"vendors"> | null) => void;
   onMove: (id: Id<"vendors">, lat: number, lng: number) => void;
-  /** Fly to this Vendor's Marker and focus it; `n` repeats the same request. */
-  reveal: { id: Id<"vendors">; n: number } | null;
+  /** Fly to this Vendor's Marker (shared or hand-typed) and focus it; `n` repeats the same request. */
+  reveal: { id: Id<"vendors"> | Id<"privateVendors">; n: number } | null;
   /** The Event's hand-typed Vendors; those with a Marker are drawn. */
   handTyped?: HandTypedPin[];
   /** The hand-typed Vendor whose Marker the next click on the map drops. */
@@ -270,8 +270,8 @@ export default function MapCanvas({
   // The Markers drawn, where they stand now, for their footprints in the
   // style; MapLibre hides any label that would cross one.
   const points = useMemo<MarkerPoint[]>(
-    () =>
-      vendors.map((v) => {
+    () => [
+      ...vendors.map((v) => {
         const at = draft?.id === v._id ? draft : v.marker;
         return {
           id: v._id,
@@ -280,7 +280,14 @@ export default function MapCanvas({
           faint: v.shortlist === null,
         };
       }),
-    [vendors, draft],
+      // Placed hand-typed Markers keep labels off their stamps too.
+      ...handTyped.flatMap((pin) =>
+        pin.marker === null
+          ? []
+          : [{ id: pin.id, ...pin.marker, faint: false }],
+      ),
+    ],
+    [vendors, draft, handTyped],
   );
   const style = useMemo<StyleSpecification | string | null>(() => {
     if (look === null) return null;
@@ -288,12 +295,17 @@ export default function MapCanvas({
     return buildMapStyle(look.colours, { ornaments: look.ornaments, points });
   }, [look, points]);
 
+  // Placed hand-typed Markers count for the opening view, so one dropped
+  // near the city's edge opens on screen (review of PR 139).
+  const placedPins = handTyped.flatMap((pin) =>
+    pin.marker === null ? [] : [{ marker: pin.marker }],
+  );
   const centre = centreOf(city, vendors);
   // The opening view and reach are fixed when the map mounts.
   const [initial] = useState(() =>
     centre
       ? {
-          fit: openingFit(centre, vendors),
+          fit: openingFit(centre, [...vendors, ...placedPins]),
           bounds: cityBounds(centre),
         }
       : null,
@@ -302,15 +314,21 @@ export default function MapCanvas({
   useEffect(() => {
     if (reveal === null) return;
     const vendor = vendors.find((v) => v._id === reveal.id);
-    if (!vendor) return;
+    const pin = handTyped.find((p) => p.id === reveal.id);
+    const at = vendor?.marker ?? pin?.marker ?? null;
+    if (at === null) return;
     const map = mapRef.current;
     map?.flyTo({
-      center: [vendor.marker.lng, vendor.marker.lat],
+      center: [at.lng, at.lat],
       zoom: Math.max(map.getZoom(), STREET_ZOOM - 1),
       duration: 700,
     });
     holder.current
-      ?.querySelector<HTMLButtonElement>(`[data-marker-id="${reveal.id}"]`)
+      ?.querySelector<HTMLButtonElement>(
+        vendor
+          ? `[data-marker-id="${reveal.id}"]`
+          : `[data-hand-typed-marker="${reveal.id}"]`,
+      )
       ?.focus({ preventScroll: true });
     // Only a new request moves the map, not new data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
