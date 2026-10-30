@@ -121,7 +121,6 @@ async function signedIn(
   return { context, page };
 }
 
-/** Opens the demo Event from "Open the demo Event" and waits for its Canvas. */
 /**
  * Pans the Canvas the way a Member does, dragging empty Canvas, until
  * `target` is in the clear: the point at its centre is the target itself.
@@ -185,6 +184,7 @@ async function panTo(page: Page, target: Locator) {
   throw new Error("Couldn't pan the control into view");
 }
 
+/** Opens the demo Event from "Open the demo Event" and waits for its Canvas. */
 async function openDemo(page: Page): Promise<string> {
   await page.goto("/events?open=demo");
   await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
