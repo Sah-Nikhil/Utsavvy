@@ -13,16 +13,12 @@ import {
 import { can } from "../lib/access/permissions";
 import type { LineEstimate } from "../lib/pricing/pricePlan";
 import type { Actor, MemberActor } from "../lib/types/actors";
-import { cityTierValidator, eventTypeValidator } from "../lib/types/brief";
-import { lineEstimateValidator } from "../lib/types/estimates";
+import type { PricedEstimate } from "../lib/types/estimates";
 import type { HistoryTable } from "../lib/types/history";
 import starterSet from "../seed/jaipur-vendors.json";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 import {
-  internalAction,
   internalMutation,
-  internalQuery,
   mutation,
   query,
   type MutationCtx,
@@ -30,13 +26,7 @@ import {
 } from "./_generated/server";
 import { placeNewItem } from "./canvas";
 import { nextOrder, planItemOf } from "./entries";
-import {
-  cachedOrTableEstimate,
-  estimateLines,
-  liveEstimateDeps,
-  type EstimateCtx,
-  type EstimateDeps,
-} from "./estimates";
+import { cachedOrTableEstimate } from "./estimates";
 import { requireAccess } from "./lib/access";
 import { VersionConflict } from "./lib/errors";
 import {
@@ -600,9 +590,19 @@ export const cards = query({
   },
 });
 
+/** An Estimate a hand-typed Vendor's card shows: one budget line its checklist Entry pays for. */
+export type EntryEstimateView = {
+  /** The budget line. */
+  entryId: Id<"entries">;
+  /** The budget line's label, such as "Catering, Sangeet". */
+  label: string;
+  estimate: PricedEstimate;
+};
+
 /**
  * A hand-typed Vendor (X7) as its card shows it: only what a Member typed,
- * plus an Estimate for its category. It never has Listed prices.
+ * plus the Estimates of the checklist Entry it is shortlisted under. It never
+ * has Listed prices, and nothing about it is stored beyond what was typed.
  */
 export type HandTypedView = {
   _id: Id<"privateVendors">;
@@ -610,11 +610,20 @@ export type HandTypedView = {
   name: string;
   vendorCategory: string | null;
   freeLabel: string | null;
-  /** "Caterer", or the free label as typed. */
+  /** The linked checklist Entry as the Canvas names it ("Caterer", "Mehendi artist"). */
   categoryLabel: string;
   phone: string | null;
   area: string | null;
-  /** The city's cached researched range or the reference table; null for "No Estimate yet". */
+  /**
+   * The Estimates on the budget lines its checklist Entries pay for, kept
+   * current by the Entries' own re-price paths (a city change re-prices them).
+   */
+  entryEstimates: EntryEstimateView[];
+  /**
+   * Only for a fixed category whose Entries pay for no priced line: the same
+   * read-only Estimate a shared Vendor card shows (the city's cached
+   * researched range or the reference table). Null otherwise: "No Estimate yet".
+   */
   estimate: LineEstimate | null;
 };
 
@@ -638,58 +647,69 @@ function handTypedCategoryLabel(row: Doc<"privateVendors">): string {
 }
 
 /**
- * The Estimate on a hand-typed Vendor's card. Only its category (or free
- * label) and the Event's city are looked up, never what the Member typed
- * about the Vendor. A query never searches: it reads the city's cached
- * researched range (ADR 0013) or the reference table, and for a free label
- * the result `estimateHandTyped` stored from the full cascade; else there is
- * no Estimate yet.
+ * The priced budget lines the hand-typed Vendor's checklist Entries pay for
+ * (their `budgetEntryIds`), each once. Read from the Entries, never from the
+ * Vendor, so nothing the Member typed about it is ever priced.
  */
-async function handTypedEstimate(
+async function entryEstimatesOf(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  links: LinkView[],
+): Promise<EntryEstimateView[]> {
+  const seen = new Set<Id<"entries">>();
+  const views: EntryEstimateView[] = [];
+  for (const link of links) {
+    const entry = await ctx.db.get("entries", link.checklistEntryId);
+    if (entry?.kind !== "checklist") continue;
+    for (const lineId of entry.fields.budgetEntryIds) {
+      if (seen.has(lineId)) continue;
+      seen.add(lineId);
+      const line = await ctx.db.get("entries", lineId);
+      if (
+        line?.kind !== "budget" ||
+        line.eventId !== eventId ||
+        line.deletedAt !== null ||
+        line.fields.estimate === null
+      )
+        continue;
+      views.push({
+        entryId: line._id,
+        label: line.fields.label,
+        estimate: line.fields.estimate,
+      });
+    }
+  }
+  return views;
+}
+
+/**
+ * The fallback Estimate for a fixed category with no priced budget line: the
+ * one a shared Vendor card of that category shows. A query never searches.
+ */
+async function categoryEstimate(
   ctx: QueryCtx,
   row: Doc<"privateVendors">,
   pricing: Pricing | null,
 ): Promise<LineEstimate | null> {
-  if (pricing === null) return null;
-  const asOf = pricing.asOf ?? Number.POSITIVE_INFINITY;
-  if (row.vendorCategory && isVendorCategory(row.vendorCategory)) {
-    const line = estimateLineFor(
-      row.vendorCategory,
-      pricing.functionKey,
-      pricing.guests,
-    );
-    return await cachedOrTableEstimate(
-      ctx,
-      pricing.city,
-      pricing.tier,
-      line.category,
-      line.unit,
-      asOf,
-    );
-  }
-  const label = handTypedLabel(row);
-  if (!label) return null;
-  return (
-    (await cachedOrTableEstimate(
-      ctx,
-      pricing.city,
-      pricing.tier,
-      label,
-      HAND_TYPED_FREE_LABEL_UNIT,
-      asOf,
-    )) ??
-    row.estimate ??
-    null
+  if (
+    pricing === null ||
+    !row.vendorCategory ||
+    !isVendorCategory(row.vendorCategory)
+  )
+    return null;
+  const line = estimateLineFor(
+    row.vendorCategory,
+    pricing.functionKey,
+    pricing.guests,
   );
-}
-
-/** A free-label hand-typed Vendor is priced for the whole event, one unit. */
-const HAND_TYPED_FREE_LABEL_UNIT = "per_event";
-
-/** The label a hand-typed Vendor without a fixed category is priced by, or null for a fixed one. */
-function handTypedLabel(row: Doc<"privateVendors">): string | null {
-  if (row.vendorCategory && isVendorCategory(row.vendorCategory)) return null;
-  return row.freeLabel ?? row.vendorCategory;
+  return await cachedOrTableEstimate(
+    ctx,
+    pricing.city,
+    pricing.tier,
+    line.category,
+    line.unit,
+    pricing.asOf ?? Number.POSITIVE_INFINITY,
+  );
 }
 
 async function shortlistedView(
@@ -724,6 +744,7 @@ async function shortlistedView(
       handTyped: null,
     };
   const row = own!;
+  const entryEstimates = await entryEstimatesOf(ctx, event._id, links);
   return {
     itemId: item._id,
     links,
@@ -734,10 +755,15 @@ async function shortlistedView(
       name: row.name,
       vendorCategory: row.vendorCategory,
       freeLabel: row.freeLabel,
-      categoryLabel: handTypedCategoryLabel(row),
+      // The Entry's current name, so a renamed free label shows here too.
+      categoryLabel: links[0]?.entryLabel ?? handTypedCategoryLabel(row),
       phone: row.phone,
       area: row.area,
-      estimate: await handTypedEstimate(ctx, row, pricing),
+      entryEstimates,
+      estimate:
+        entryEstimates.length > 0
+          ? null
+          : await categoryEstimate(ctx, row, pricing),
     },
   };
 }
@@ -1217,15 +1243,6 @@ export const addHandTyped = mutation({
       checklistEntryId: entry._id,
       insert,
     });
-    // A free label has no table row: the full cascade prices it in an action,
-    // from the label and the Event's city only.
-    if (
-      freeLabel !== null ||
-      !isVendorCategory(entry.fields.vendorCategory ?? "")
-    )
-      await ctx.scheduler.runAfter(0, internal.vendors.estimateHandTypedNow, {
-        privateVendorId,
-      });
     return { privateVendorId, itemId, linkId };
   },
 });
@@ -1279,113 +1296,5 @@ export const editHandTyped = mutation({
       patch,
       actor,
     });
-  },
-});
-
-// ---------------------------------------------------------------------------
-// The free-label Estimate (ADR 0013, approved on #62 question 4)
-
-/**
- * What pricing a free-label hand-typed Vendor may see: its label and the
- * Event's city, tier and type. Never its name, phone or area.
- */
-export const handTypedPricing = internalQuery({
-  args: { privateVendorId: v.id("privateVendors") },
-  returns: v.union(
-    v.object({
-      eventId: v.id("events"),
-      label: v.string(),
-      city: v.string(),
-      tier: cityTierValidator,
-      eventType: eventTypeValidator,
-    }),
-    v.null(),
-  ),
-  handler: async (ctx, { privateVendorId }) => {
-    const row = await ctx.db.get("privateVendors", privateVendorId);
-    if (row === null) return null;
-    const label = handTypedLabel(row);
-    const event = await ctx.db.get("events", row.eventId);
-    if (label === null || event === null || event.city === null) return null;
-    return {
-      eventId: event._id,
-      label,
-      city: event.city.name,
-      tier: event.city.tier,
-      eventType: event.eventType,
-    };
-  },
-});
-
-/** Stores the cascade's result. Not a Member's edit, so it doesn't bump the version a card holds. */
-export const saveHandTypedEstimate = internalMutation({
-  args: {
-    privateVendorId: v.id("privateVendors"),
-    label: v.string(),
-    estimate: lineEstimateValidator,
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get("privateVendors", args.privateVendorId);
-    // The Entry's label can't change under a hand-typed Vendor today; a
-    // result for another label would be stale, so it is dropped.
-    if (row === null || handTypedLabel(row) !== args.label) return null;
-    await ctx.db.patch("privateVendors", row._id, { estimate: args.estimate });
-    return null;
-  },
-});
-
-/**
- * Runs the estimate cascade (cache, research, the reference table, the
- * Assistant's own estimate) for a free-label hand-typed Vendor, through the
- * same `estimateLines` the Assistant's `addEntry` uses, with one line: the
- * label, one unit for the whole event. Only the label and the Event's city
- * reach research, the knowledge call and the shared cache.
- */
-export async function estimateHandTyped(
-  ctx: EstimateCtx,
-  privateVendorId: Id<"privateVendors">,
-  deps?: Partial<EstimateDeps>,
-): Promise<void> {
-  const pricing = await ctx.runQuery(internal.vendors.handTypedPricing, {
-    privateVendorId,
-  });
-  if (pricing === null) return;
-  const [range] = await estimateLines(
-    ctx,
-    {
-      eventId: pricing.eventId,
-      city: pricing.city,
-      tier: pricing.tier,
-      eventType: pricing.eventType,
-      lines: [
-        {
-          category: pricing.label,
-          quantity: 1,
-          unit: HAND_TYPED_FREE_LABEL_UNIT,
-        },
-      ],
-    },
-    deps,
-  );
-  if (!range) return;
-  await ctx.runMutation(internal.vendors.saveHandTypedEstimate, {
-    privateVendorId,
-    label: pricing.label,
-    estimate: range,
-  });
-}
-
-/** Scheduled by `addHandTyped` for a free label. A failed model call leaves "No Estimate yet". */
-export const estimateHandTypedNow = internalAction({
-  args: { privateVendorId: v.id("privateVendors") },
-  returns: v.null(),
-  handler: async (ctx, { privateVendorId }) => {
-    try {
-      await estimateHandTyped(ctx, privateVendorId, liveEstimateDeps());
-    } catch (error) {
-      console.error("Hand-typed Vendor Estimate failed", error);
-    }
-    return null;
   },
 });

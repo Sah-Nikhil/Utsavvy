@@ -25,14 +25,6 @@ export const estimateBasisValidator = v.object({
 export type EstimateBasis = Infer<typeof estimateBasisValidator>;
 export type EstimateBasisKind = EstimateBasis["kind"];
 
-/** One estimate cascade result: a per-unit range and its basis (`LineEstimate` in lib/pricing). */
-export const lineEstimateValidator = v.object({
-  unit: v.string(),
-  unitLow: v.number(),
-  unitHigh: v.number(),
-  basis: estimateBasisValidator,
-});
-
 /** An Estimate on a budget Entry or a Suggestion. Amounts are whole rupees. */
 export const pricedEstimateValidator = v.object({
   low: v.number(),

@@ -1,22 +1,16 @@
 /// <reference types="vite/client" />
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { createStartingSections } from "./canvas";
-import {
-  stubEstimateDeps,
-  type EstimateCtx,
-  type KnowledgeInput,
-  type ResearchInput,
-} from "./estimates";
+import type { PricedEstimate } from "../lib/types/estimates";
 import {
   identityFor,
   insertEvent,
   newTest,
   seedMembership,
 } from "./lib/test.helpers";
-import { estimateHandTyped } from "./vendors";
 
 // X7 (issue #62): hand-typed Vendors (vendors.md, "Adding a Vendor by hand").
 // A Member types a Vendor with no website; it is private to the Event, holds
@@ -399,16 +393,6 @@ describe("the hand-typed Vendor card", () => {
 // ---------------------------------------------------------------------------
 // Review of #129, round 1
 
-/** An action context for code that runs the estimate cascade, over convex-test. */
-function actionCtx(t: T): EstimateCtx {
-  type Call = (ref: unknown, args: unknown) => Promise<unknown>;
-  return {
-    runQuery: t.query as Call,
-    runMutation: t.mutation as Call,
-    runAction: t.action as Call,
-  } as unknown as EstimateCtx;
-}
-
 const SECRET = "Kabir's secret caterer";
 
 /** Event A's Shortlisted Vendor Item that points at Event B's hand-typed Vendor. */
@@ -563,92 +547,201 @@ describe("a removed or blocked Member", () => {
   });
 });
 
-const REKHA = { name: "Rekha aunty", phone: "98290 55555", area: "Raja Park" };
+// ---------------------------------------------------------------------------
+// Review of #129, round 2: the card shows its checklist Entry's Estimate
 
-describe("a free-label hand-typed Vendor's Estimate", () => {
-  it("is queued when the Vendor is added, and not for a fixed category", async () => {
+/** A table-priced Estimate for a catering line, as the plan stores it. */
+function cateringEstimate(unitLow: number, unitHigh: number): PricedEstimate {
+  return {
+    low: unitLow * 300,
+    high: unitHigh * 300,
+    amount: Math.round(((unitLow + unitHigh) / 2) * 300),
+    label: "Estimate",
+    basis: {
+      kind: "referenceTable",
+      unit: "per_plate",
+      unitLow,
+      unitHigh,
+      text: "Utsavvy reference table, Y tier, Oct 2026",
+      sourceUrls: [],
+      searchedAt: null,
+      reasoning: null,
+      tableVersion: "2026-10-22",
+    },
+  };
+}
+
+/** A Budget Item with a priced catering line that the caterer Entry pays for. */
+async function withCateringLine(t: T, a: Seeded) {
+  return await t.run(async (ctx) => {
+    await ctx.db.patch("events", a.eventId, { budgetTotal: 1_500_000 });
+    const section = await ctx.db
+      .query("sections")
+      .withIndex("by_event", (q) => q.eq("eventId", a.eventId))
+      .first();
+    const actor = { kind: "member" as const, membershipId: a.member };
+    const budget = await ctx.db.insert("items", {
+      eventId: a.eventId,
+      sectionId: section!._id,
+      kind: "budget",
+      position: { x: 0, y: 0 },
+      size: null,
+      functionKey: null,
+      data: { note: null },
+      createdBy: actor,
+      version: 1,
+      deletedAt: null,
+    });
+    const line = await ctx.db.insert("entries", {
+      eventId: a.eventId,
+      itemId: budget,
+      kind: "budget",
+      order: 0,
+      functionKey: null,
+      fields: {
+        label: "Catering",
+        category: "catering_main",
+        quantity: 300,
+        unit: "per_plate",
+        estimate: cateringEstimate(700, 1200),
+        plannedAmount: null,
+        role: "line",
+        belowUsualRange: false,
+        editedByMember: false,
+      },
+      assumed: [],
+      createdBy: actor,
+      version: 1,
+      deletedAt: null,
+    });
+    const caterer = await ctx.db.get("entries", a.entries.caterer);
+    if (caterer?.kind !== "checklist") throw new Error("checklist");
+    await ctx.db.patch("entries", caterer._id, {
+      fields: { ...caterer.fields, budgetEntryIds: [line] },
+    });
+    return line;
+  });
+}
+
+describe("the hand-typed Vendor card's Estimate is its checklist Entry's", () => {
+  it("shows the Estimate of the budget line its Entry pays for, and stores nothing on the Vendor", async () => {
     const t = newTest();
     const a = await setup(t);
-    const queuedEstimates = async () =>
-      (
-        await t.run((ctx) =>
-          ctx.db.system.query("_scheduled_functions").collect(),
-        )
-      ).filter((f) => f.name.includes("estimateHandTyped"));
-    await as(t, a).mutation(api.vendors.addHandTyped, {
+    const line = await withCateringLine(t, a);
+    const added = await as(t, a).mutation(api.vendors.addHandTyped, {
       eventId: a.eventId,
       checklistEntryId: a.entries.caterer,
       ...SHARMA,
     });
-    expect(await queuedEstimates()).toEqual([]);
-    await as(t, a).mutation(api.vendors.addHandTyped, {
-      eventId: a.eventId,
-      checklistEntryId: a.entries.mehendiArtist,
-      ...REKHA,
+    const view = await as(t, a).query(api.vendors.forItem, {
+      itemId: added.itemId,
     });
-    expect(await queuedEstimates()).toHaveLength(1);
+    expect(view.view?.handTyped).toMatchObject({
+      entryEstimates: [
+        {
+          entryId: line,
+          label: "Catering",
+          estimate: cateringEstimate(700, 1200),
+        },
+      ],
+      estimate: null,
+    });
+    // The row holds only what was typed, plus its own bookkeeping.
+    const row = await t.run((ctx) =>
+      ctx.db.get("privateVendors", added.privateVendorId),
+    );
+    expect(Object.keys(row!).sort()).toEqual(
+      [
+        "_creationTime",
+        "_id",
+        "area",
+        "createdAt",
+        "createdBy",
+        "eventId",
+        "freeLabel",
+        "marker",
+        "name",
+        "phone",
+        "vendorCategory",
+        "version",
+      ].sort(),
+    );
+    // Nothing is queued to price the Vendor itself.
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toEqual([]);
   });
 
-  it("runs the cascade on the free label only: a research miss falls to the Assistant's knowledge, and the card shows it", async () => {
+  it("follows its line when a city change re-prices it on the Entry", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const line = await withCateringLine(t, a);
+    const added = await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.caterer,
+      ...SHARMA,
+    });
+    // A city change re-prices the line in place (plan:applyCityPrices writes
+    // the new Estimate onto the budget Entry); the card reads it from there.
+    await t.run(async (ctx) => {
+      const before = await ctx.db.get("entries", line);
+      if (before?.kind !== "budget") throw new Error("budget");
+      await ctx.db.patch("entries", line, {
+        fields: { ...before.fields, estimate: cateringEstimate(900, 1500) },
+        version: before.version + 1,
+      });
+    });
+    const view = await as(t, a).query(api.vendors.forItem, {
+      itemId: added.itemId,
+    });
+    expect(view.view?.handTyped?.entryEstimates).toEqual([
+      expect.objectContaining({
+        entryId: line,
+        estimate: expect.objectContaining({
+          basis: expect.objectContaining({ unitLow: 900, unitHigh: 1500 }),
+        }),
+      }),
+    ]);
+  });
+
+  it("names its category as the Entry does after the Entry's label is edited", async () => {
     const t = newTest();
     const a = await setup(t);
     const added = await as(t, a).mutation(api.vendors.addHandTyped, {
       eventId: a.eventId,
       checklistEntryId: a.entries.mehendiArtist,
-      ...REKHA,
+      name: "Rekha aunty",
+      phone: null,
+      area: null,
     });
-    const seen: (ResearchInput | KnowledgeInput)[] = [];
-    const research = vi.fn(async (input: ResearchInput) => {
-      seen.push(input);
-      return null;
+    await as(t, a).mutation(api.entries.update, {
+      entryId: a.entries.mehendiArtist,
+      patch: { kind: "checklist", label: "Mehendi and nail artist" },
     });
-    const knowledge = vi.fn(async (input: KnowledgeInput) => {
-      seen.push(input);
-      return {
-        model: "claude-haiku-5-5",
-        results: [
-          {
-            key: input.lines[0]!.key,
-            unitLow: 8000,
-            unitHigh: 15000,
-            reasoning:
-              "Mehendi artists in Jaipur charge about this a function.",
-          },
-        ],
-      };
+    const view = await as(t, a).query(api.vendors.forItem, {
+      itemId: added.itemId,
     });
-    await estimateHandTyped(actionCtx(t), added.privateVendorId, {
-      ...stubEstimateDeps,
-      claudeReachable: () => true,
-      research,
-      knowledge,
-    });
-    expect(research).toHaveBeenCalledTimes(1);
-    expect(knowledge).toHaveBeenCalledTimes(1);
-    const prompts = JSON.stringify(seen);
-    expect(prompts).toContain("Mehendi artist");
-    for (const typed of Object.values(REKHA))
-      expect(prompts).not.toContain(typed);
+    expect(view.view?.handTyped?.categoryLabel).toBe("Mehendi and nail artist");
+  });
 
+  it("has no Estimate yet when its free-label Entry pays for no priced line", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const added = await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.mehendiArtist,
+      name: "Rekha aunty",
+      phone: null,
+      area: null,
+    });
     const view = await as(t, a).query(api.vendors.forItem, {
       itemId: added.itemId,
     });
     expect(view.view?.handTyped).toMatchObject({
-      categoryLabel: "Mehendi artist",
-      estimate: {
-        unitLow: 8000,
-        unitHigh: 15000,
-        basis: expect.objectContaining({ kind: "assistantKnowledge" }),
-      },
+      entryEstimates: [],
+      estimate: null,
     });
-    // The Estimate is not a Member's edit, so the version a card holds stays valid.
-    expect(view.view?.handTyped?.version).toBe(1);
-
-    // Nothing the Member typed reached the shared cache.
-    const cache = JSON.stringify(
-      await t.run((ctx) => ctx.db.query("estimateCache").collect()),
-    );
-    for (const typed of Object.values(REKHA))
-      expect(cache).not.toContain(typed);
   });
 });

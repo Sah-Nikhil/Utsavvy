@@ -24,8 +24,9 @@ import {
 
 /*
  * A hand-typed Vendor's card (X7, vendors.md "Adding a Vendor by hand"): only
- * what a Member typed (name, phone, area), labelled as such, plus an Estimate
- * for its category. It never shows Listed prices: a Member records a Quote
+ * what a Member typed (name, phone, area), labelled as such, plus the
+ * Estimates of the budget lines its checklist Entry pays for (or, for a fixed
+ * category with none, the Estimate a shared Vendor card shows). It never shows Listed prices: a Member records a Quote
  * after talking to the Vendor. It is private to the Event.
  *
  * Editing starts from the version the card showed. If someone saved a newer
@@ -96,7 +97,7 @@ export function HandTypedVendorCard({
     }
     setEditing(open);
   }
-  const { estimate } = vendor;
+  const { estimate, entryEstimates } = vendor;
 
   return (
     <article
@@ -214,7 +215,25 @@ export function HandTypedVendorCard({
         <h4 className="text-caption font-semibold tracking-[0.04em] text-ink-3 uppercase">
           Estimate
         </h4>
-        {estimate ? (
+        {entryEstimates.length > 0 ? (
+          <ul className="grid gap-1.5">
+            {entryEstimates.map((line) => (
+              <li key={line.entryId} className="grid gap-0.5">
+                <p className="flex flex-wrap items-center gap-2 text-label text-ink">
+                  <PriceBadge kind="estimate" />
+                  <span>{line.label}:</span>
+                  <span className="num">
+                    {formatINR(line.estimate.low)} to{" "}
+                    {formatINR(line.estimate.high)}
+                  </span>
+                </p>
+                <p className="text-caption text-ink-3">
+                  {line.estimate.basis.text}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : estimate ? (
           <>
             <p className="flex flex-wrap items-center gap-2 text-label text-ink">
               <PriceBadge kind="estimate" />

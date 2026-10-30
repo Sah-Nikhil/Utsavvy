@@ -21,7 +21,6 @@ import {
   budgetCheckValidator,
   listedPriceUnitValidator,
   quoteUnitValidator,
-  lineEstimateValidator,
 } from "../lib/types/estimates";
 import {
   changeOpValidator,
@@ -375,14 +374,6 @@ export default defineSchema({
     area: v.union(v.string(), v.null()),
     /** Only a Marker a Member dropped; never geocoded. */
     marker: v.union(v.object({ lat: v.number(), lng: v.number() }), v.null()),
-    /**
-     * For a free label, the estimate cascade's per-unit range, priced from the
-     * label and the Event's city only; absent until it runs or when it finds
-     * nothing (optional, so rows added before it existed stay valid). Written
-     * by `vendors:saveHandTypedEstimate`, which doesn't bump the version: it
-     * is not a Member's edit.
-     */
-    estimate: v.optional(lineEstimateValidator),
     createdBy: actorValidator,
     createdAt: v.number(),
     version: v.number(),
