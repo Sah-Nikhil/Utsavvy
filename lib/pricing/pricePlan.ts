@@ -286,3 +286,16 @@ export function budgetCheckNote(
   }
   return notes.length > 0 ? notes.join(" ") : null;
 }
+
+/**
+ * The Budget note when no line is priced from a range, so there is no band to
+ * check the total against (review of #130).
+ */
+export function uncheckedBudgetNote(budget: number, missing: number): string {
+  const total = formatLakh(budget);
+  if (missing === 0)
+    return `There are no budget lines yet, so ${total} isn't checked against typical prices.`;
+  if (missing === 1)
+    return `1 line has no Estimate yet and counts as zero, so ${total} isn't checked against typical prices.`;
+  return `${missing} lines have no Estimate yet and count as zero, so ${total} isn't checked against typical prices.`;
+}

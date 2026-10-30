@@ -2,6 +2,7 @@ import type { WriteEvent } from "../../lib/types/history";
 import type { MutationCtx } from "../_generated/server";
 import { passagesAfterWrite } from "../comments";
 import { nudgesAfterWrite } from "../nudges";
+import { budgetAfterWrite } from "../plan";
 
 /** A post-write hook: runs inside the writing mutation, so a throw rolls the write back. */
 export type PostWriteHook = (
@@ -12,10 +13,11 @@ export type PostWriteHook = (
 /**
  * The registered hooks (IMPLEMENTATION_PLAN.md section 4.4), each filled in its
  * owner's file: `passagesAfterWrite` (S8, marks Comment passages "text changed")
- * and `nudgesAfterWrite` (S17, schedules the Nudge check).
+ * `nudgesAfterWrite` (S17, schedules the Nudge check) and `budgetAfterWrite`
+ * (#102, recomputes the Budget check and note after a Restore or Undo all).
  */
 function registeredHooks(): PostWriteHook[] {
-  return [passagesAfterWrite, nudgesAfterWrite];
+  return [passagesAfterWrite, nudgesAfterWrite, budgetAfterWrite];
 }
 
 /**
