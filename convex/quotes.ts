@@ -876,7 +876,9 @@ export function quoteChoiceKey(
   linkId: string,
   functionKeys: readonly string[],
 ): string {
-  return `quoteChoice:${eventId}:${pasteId}:${linkId}:${functionKeys.join(",")}`;
+  // The Functions as a set: the same Functions read in another order are the same card.
+  const functions = [...new Set(functionKeys)].sort();
+  return `quoteChoice:${eventId}:${pasteId}:${linkId}:${functions.join(",")}`;
 }
 
 /** The Functions a piece of text names, by name or key, whatever the case. */
@@ -959,6 +961,24 @@ function answerChoice(
   if (key === undefined || !options.some((fn) => fn.key === key))
     return { none: true };
   return { key };
+}
+
+/**
+ * Whether two `addQuote` changes would save the same Quote: the same amount,
+ * unit, Guests, note and Functions (in any order). The date received is the
+ * day it was proposed, so it is not compared.
+ */
+function sameQuote(a: AddQuoteChange, b: AddQuoteChange): boolean {
+  const x = a.values;
+  const y = b.values;
+  const set = (keys: readonly string[]) => [...new Set(keys)].sort().join(",");
+  return (
+    x.amount === y.amount &&
+    x.unit === y.unit &&
+    x.guests === y.guests &&
+    x.note === y.note &&
+    set(x.functionKeys) === set(y.functionKeys)
+  );
 }
 
 /**
@@ -1266,13 +1286,20 @@ export const proposeForRun = internalMutation({
           const open = proposalId
             ? await ctx.db.get("proposals", proposalId)
             : null;
-          if (open !== null && (await stillLive(ctx, open, change)))
+          if (open !== null && (await stillLive(ctx, open, change))) {
+            const held = open.changes[0] as AddQuoteChange;
+            if (!sameQuote(held, change))
+              return refusal(
+                "openCardDiffers",
+                `A Proposal card for this pasted Quote is already open in the Chat, and it reads the paste differently: "${await describeAddQuote(ctx, held)}". Nothing new was made, and that card is what Accept would save. Tell the Member exactly what that card says. If it is wrong, they can Reject it and paste the Quote again.`,
+              );
             return {
               ok: true,
               proposalId: open._id,
               changes: [line],
               note: "This Quote's Proposal card is already in the Chat, waiting for a Member to Accept it; nothing new was made. Say so in one line.",
             };
+          }
         }
         const fromComment = run.source === "comment" && run.commentId !== null;
         try {

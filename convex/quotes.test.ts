@@ -1067,6 +1067,59 @@ describe("a Quote pasted from WhatsApp", () => {
       expect(open).toHaveLength(1);
     });
 
+    it("makes one card for a paste naming two Functions, whatever order they are read in", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s, `Sangeet and Wedding: ${PASTE}`);
+      const first = await proposePasted(s, runId, {
+        ...EXTRACTED,
+        functions: ["Sangeet", "Wedding"],
+      });
+      const second = await proposePasted(s, runId, {
+        ...EXTRACTED,
+        functions: ["Wedding", "Sangeet"],
+      });
+      expect(first).toMatchObject({ ok: true });
+      expect(second).toMatchObject({
+        ok: true,
+        proposalId: (first as unknown as { proposalId: string }).proposalId,
+      });
+      const open = (await proposalsOf(s)).filter((p) => p.status === "open");
+      expect(open).toHaveLength(1);
+    });
+
+    it("never hands back an open card for a different reading of the paste: it says what the card holds", async () => {
+      const s = await setUp();
+      const runId = await pastedRequest(
+        s,
+        "SANGEET: regular 950/plate, premium 1100/plate for 300 pax",
+      );
+      const named = { ...EXTRACTED, functions: ["sangeet"], note: null };
+      const first = await proposePasted(s, runId, named);
+      expect(first).toMatchObject({ ok: true });
+      // A later call reads the premium price instead.
+      const second = await proposePasted(s, runId, { ...named, amount: 1_100 });
+      expect(second).toMatchObject({ ok: false, reason: "openCardDiffers" });
+      const message = (second as { message: string }).message;
+      expect(message).toContain("₹950/plate");
+      expect(message).not.toMatch(/1,?100/);
+      expect(message).toMatch(/[Rr]eject/);
+      const proposals = await proposalsOf(s);
+      expect(proposals).toHaveLength(1);
+
+      const accepted = await s.as("Meera").mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: proposals[0]!._id,
+      });
+      expect(accepted).toEqual({ ok: true });
+      const quotes = await quotesOf(s);
+      expect(quotes).toHaveLength(1);
+      expect(quotes[0]).toMatchObject({
+        amount: 950,
+        functionKeys: ["sangeet"],
+      });
+    });
+
     describe("refuses a pasteMessageId that isn't an earlier Member paste in this Event's Chat", () => {
       async function refusedFor(
         s: Setup,
