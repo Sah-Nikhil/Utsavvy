@@ -25,7 +25,7 @@ import type { ProposedChange } from "../lib/types/proposals";
 import { quoteUnitValidator } from "../lib/types/estimates";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { sharedVendorIdOf } from "./lib/vendors";
+import { shortlistedVendorOf } from "./lib/vendors";
 import {
   action,
   env,
@@ -526,7 +526,6 @@ export const budgetComparison = query({
     const byLine = new Map<string, VendorComparison[]>(
       budget.map((line) => [line._id, []]),
     );
-    const vendors = new Map<Id<"vendors">, Doc<"vendors"> | null>();
     const prices = new Map<Id<"vendors">, Doc<"listedPrices">[]>();
 
     for (const checklist of await live("checklist")) {
@@ -549,14 +548,13 @@ export const budgetComparison = query({
           item.deletedAt !== null
         )
           continue;
-        const vendorId = sharedVendorIdOf(item);
-        if (vendorId === null) continue;
-        if (!vendors.has(vendorId)) {
-          vendors.set(vendorId, await ctx.db.get("vendors", vendorId));
+        // A shared Vendor or this Event's hand-typed one (X7), which has no
+        // Listed prices; anything else is skipped.
+        const vendor = await shortlistedVendorOf(ctx, item);
+        if (vendor === null) continue;
+        const vendorId = vendor.sharedVendorId;
+        if (vendorId !== null && !prices.has(vendorId))
           prices.set(vendorId, await currentListedPrices(ctx, vendorId));
-        }
-        const vendor = vendors.get(vendorId);
-        if (!vendor) continue;
         const quote = await currentQuote(ctx, link._id);
         const compared = quote === null ? [] : comparedEntries(quote, lines);
         const total = quote === null ? 0 : quoteForEntries(quote, lines);
@@ -565,7 +563,9 @@ export const budgetComparison = query({
             line.functionKey === null
               ? null
               : (guests.get(line.functionKey) ?? null);
-          const listed = prices.get(vendorId)!.flatMap((price) => {
+          const listed = (
+            vendorId === null ? [] : prices.get(vendorId)!
+          ).flatMap((price) => {
             const comparable = listedForGuests(price, lineGuests);
             return comparable === null
               ? []
@@ -742,8 +742,7 @@ async function linkChoices(
     if (link.status === "dropped") continue;
     const item = await ctx.db.get("items", link.shortlistItemId);
     if (item?.kind !== "shortlistedVendor" || item.deletedAt !== null) continue;
-    const vendorId = sharedVendorIdOf(item);
-    const vendor = vendorId && (await ctx.db.get("vendors", vendorId));
+    const vendor = await shortlistedVendorOf(ctx, item);
     const entry = await ctx.db.get("entries", link.checklistEntryId);
     if (!vendor || entry?.kind !== "checklist" || entry.deletedAt !== null)
       continue;
@@ -1130,6 +1129,18 @@ export const proposeForRun = internalMutation({
         const link = await ctx.db.get("vendorLinks", args.linkId);
         if (link === null || link.eventId !== args.eventId)
           throw new AccessDenied("wrongEvent", "vendor.manage");
+        // The link's Shortlisted Vendor must still be this Event's: a shared
+        // Vendor or its own hand-typed one (X7), never another Event's.
+        const item = await ctx.db.get("items", link.shortlistItemId);
+        if (
+          item?.kind !== "shortlistedVendor" ||
+          item.deletedAt !== null ||
+          (await shortlistedVendorOf(ctx, item)) === null
+        )
+          return refusal(
+            "noLink",
+            "That link isn't a Shortlisted Vendor of this Event. Ask the Member which Vendor sent the Quote.",
+          );
         const entry = await ctx.db.get("entries", link.checklistEntryId);
         if (entry?.kind !== "checklist" || entry.deletedAt !== null)
           return refusal("deleted", "That checklist Entry was deleted.");

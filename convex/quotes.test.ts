@@ -1674,3 +1674,167 @@ describe("the proposeQuote tool", () => {
     expect(await proposalsOf(s)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// X7 (issue #62): Quotes on a hand-typed Vendor, built on #127's rules
+
+const SHARMA = "Sharma ji Caterers";
+
+/**
+ * The same wedding, with the caterer Entry's shared Vendor dropped and a
+ * hand-typed Vendor shortlisted under it instead; `linkId` is its link.
+ */
+async function setUpHandTyped() {
+  const s = await setUp();
+  await setStatus(s, "dropped");
+  const added = await s.as("Meera").mutation(api.vendors.addHandTyped, {
+    eventId: s.eventId,
+    checklistEntryId: s.caterer,
+    name: SHARMA,
+    phone: "+91 98290 12345",
+    area: "Malviya Nagar",
+  });
+  return { ...s, linkId: added.linkId, itemId: added.itemId };
+}
+
+describe("a Quote on a hand-typed Vendor", () => {
+  it("is proposed from a paste, named on the card, and on Accept compared on the sangeet line with no Listed price", async () => {
+    const s = await setUpHandTyped();
+    const runId = await pastedRequest(s);
+    const result = await proposePasted(s, runId);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const [proposal] = (await proposalsOf(s)).filter(
+      (p) => p.status === "open",
+    );
+    const card = await s.as("Papa").query(api.proposals.get, {
+      eventId: s.eventId,
+      proposalId: proposal!._id,
+    });
+    expect(card.lines).toEqual([
+      `Quote from ${SHARMA}: ₹950/plate for 300 Guests at the Sangeet (₹2,85,000), live counters extra`,
+    ]);
+    expect(
+      await s.as("Meera").mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: proposal!._id,
+      }),
+    ).toEqual({ ok: true });
+
+    const comparison = await s
+      .as("Papa")
+      .query(api.quotes.budgetComparison, { eventId: s.eventId });
+    const line = comparison.entries.find(
+      (e) => e.entryId === s.sangeetCatering,
+    )!;
+    expect(line.vendors).toEqual([
+      expect.objectContaining({
+        linkId: s.linkId,
+        vendorName: SHARMA,
+        listed: [],
+        quote: expect.objectContaining({
+          total: 285_000,
+          line: "₹950/plate × 300 = ₹2.85L",
+        }),
+      }),
+    ]);
+    expect(
+      comparison.entries.find((e) => e.entryId === s.weddingCatering)!.vendors,
+    ).toEqual([]);
+  });
+
+  it("asks the booking question once it is Booked, like a shared Vendor", async () => {
+    const s = await setUpHandTyped();
+    await s.as("Rohan").action(api.quotes.add, {
+      linkId: s.linkId,
+      ...formQuote,
+    });
+    await setStatus(s, "booked");
+    const list = await s
+      .as("Meera")
+      .query(api.quotes.listForLink, { linkId: s.linkId });
+    expect(list.ask).toEqual({
+      question: "Use the ₹2.85L Quote as this line's amount?",
+      entryId: s.sangeetCatering,
+      quoteId: list.current!._id,
+      amount: 285_000,
+    });
+  });
+
+  it("asks which Function when its Entry serves two that fit (issue 127)", async () => {
+    const s = await setUpHandTyped();
+    await servingBoth(s, 300);
+    const runId = await pastedRequest(s);
+    const result = await proposePasted(s, runId);
+    expect(result).toMatchObject({ ok: false, reason: "whichFunction" });
+    expect((result as { message: string }).message).toContain(
+      "Sangeet or Wedding",
+    );
+    expect((await proposalsOf(s)).filter((p) => p.status === "open")).toEqual(
+      [],
+    );
+  });
+
+  it("refuses a link whose Item points at another Event's hand-typed Vendor, and never names it", async () => {
+    const s = await setUpHandTyped();
+    const other = await s.t.run(async (ctx) => {
+      const { eventId, membershipId } = await seedMembership(ctx, {
+        clerkId: "Kabir",
+        role: "owner",
+      });
+      const actor = { kind: "member" as const, membershipId };
+      return {
+        eventId,
+        id: await ctx.db.insert("privateVendors", {
+          eventId,
+          name: "Kabir's secret caterer",
+          vendorCategory: "caterer",
+          freeLabel: null,
+          phone: null,
+          area: null,
+          marker: null,
+          createdBy: actor,
+          createdAt: Date.now(),
+          version: 1,
+        }),
+      };
+    });
+    const badLink = await s.t.run(async (ctx) => {
+      const item = await ctx.db.insert("items", {
+        eventId: s.eventId,
+        sectionId: (await ctx.db.get("items", s.itemId))!.sectionId,
+        kind: "shortlistedVendor",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: { privateVendorId: other.id },
+        createdBy: { kind: "member", membershipId: s.people.Meera },
+        version: 1,
+        deletedAt: null,
+      });
+      return await ctx.db.insert("vendorLinks", {
+        eventId: s.eventId,
+        shortlistItemId: item,
+        checklistEntryId: s.caterer,
+        status: "considering",
+        version: 1,
+      });
+    });
+    const runId = await pastedRequest(s);
+    const result = await s.t.mutation(internal.quotes.proposeForRun, {
+      runId,
+      eventId: s.eventId,
+      forMembershipId: s.people.Rohan,
+      toolCallId: "call_quote_cross_event",
+      linkId: badLink,
+      functionKey: null,
+      pasteMessageId: null,
+      extraction: EXTRACTED,
+    });
+    expect(result).toMatchObject({ ok: false, reason: "noLink" });
+    expect(JSON.stringify(result)).not.toContain("Kabir's secret caterer");
+    const comparison = await s
+      .as("Meera")
+      .query(api.quotes.budgetComparison, { eventId: s.eventId });
+    expect(JSON.stringify(comparison)).not.toContain("Kabir's secret caterer");
+  });
+});
