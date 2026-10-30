@@ -134,12 +134,23 @@ function restorableFields(change: Doc<"changes">): string[] {
  * Event (ADR 0008) and its moves are recorded only in the moving Event's
  * history, so putting this change's earlier Marker back would silently undo
  * another Event's correction (S15, review of #123).
+ *
+ * A hand-typed Vendor's Marker (issue #136) is held to the same rule for a
+ * change that placed or moved it: once a later change moved it again,
+ * putting an older Marker back would skip the move limits and undo another
+ * Member's correction.
  */
 function markerMovedSince(
   table: HistoryTable,
   doc: Fields,
   change: Doc<"changes">,
 ): boolean {
+  if (table === "privateVendors") {
+    const before = (change.before as Fields | null)?.marker;
+    const after = (change.after as Fields | null)?.marker;
+    if (change.before === null || sameValue(before, after)) return false;
+    return !sameValue(doc.marker, after);
+  }
   if (table !== "vendors") return false;
   const current = doc.marker;
   return (

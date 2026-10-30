@@ -207,3 +207,64 @@ describe("hand-typed Vendors on the map", () => {
     ]);
   });
 });
+
+// Review of PR 139, Medium 2: Restore can't put back a stale Marker.
+describe("restoring an older hand-typed Marker change", () => {
+  async function placedTwice(t: T, a: Seeded) {
+    const place = (expectedVersion: number, at: { lat: number; lng: number }) =>
+      as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion,
+        ...at,
+      });
+    await place(1, MALVIYA_NAGAR);
+    await place(2, MANSAROVAR);
+    const changes = await t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", a.privateVendorId))
+        .collect(),
+    );
+    return { drop: changes[0]!, move: changes[1]! };
+  }
+
+  it("is refused for the drop after a later move, writing nothing", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { drop } = await placedTwice(t, a);
+    await expect(
+      as(t, a.clerkId).mutation(api.history.restore, { changeId: drop._id }),
+    ).rejects.toThrow(/markerMovedSince/);
+    expect(await rowOf(t, a.privateVendorId)).toMatchObject({
+      marker: MANSAROVAR,
+      version: 3,
+    });
+  });
+
+  it("is refused for an older move after a later one", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { move } = await placedTwice(t, a);
+    await as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+      eventId: a.eventId,
+      privateVendorId: a.privateVendorId,
+      expectedVersion: 3,
+      ...MALVIYA_NAGAR,
+    });
+    await expect(
+      as(t, a.clerkId).mutation(api.history.restore, { changeId: move._id }),
+    ).rejects.toThrow(/markerMovedSince/);
+    expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MALVIYA_NAGAR);
+  });
+
+  it("still restores the latest move", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { move } = await placedTwice(t, a);
+    await as(t, a.clerkId).mutation(api.history.restore, {
+      changeId: move._id,
+    });
+    expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MALVIYA_NAGAR);
+  });
+});
