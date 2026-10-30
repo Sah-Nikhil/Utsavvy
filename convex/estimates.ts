@@ -43,6 +43,7 @@ import {
   withModelFallback,
 } from "./lib/models";
 import { ESTIMATE_LIMITS } from "./lib/settings";
+import { sharedVendorIdOf } from "./lib/vendors";
 
 /**
  * The estimate cascade (ADR 0013, IMPLEMENTATION_PLAN.md section 4.14). Every
@@ -812,8 +813,9 @@ export const shortlistedListedPrices = internalQuery({
       if (links.length > 0 && links.every((l) => l.status === "dropped")) {
         continue;
       }
-      const vendorId = item.data.vendorId;
-      if (seen.has(vendorId)) continue;
+      // A hand-typed Vendor has no Listed prices, and its details never reach research.
+      const vendorId = sharedVendorIdOf(item);
+      if (vendorId === null || seen.has(vendorId)) continue;
       seen.add(vendorId);
       const vendor = await ctx.db.get("vendors", vendorId);
       if (!vendor) continue;

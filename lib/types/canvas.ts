@@ -53,9 +53,11 @@ export const planItemDataValidator = v.object({
   note: v.union(v.string(), v.null()),
 });
 
-export const shortlistedVendorDataValidator = v.object({
-  vendorId: v.id("vendors"),
-});
+/** A shared Vendor (S9), or a hand-typed Vendor private to the Event (X7). */
+export const shortlistedVendorDataValidator = v.union(
+  v.object({ vendorId: v.id("vendors") }),
+  v.object({ privateVendorId: v.id("privateVendors") }),
+);
 
 /** A Google place keeps only Google's place ID and the Member's note (ADR 0011). */
 export const googlePlaceDataValidator = v.object({

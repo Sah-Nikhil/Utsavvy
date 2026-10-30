@@ -40,6 +40,7 @@ import type * as lib_proposalOps from "../lib/proposalOps.js";
 import type * as lib_settings from "../lib/settings.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_toolStub from "../lib/toolStub.js";
+import type * as lib_vendors from "../lib/vendors.js";
 import type * as lib_write from "../lib/write.js";
 import type * as map from "../map.js";
 import type * as notes from "../notes.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/settings": typeof lib_settings;
   "lib/time": typeof lib_time;
   "lib/toolStub": typeof lib_toolStub;
+  "lib/vendors": typeof lib_vendors;
   "lib/write": typeof lib_write;
   map: typeof map;
   notes: typeof notes;

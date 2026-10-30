@@ -25,6 +25,7 @@ import {
   type ModelEnv,
 } from "../../lib/models";
 import { assistantInsert, assistantWrite } from "../../lib/write";
+import { shortlistedVendorOf } from "../../lib/vendors";
 import type { AssistantToolCtx } from "../agent";
 import { wrapOutside } from "../outside";
 import type { ToolResult } from "./core";
@@ -294,8 +295,8 @@ export async function describeAddQuote(
   const link = await ctx.db.get("vendorLinks", change.values.linkId);
   const item = link && (await ctx.db.get("items", link.shortlistItemId));
   const vendor =
-    item?.kind === "shortlistedVendor"
-      ? await ctx.db.get("vendors", item.data.vendorId)
+    link !== null && item?.kind === "shortlistedVendor"
+      ? await shortlistedVendorOf(ctx, item, link.eventId)
       : null;
   const functions =
     link === null
