@@ -1,9 +1,10 @@
 /// <reference types="vite/client" />
+import { createThread, saveMessage } from "@convex-dev/agent";
 import agentTest from "@convex-dev/agent/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { referenceTableBasis } from "../lib/pricing";
 import type { EntryFields } from "../lib/types/canvas";
-import { api, internal } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import type { ToolResult } from "./assistant/tools/core";
@@ -241,9 +242,9 @@ async function setStatus(
   });
 }
 
-/** A Chat request from Rohan with a running run, as the run queue would start it. */
-async function pastedRequest(s: Setup, text = PASTE) {
-  const { runId } = await s.as("Rohan").mutation(api.chat.send, {
+/** A Chat request from Rohan (or `who`) with a running run, as the run queue would start it. */
+async function pastedRequest(s: Setup, text = PASTE, who: Name = "Rohan") {
+  const { runId } = await s.as(who).mutation(api.chat.send, {
     eventId: s.eventId,
     text,
     dontReply: false,
@@ -256,30 +257,55 @@ async function pastedRequest(s: Setup, text = PASTE) {
 }
 
 /** What the extraction model reads from the worked example. */
-const EXTRACTED = {
+const EXTRACTED: {
+  amount: number;
+  unit: "per_plate" | "per_person" | "per_day" | "per_function" | "total";
+  guests: number | null;
+  functions: string[];
+  note: string | null;
+} = {
   amount: 950,
-  unit: "per_plate" as const,
+  unit: "per_plate",
   guests: 300,
   functions: [] as string[],
   note: "live counters extra",
 };
 
+let toolCalls = 0;
 async function proposePasted(
   s: Setup,
   runId: Id<"runs">,
   extraction: typeof EXTRACTED = EXTRACTED,
   functionKey: string | null = null,
+  pasteMessageId: string | null = null,
 ): Promise<ToolResult> {
   return (await s.t.mutation(internal.quotes.proposeForRun, {
     runId,
     eventId: s.eventId,
     forMembershipId: s.people.Rohan,
-    toolCallId: "call_quote",
+    // Each call is its own tool call, as the model's retries are.
+    toolCallId: `call_quote_${++toolCalls}`,
     linkId: s.linkId,
     functionKey,
+    pasteMessageId,
     extraction,
   })) as ToolResult;
 }
+
+/** The pasted message's ID a `whichFunction` refusal hands back for the retry. */
+function pasteMessageIdIn(result: ToolResult): string {
+  const id = /"pasteMessageId":"([^"]+)"/.exec(
+    (result as { message: string }).message,
+  )?.[1];
+  if (!id) throw new Error(`No pasteMessageId in ${JSON.stringify(result)}`);
+  return id;
+}
+
+/** The run is over, as the run queue leaves it once the reply ends. */
+const endRun = (s: Setup, runId: Id<"runs">) =>
+  s.t.run((ctx) =>
+    ctx.db.patch("runs", runId, { status: "done", endedAt: Date.now() }),
+  );
 
 const proposalsOf = (s: Setup) =>
   s.t.run((ctx) =>
@@ -288,6 +314,54 @@ const proposalsOf = (s: Setup) =>
       .withIndex("by_event_status", (q) => q.eq("eventId", s.eventId))
       .collect(),
   );
+
+/** The caterer Entry serves the sangeet and the wedding, paying for both lines; the wedding has `weddingGuests`. */
+async function servingBoth(s: Setup, weddingGuests: number) {
+  await s.t.run(async (ctx) => {
+    const entry = (await ctx.db.get("entries", s.caterer))!;
+    if (entry.kind !== "checklist") throw new Error("not a checklist Entry");
+    await ctx.db.patch("entries", s.caterer, {
+      fields: {
+        ...entry.fields,
+        functionKeys: ["sangeet", "wedding"],
+        budgetEntryIds: [s.sangeetCatering, s.weddingCatering],
+      },
+    });
+    const wedding = (
+      await ctx.db
+        .query("eventFunctions")
+        .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+        .collect()
+    ).find((fn) => fn.key === "wedding")!;
+    await ctx.db.patch("eventFunctions", wedding._id, {
+      guests: weddingGuests,
+    });
+  });
+}
+
+/** A 150-Guest haldi the caterer Entry serves as well. */
+async function withHaldi(s: Setup) {
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("eventFunctions", {
+      eventId: s.eventId,
+      key: "haldi",
+      name: "Haldi",
+      guests: 150,
+      date: null,
+      assumed: [],
+      order: 2,
+      version: 1,
+    });
+    const entry = (await ctx.db.get("entries", s.caterer))!;
+    if (entry.kind !== "checklist") throw new Error("not a checklist Entry");
+    await ctx.db.patch("entries", s.caterer, {
+      fields: {
+        ...entry.fields,
+        functionKeys: [...entry.fields.functionKeys, "haldi"],
+      },
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 
@@ -693,6 +767,550 @@ describe("a Quote pasted from WhatsApp", () => {
     });
   });
 
+  describe("when the link's Entry serves several Functions (issue 127)", () => {
+    /** Rohan pastes, the first run asks which Function and ends, then `who` answers `answer` in the Chat. */
+    async function answered(s: Setup, answer: string, who: Name = "Rohan") {
+      const pasteRun = await pastedRequest(s);
+      const asked = await proposePasted(s, pasteRun);
+      expect(asked).toMatchObject({ ok: false, reason: "whichFunction" });
+      await endRun(s, pasteRun);
+      const answerRun = await pastedRequest(s, answer, who);
+      return { pasteRun, answerRun, pasteMessageId: pasteMessageIdIn(asked) };
+    }
+
+    it("asks which Function when two 300-Guest Functions fit, and proposes nothing", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s);
+      const result = await proposePasted(s, runId);
+      expect(result).toMatchObject({ ok: false, reason: "whichFunction" });
+      const message = (result as { message: string }).message;
+      expect(message).toContain("Sangeet or Wedding");
+      expect(message).toContain('"functionKey":"sangeet"');
+      expect(message).toContain('"functionKey":"wedding"');
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("proposes for the Function the Member names in their next message, reading the price from the paste", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const { answerRun, pasteMessageId } = await answered(
+        s,
+        "It's for the wedding",
+      );
+      const result = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+      const proposals = await proposalsOf(s);
+      expect(proposals).toHaveLength(1);
+      expect(proposals[0]!.changes[0]!.values).toMatchObject({
+        amount: 950,
+        unit: "per_plate",
+        guests: 300,
+        functionKeys: ["wedding"],
+        note: "live counters extra",
+      });
+    });
+
+    it("refuses a retry in the same run, where no Member has named a Function", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s);
+      const asked = await proposePasted(s, runId);
+      const pasteMessageId = pasteMessageIdIn(asked);
+      // The model picks a Function itself, with or without the paste's ID.
+      const picked = await proposePasted(s, runId, EXTRACTED, "wedding");
+      expect(picked).toMatchObject({ ok: false, reason: "notNamed" });
+      const again = await proposePasted(
+        s,
+        runId,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(again).toMatchObject({ ok: false, reason: "noPaste" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("refuses a Function the Member's answer doesn't name", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const { answerRun, pasteMessageId } = await answered(s, "Sangeet");
+      const result = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(result).toMatchObject({ ok: false, reason: "notNamed" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("refuses a Function the Member names that wasn't one of the choices", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      await withHaldi(s);
+      const { answerRun, pasteMessageId } = await answered(s, "Haldi");
+      const result = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "haldi",
+        pasteMessageId,
+      );
+      expect(result).toMatchObject({ ok: false, reason: "notAChoice" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("takes no answer from a Viewer", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      await expect(pastedRequest(s, "Wedding", "Papa")).rejects.toThrow();
+      // A Member who answered and became a Viewer before the retry ran.
+      const { answerRun, pasteMessageId } = await answered(s, "Wedding");
+      await s.t.run((ctx) =>
+        ctx.db.patch("memberships", s.people.Rohan, { role: "viewer" }),
+      );
+      await expect(
+        proposePasted(s, answerRun, EXTRACTED, "wedding", pasteMessageId),
+      ).rejects.toThrow(/AccessDenied/);
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    describe("reads the answer as one clear choice", () => {
+      for (const [answer, functionKey] of [
+        ["Not the wedding", "wedding"],
+        ["It's not for the wedding", "wedding"],
+        ["Sangeet, not Wedding", "sangeet"],
+        ["Sangeet or Wedding", "sangeet"],
+        ["shaadi nahi", "wedding"],
+        ["शादी नहीं", "wedding"],
+        ["maybe the sangeet", "sangeet"],
+      ] as const) {
+        it(`asks again, directly, after "${answer}"`, async () => {
+          const s = await setUp();
+          await servingBoth(s, 300);
+          const { answerRun, pasteMessageId } = await answered(s, answer);
+          const result = await proposePasted(
+            s,
+            answerRun,
+            EXTRACTED,
+            functionKey,
+            pasteMessageId,
+          );
+          expect(result).toMatchObject({ ok: false, reason: "unclearAnswer" });
+          expect((result as { message: string }).message).toContain(
+            '"Sangeet or Wedding?"',
+          );
+          expect(await proposalsOf(s)).toEqual([]);
+        });
+      }
+
+      for (const [answer, functionKey] of [
+        ["शादी", "wedding"],
+        ["shaadi", "wedding"],
+        ["vivah", "wedding"],
+        ["sangeet wala", "sangeet"],
+        ["संगीत", "sangeet"],
+      ] as const) {
+        it(`takes "${answer}" as the ${functionKey}`, async () => {
+          const s = await setUp();
+          await servingBoth(s, 300);
+          const { answerRun, pasteMessageId } = await answered(s, answer);
+          const result = await proposePasted(
+            s,
+            answerRun,
+            EXTRACTED,
+            functionKey,
+            pasteMessageId,
+          );
+          expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+          const proposals = await proposalsOf(s);
+          expect(proposals).toHaveLength(1);
+          expect(proposals[0]!.changes[0]!.values).toMatchObject({
+            functionKeys: [functionKey],
+          });
+        });
+      }
+    });
+
+    it("makes one Proposal for one answer, however often the tool is called or the Member repeats it", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const { answerRun, pasteMessageId } = await answered(s, "Wedding");
+      const first = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      const second = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(first).toMatchObject({ ok: true });
+      expect(second).toMatchObject({
+        ok: true,
+        proposalId: (first as unknown as { proposalId: string }).proposalId,
+      });
+      // The Member says it again in a later message.
+      await endRun(s, answerRun);
+      const again = await pastedRequest(s, "The wedding, I said");
+      const third = await proposePasted(
+        s,
+        again,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(third).toMatchObject({
+        ok: true,
+        proposalId: (first as unknown as { proposalId: string }).proposalId,
+      });
+      const open = (await proposalsOf(s)).filter((p) => p.status === "open");
+      expect(open).toHaveLength(1);
+    });
+
+    it("refuses an answer that names one of the choices and another Function too", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      // The haldi has 150 Guests, so it isn't one of the choices.
+      await withHaldi(s);
+      const { answerRun, pasteMessageId } = await answered(
+        s,
+        "Wedding or Haldi",
+      );
+      const result = await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      );
+      expect(result).toMatchObject({ ok: false, reason: "unclearAnswer" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("makes a new card when the open one went out of date before the Member repeated the answer", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const { answerRun, pasteMessageId } = await answered(s, "Wedding");
+      const first = (await proposePasted(
+        s,
+        answerRun,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      )) as unknown as { proposalId: Id<"proposals"> };
+      await endRun(s, answerRun);
+      // A Member edits the caterer Entry: the first card is out of date now.
+      const version = await s.t.run(async (ctx) => {
+        const entry = (await ctx.db.get("entries", s.caterer))!;
+        await ctx.db.patch("entries", s.caterer, {
+          version: entry.version + 1,
+        });
+        return entry.version + 1;
+      });
+      const again = await pastedRequest(s, "Wedding");
+      const second = (await proposePasted(
+        s,
+        again,
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      )) as unknown as { ok: boolean; proposalId: Id<"proposals"> };
+      expect(second.ok).toBe(true);
+      expect(second.proposalId).not.toBe(first.proposalId);
+      const fresh = await s.t.run((ctx) =>
+        ctx.db.get("proposals", second.proposalId),
+      );
+      expect(fresh!.changes[0]!.guards).toContainEqual({
+        table: "entries",
+        docId: s.caterer,
+        version,
+      });
+      // Saying it once more gets that new card back, not a third one.
+      await endRun(s, again);
+      const third = (await proposePasted(
+        s,
+        await pastedRequest(s, "Wedding"),
+        EXTRACTED,
+        "wedding",
+        pasteMessageId,
+      )) as unknown as { proposalId: Id<"proposals"> };
+      expect(third.proposalId).toBe(second.proposalId);
+    });
+
+    it("makes one card for a paste that names its Function, however often the tool is called", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s, `SANGEET: ${PASTE}`);
+      const named = { ...EXTRACTED, functions: ["sangeet"] };
+      const first = await proposePasted(s, runId, named);
+      const second = await proposePasted(s, runId, named);
+      expect(first).toMatchObject({ ok: true });
+      expect(second).toMatchObject({
+        ok: true,
+        proposalId: (first as unknown as { proposalId: string }).proposalId,
+      });
+      const open = (await proposalsOf(s)).filter((p) => p.status === "open");
+      expect(open).toHaveLength(1);
+    });
+
+    it("makes one card for a paste naming two Functions, whatever order they are read in", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s, `Sangeet and Wedding: ${PASTE}`);
+      const first = await proposePasted(s, runId, {
+        ...EXTRACTED,
+        functions: ["Sangeet", "Wedding"],
+      });
+      const second = await proposePasted(s, runId, {
+        ...EXTRACTED,
+        functions: ["Wedding", "Sangeet"],
+      });
+      expect(first).toMatchObject({ ok: true });
+      expect(second).toMatchObject({
+        ok: true,
+        proposalId: (first as unknown as { proposalId: string }).proposalId,
+      });
+      const open = (await proposalsOf(s)).filter((p) => p.status === "open");
+      expect(open).toHaveLength(1);
+    });
+
+    it("never hands back an open card for a different reading of the paste: it says what the card holds", async () => {
+      const s = await setUp();
+      const runId = await pastedRequest(
+        s,
+        "SANGEET: regular 950/plate, premium 1100/plate for 300 pax",
+      );
+      const named = { ...EXTRACTED, functions: ["sangeet"], note: null };
+      const first = await proposePasted(s, runId, named);
+      expect(first).toMatchObject({ ok: true });
+      // A later call reads the premium price instead.
+      const second = await proposePasted(s, runId, { ...named, amount: 1_100 });
+      expect(second).toMatchObject({ ok: false, reason: "openCardDiffers" });
+      const message = (second as { message: string }).message;
+      expect(message).toContain("₹950/plate");
+      expect(message).not.toMatch(/1,?100/);
+      expect(message).toMatch(/[Rr]eject/);
+      const proposals = await proposalsOf(s);
+      expect(proposals).toHaveLength(1);
+
+      const accepted = await s.as("Meera").mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId: proposals[0]!._id,
+      });
+      expect(accepted).toEqual({ ok: true });
+      const quotes = await quotesOf(s);
+      expect(quotes).toHaveLength(1);
+      expect(quotes[0]).toMatchObject({
+        amount: 950,
+        functionKeys: ["sangeet"],
+      });
+    });
+
+    describe("refuses a pasteMessageId that isn't an earlier Member paste in this Event's Chat", () => {
+      async function refusedFor(
+        s: Setup,
+        answerRun: Id<"runs">,
+        pasteMessageId: string,
+      ) {
+        const result = await proposePasted(
+          s,
+          answerRun,
+          EXTRACTED,
+          "wedding",
+          pasteMessageId,
+        );
+        expect(result).toMatchObject({ ok: false, reason: "noPaste" });
+        expect(await proposalsOf(s)).toEqual([]);
+      }
+
+      it("another Event's message", async () => {
+        const s = await setUp();
+        await servingBoth(s, 300);
+        const { answerRun } = await answered(s, "Wedding");
+        const otherEvent = await s.t.run(
+          async (ctx) =>
+            (await ctx.db.get("memberships", s.people.Outsider))!.eventId,
+        );
+        const { messageId } = await s.as("Outsider").mutation(api.chat.send, {
+          eventId: otherEvent,
+          text: PASTE,
+          dontReply: true,
+          pointing: [],
+        });
+        await refusedFor(s, answerRun, messageId!);
+      });
+
+      it("a message that isn't a Member's", async () => {
+        const s = await setUp();
+        await servingBoth(s, 300);
+        const { answerRun } = await answered(s, "Wedding");
+        const reply = await s.t.run(async (ctx) => {
+          const event = (await ctx.db.get("events", s.eventId))!;
+          const { messageId } = await saveMessage(ctx, components.agent, {
+            threadId: event.agentThreadId!,
+            message: { role: "assistant", content: PASTE },
+          });
+          return messageId;
+        });
+        await refusedFor(s, answerRun, reply);
+      });
+
+      it("a later message", async () => {
+        const s = await setUp();
+        await servingBoth(s, 300);
+        const { answerRun } = await answered(s, "Wedding");
+        const { messageId } = await s.as("Rohan").mutation(api.chat.send, {
+          eventId: s.eventId,
+          text: PASTE,
+          dontReply: true,
+          pointing: [],
+        });
+        await refusedFor(s, answerRun, messageId!);
+      });
+
+      it("a deleted message", async () => {
+        const s = await setUp();
+        await servingBoth(s, 300);
+        const { answerRun, pasteMessageId } = await answered(s, "Wedding");
+        await s.t.run((ctx) =>
+          ctx.runMutation(components.agent.messages.deleteByIds, {
+            messageIds: [pasteMessageId],
+          }),
+        );
+        await refusedFor(s, answerRun, pasteMessageId);
+      });
+
+      it("a message in another thread", async () => {
+        const s = await setUp();
+        await servingBoth(s, 300);
+        const { answerRun } = await answered(s, "Wedding");
+        const elsewhere = await s.t.run(async (ctx) => {
+          const threadId = await createThread(ctx, components.agent, {
+            title: "Another thread",
+          });
+          const { messageId } = await saveMessage(ctx, components.agent, {
+            threadId,
+            userId: s.people.Rohan,
+            prompt: PASTE,
+          });
+          // Even with a Chat note claiming it for this Event.
+          await ctx.db.insert("chatAnnotations", {
+            eventId: s.eventId,
+            messageId,
+            authorMembershipId: s.people.Rohan,
+            dontReply: false,
+            mentions: [],
+            pointing: [],
+            card: null,
+          });
+          return messageId;
+        });
+        await refusedFor(s, answerRun, elsewhere);
+      });
+    });
+
+    it("asks with the paste's own price unit too, such as a price per Function", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(
+        s,
+        "Dhol and DJ 35000 per function, for 300 pax",
+      );
+      const result = await proposePasted(s, runId, {
+        amount: 35_000,
+        unit: "per_function",
+        guests: 300,
+        functions: [],
+        note: null,
+      });
+      expect(result).toMatchObject({ ok: false, reason: "whichFunction" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("proposes for the Function the pasted text names, whatever its case", async () => {
+      const s = await setUp();
+      await servingBoth(s, 300);
+      const runId = await pastedRequest(s, `SANGEET: ${PASTE}`);
+      await proposePasted(s, runId, { ...EXTRACTED, functions: ["SANGEET"] });
+      const [proposal] = await proposalsOf(s);
+      expect(proposal!.changes[0]!.values).toMatchObject({
+        functionKeys: ["sangeet"],
+      });
+    });
+
+    it("asks, rather than going by Guests, when the paste names a Function it can't place", async () => {
+      const s = await setUp();
+      // Only the sangeet has 300 Guests, so the Guests alone would pick it.
+      await servingBoth(s, 400);
+      const runId = await pastedRequest(s, `Reception: ${PASTE}`);
+      const result = await proposePasted(s, runId, {
+        ...EXTRACTED,
+        functions: ["Reception"],
+      });
+      expect(result).toMatchObject({ ok: false, reason: "whichFunction" });
+      expect((result as { message: string }).message).toContain("Reception");
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("still picks the one Function whose Guests match when only one does", async () => {
+      const s = await setUp();
+      await servingBoth(s, 400);
+      const runId = await pastedRequest(s);
+      await proposePasted(s, runId);
+      const [proposal] = await proposalsOf(s);
+      expect(proposal!.changes[0]!.values).toMatchObject({
+        functionKeys: ["sangeet"],
+      });
+    });
+  });
+
+  describe("a Function the link's Entry doesn't serve", () => {
+    it("is refused when the paste names it, listing the Functions the Entry serves", async () => {
+      const s = await setUp();
+      const runId = await pastedRequest(s, `Wedding: ${PASTE}`);
+      const result = await proposePasted(s, runId, {
+        ...EXTRACTED,
+        functions: ["Wedding"],
+      });
+      expect(result).toMatchObject({ ok: false, reason: "notServed" });
+      expect((result as { message: string }).message).toContain("Sangeet");
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+
+    it("is refused when the tool is given its key", async () => {
+      const s = await setUp();
+      const runId = await pastedRequest(s, `Wedding: ${PASTE}`);
+      const result = await proposePasted(s, runId, EXTRACTED, "wedding");
+      expect(result).toMatchObject({ ok: false, reason: "notServed" });
+      expect(await proposalsOf(s)).toEqual([]);
+    });
+  });
+
+  it("names none and asks nothing when the link's Entry serves a single Function", async () => {
+    const s = await setUp();
+    const runId = await pastedRequest(s);
+    const result = await proposePasted(s, runId);
+    expect(result).toMatchObject({ ok: true });
+    const [proposal] = await proposalsOf(s);
+    expect(proposal!.changes[0]!.values).toMatchObject({
+      functionKeys: ["sangeet"],
+    });
+  });
+
   it("is never made for a Nudge run, and asks a Viewer for nothing", async () => {
     const s = await setUp();
     const runId = await pastedRequest(s);
@@ -1004,6 +1622,43 @@ describe("the proposeQuote tool", () => {
     expect(result).toMatchObject({ ok: false, reason: "whichVendor" });
     expect((result as { message: string }).message).toContain("M L Caterers");
     expect(await proposalsOf(s)).toEqual([]);
+  });
+
+  it("asks which Function when two Functions the Entry serves both have 300 Guests, then proposes for the one the Member names next", async () => {
+    vi.stubEnv("DEFAULT_MODEL", "stub-utsavvy");
+    const s = await setUp();
+    await servingBoth(s, 300);
+    const pasteRun = await pastedRequest(s);
+    const asked = await runProposeQuote(
+      toolCtx(s, pasteRun),
+      { category: "caterer" },
+      "call_tool",
+    );
+    expect(asked).toMatchObject({ ok: false, reason: "whichFunction" });
+    expect(await proposalsOf(s)).toEqual([]);
+    await endRun(s, pasteRun);
+
+    // Rohan's answer is a new Chat message with its own run.
+    const answerRun = await pastedRequest(s, "wedding");
+    const answered = await runProposeQuote(
+      toolCtx(s, answerRun),
+      {
+        linkId: s.linkId,
+        functionKey: "wedding",
+        pasteMessageId: pasteMessageIdIn(asked),
+      },
+      "call_tool",
+    );
+    expect(answered.ok, JSON.stringify(answered)).toBe(true);
+    const proposals = await proposalsOf(s);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.changes[0]!.values).toMatchObject({
+      amount: 950,
+      guests: 300,
+      functionKeys: ["wedding"],
+    });
+    // The helper model read the pasted Quote again, not the answer.
+    expect(JSON.stringify(stubCalls.at(-1)!.prompt)).toContain(PASTE);
   });
 
   it("proposes nothing when the message gives no price", async () => {
