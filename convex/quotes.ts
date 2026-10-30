@@ -671,6 +671,52 @@ async function requestText(ctx: Ctx, run: Doc<"runs">): Promise<string> {
   return doc?.text ?? "";
 }
 
+/**
+ * The pasted Quote's text. Usually that is the message this run answers. A
+ * Member's answer to "which Function?" is a later Chat message with its own
+ * run, so the retry names the pasted message by `pasteMessageId`: it must be
+ * a Member's message in this Event's Chat, earlier than the answer, and the
+ * Quote is read from it again, never from the answer.
+ */
+async function pastedText(
+  ctx: Ctx,
+  run: Doc<"runs">,
+  pasteMessageId: string | null,
+): Promise<{ text: string } | { refused: ToolResult }> {
+  if (pasteMessageId === null) return { text: await requestText(ctx, run) };
+  const noPaste = {
+    refused: refusal(
+      "noPaste",
+      "pasteMessageId is only for the Member's answer to which Function a Quote is for, in a later Chat message. Ask the Member which Function, and call proposeQuote again once they answer.",
+    ),
+  };
+  if (run.source !== "chat" || run.messageId === null) return noPaste;
+  if (pasteMessageId === run.messageId) return noPaste;
+  const event = await ctx.db.get("events", run.eventId);
+  if (event === null || event.agentThreadId === null) return noPaste;
+  const [paste, answer] = await ctx.runQuery(
+    components.agent.messages.getMessagesByIds,
+    { messageIds: [pasteMessageId, run.messageId] },
+  );
+  if (
+    !paste ||
+    !answer ||
+    paste.threadId !== event.agentThreadId ||
+    paste.message?.role !== "user" ||
+    paste._creationTime >= answer._creationTime
+  )
+    return noPaste;
+  const note = await ctx.db
+    .query("chatAnnotations")
+    .withIndex("by_message", (q) => q.eq("messageId", paste._id))
+    .unique();
+  if (note === null || note.eventId !== run.eventId) return noPaste;
+  if (note.authorMembershipId === null) return noPaste;
+  const author = await ctx.db.get("memberships", note.authorMembershipId);
+  if (author === null || author.eventId !== run.eventId) return noPaste;
+  return { text: paste.text ?? "" };
+}
+
 type LinkChoice = {
   link: Doc<"vendorLinks">;
   vendorName: string;
@@ -773,6 +819,7 @@ export const pasteContext = internalQuery({
     linkId: v.union(v.string(), v.null()),
     category: v.union(v.string(), v.null()),
     functionKey: v.union(v.string(), v.null()),
+    pasteMessageId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
@@ -787,7 +834,9 @@ export const pasteContext = internalQuery({
         "notAsked",
         "Only a Member's own pasted message becomes a Quote. Change nothing.",
       );
-    const text = (await requestText(ctx, run)).trim();
+    const pasted = await pastedText(ctx, run, args.pasteMessageId ?? null);
+    if ("refused" in pasted) return pasted.refused;
+    const text = pasted.text.trim();
     if (text === "")
       return refusal("noText", "There is no pasted message to read.");
     const choice = await chooseLink(ctx, args.eventId, args);
@@ -815,43 +864,90 @@ const extractionValidator = v.object({
   note: v.union(v.string(), v.null()),
 });
 
+/** The Functions a piece of text names, by name or key, whatever the case. */
+export function functionsNamedIn(
+  functions: readonly Doc<"eventFunctions">[],
+  text: string,
+): string[] {
+  const words = text.toLowerCase();
+  const names = (word: string) => {
+    const escaped = word
+      .trim()
+      .toLowerCase()
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return (
+      escaped !== "" &&
+      new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(
+        words,
+      )
+    );
+  };
+  return functions
+    .filter((fn) => names(fn.name) || names(fn.key))
+    .map((fn) => fn.key);
+}
+
+type Cover =
+  | { keys: string[]; named: boolean }
+  | { ask: Doc<"eventFunctions">[]; unplaced: string[] }
+  | { unserved: string[] };
+
 /**
- * Which Functions the Quote covers: those the message names, else the one the
- * model was told about, else the only one the link's Entry serves, else the
- * one of those whose Guests match the Quote's. None means the whole Entry.
- * When several of the Entry's Functions have the Quote's Guests, it could be
- * for any of them, so they come back as `ask` and the Member says which one:
- * matching Guests never picks one of several (#127).
+ * Which Functions the pasted Quote covers, from the paste alone: those it
+ * names, else the only one the link's Entry serves, else the one of those
+ * whose Guests match the Quote's. None means the whole Entry (vendors.md).
+ * A named Function must be one the Entry serves (`unserved` otherwise). The
+ * Member is asked (`ask`) when the paste names a Function code can't place,
+ * which is never guessed from the Guests, or when several of the Entry's
+ * Functions have the Quote's Guests: matching Guests never picks one of
+ * several (#127).
  */
-function functionKeysFor(
+function coverOf(
   functions: readonly Doc<"eventFunctions">[],
   named: readonly string[],
-  hint: string | null,
   entryKeys: readonly string[],
   guests: number | null,
-): { keys: string[] } | { ask: Doc<"eventFunctions">[] } {
-  const byWord = (word: string) => {
-    const w = word.trim().toLowerCase();
-    return functions.find(
-      (fn) => fn.key.toLowerCase() === w || fn.name.toLowerCase() === w,
-    )?.key;
-  };
-  const fromText = [
-    ...new Set(named.map(byWord).filter((k): k is string => !!k)),
-  ];
-  if (fromText.length > 0) return { keys: fromText };
-  if (hint !== null && functions.some((fn) => fn.key === hint))
-    return { keys: [hint] };
-  if (entryKeys.length === 1) return { keys: [...entryKeys] };
+): Cover {
+  const serves = (key: string) =>
+    entryKeys.length === 0 || entryKeys.includes(key);
+  const served = [...functions]
+    .filter((fn) => serves(fn.key))
+    .sort((a, b) => a.order - b.order);
+  const resolved = new Set<string>();
+  const unplaced: string[] = [];
+  for (const word of named) {
+    const keys = functionsNamedIn(functions, word);
+    if (keys.length === 0) unplaced.push(word.trim());
+    for (const key of keys) resolved.add(key);
+  }
+  // With no Function to choose from, an unplaced name leaves the whole Entry.
+  if (unplaced.length > 0 && served.length > 0)
+    return { ask: served, unplaced };
+  if ([...resolved].some((key) => !serves(key)))
+    return { unserved: [...resolved].filter((key) => !serves(key)) };
+  if (resolved.size > 0) return { keys: [...resolved], named: true };
+  if (entryKeys.length === 1) return { keys: [...entryKeys], named: false };
   if (guests !== null) {
-    const matching = functions.filter(
+    const matching = served.filter(
       (fn) => entryKeys.includes(fn.key) && fn.guests === guests,
     );
-    if (matching.length === 1) return { keys: [matching[0]!.key] };
-    if (matching.length > 1)
-      return { ask: [...matching].sort((a, b) => a.order - b.order) };
+    if (matching.length === 1)
+      return { keys: [matching[0]!.key], named: false };
+    if (matching.length > 1) return { ask: matching, unplaced: [] };
   }
-  return { keys: [] };
+  return { keys: [], named: false };
+}
+
+/** "the Sangeet and the Wedding", for a refusal. */
+function servedNames(
+  functions: readonly Doc<"eventFunctions">[],
+  entryKeys: readonly string[],
+): string {
+  const names = [...functions]
+    .filter((fn) => entryKeys.length === 0 || entryKeys.includes(fn.key))
+    .sort((a, b) => a.order - b.order)
+    .map((fn) => `the ${fn.name} (${fn.key})`);
+  return names.length > 0 ? names.join(" and ") : "no Function";
 }
 
 /**
@@ -865,6 +961,7 @@ export const proposeForRun = internalMutation({
     ...callRef,
     linkId: v.id("vendorLinks"),
     functionKey: v.union(v.string(), v.null()),
+    pasteMessageId: v.optional(v.union(v.string(), v.null())),
     extraction: extractionValidator,
   },
   handler: async (ctx, args): Promise<ToolResult> => {
@@ -879,8 +976,10 @@ export const proposeForRun = internalMutation({
             "Only a Member's own pasted message becomes a Quote. Change nothing.",
           );
         const { extraction } = args;
-        const text = await requestText(ctx, run);
-        const written = numbersIn(text);
+        const pasteMessageId = args.pasteMessageId ?? null;
+        const pasted = await pastedText(ctx, run, pasteMessageId);
+        if ("refused" in pasted) return pasted.refused;
+        const written = numbersIn(pasted.text);
         if (!written.includes(Math.round(extraction.amount)))
           return refusal(
             "notInPaste",
@@ -902,30 +1001,94 @@ export const proposeForRun = internalMutation({
           .query("eventFunctions")
           .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
           .take(50);
-        const covered = functionKeysFor(
+        const entryKeys = entry.fields.functionKeys;
+        const cover = coverOf(
           functions,
           extraction.functions,
-          args.functionKey,
-          entry.fields.functionKeys,
+          entryKeys,
           extraction.guests,
         );
-        if ("ask" in covered) {
-          const listed = covered.ask.map((fn) => ({
-            functionKey: fn.key,
-            name: fn.name,
-            guests: fn.guests,
-          }));
-          return {
-            ok: false,
-            reason: "whichFunction",
-            message: `This Quote could be for more than one Function: ${covered.ask.map((fn) => fn.name).join(" or ")} each have ${extraction.guests} Guests. Ask the Member which Function it is for, then call proposeQuote again with linkId ${link._id} and that functionKey. Don't pick one yourself: ${JSON.stringify(listed)}`,
-          };
+        const notServed = (what: string) =>
+          refusal(
+            "notServed",
+            `${what} isn't a Function this Vendor's checklist Entry serves, so the Quote wasn't proposed. The Entry serves ${servedNames(functions, entryKeys)}. Tell the Member, and ask which of those it is for.`,
+          );
+        const nameOf = (key: string) =>
+          functions.find((fn) => fn.key === key)?.name ?? key;
+
+        let functionKeys: string[];
+        const choice = args.functionKey;
+        if (choice !== null) {
+          // A Function the model passes counts only when a Member's own
+          // message names it: the answer, or the paste itself.
+          if (
+            !functions.some((fn) => fn.key === choice) ||
+            (entryKeys.length > 0 && !entryKeys.includes(choice))
+          )
+            return notServed(`The ${nameOf(choice)}`);
+          if ("unserved" in cover)
+            return notServed(
+              `The ${cover.unserved.map(nameOf).join(" and the ")}`,
+            );
+          const said = functionsNamedIn(functions, await requestText(ctx, run));
+          if (said.length !== 1 || said[0] !== choice)
+            return refusal(
+              "notNamed",
+              `The Member's message doesn't name the ${nameOf(choice)} as the one Function this Quote is for, so nothing was proposed. Don't pick a Function yourself: ask the Member which Function, and call proposeQuote again after they answer.`,
+            );
+          if (pasteMessageId !== null) {
+            if (!("ask" in cover) || !cover.ask.some((fn) => fn.key === choice))
+              return refusal(
+                "notAChoice",
+                `The ${nameOf(choice)} wasn't one of the Functions this Quote could be for, so nothing was proposed. Tell the Member, and ask again which of the Functions you listed it is for.`,
+              );
+          } else if (
+            "keys" in cover &&
+            cover.named &&
+            (cover.keys.length !== 1 || cover.keys[0] !== choice)
+          )
+            return refusal(
+              "notNamed",
+              "The pasted message names other Functions than that one. Call proposeQuote again without a functionKey.",
+            );
+          functionKeys = [choice];
+        } else {
+          if (pasteMessageId !== null)
+            return refusal(
+              "noChoice",
+              "Give the functionKey of the Function the Member's answer names, with the pasteMessageId.",
+            );
+          if ("unserved" in cover)
+            return notServed(
+              `The ${cover.unserved.map(nameOf).join(" and the ")}`,
+            );
+          if ("ask" in cover) {
+            const listed = cover.ask.map((fn) => ({
+              functionKey: fn.key,
+              name: fn.name,
+              guests: fn.guests,
+            }));
+            const why =
+              cover.unplaced.length > 0
+                ? `The pasted message names "${cover.unplaced.join('", "')}", which isn't a Function of this Event, so it could be for ${cover.ask.map((fn) => fn.name).join(" or ")}.`
+                : `This Quote could be for more than one Function: ${cover.ask.map((fn) => fn.name).join(" or ")} each have ${extraction.guests} Guests.`;
+            const retry =
+              run.source === "chat" && run.messageId !== null
+                ? `End your reply with that question. When the Member answers in their next message, call proposeQuote again with linkId ${link._id}, the functionKey their answer names and pasteMessageId ${run.messageId}.`
+                : 'Ask them to paste it in the Chat again with the Function named, such as "Sangeet: ...".';
+            return {
+              ok: false,
+              reason: "whichFunction",
+              message: `${why} Ask the Member which Function it is for, and don't pick one yourself. ${retry} ${JSON.stringify({ linkId: link._id, pasteMessageId: run.source === "chat" ? run.messageId : null, functions: listed })}`,
+            };
+          }
+          functionKeys = cover.keys;
         }
         const fields = cleanQuote({
           amount: extraction.amount,
           unit: extraction.unit,
           guests: extraction.guests,
-          functionKeys: covered.keys,
+          functionKeys,
           // Received today: the Member pasted it now.
           receivedAt: Date.now(),
           note: extraction.note,

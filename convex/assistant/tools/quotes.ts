@@ -458,6 +458,7 @@ export async function runProposeQuote(
     linkId?: string | undefined;
     category?: string | undefined;
     functionKey?: string | null | undefined;
+    pasteMessageId?: string | null | undefined;
   },
   toolCallId: string,
   read: (text: string, addedBy: string) => Promise<QuoteExtraction> = (
@@ -477,6 +478,7 @@ export async function runProposeQuote(
       linkId: input.linkId ?? null,
       category: input.category ?? null,
       functionKey: input.functionKey ?? null,
+      pasteMessageId: input.pasteMessageId ?? null,
     });
     if (!context.ok || !("linkId" in context)) return context as ToolResult;
     let extraction: QuoteExtraction;
@@ -507,6 +509,7 @@ export async function runProposeQuote(
       ...ref,
       linkId: context.linkId as Id<"vendorLinks">,
       functionKey: input.functionKey ?? null,
+      pasteMessageId: input.pasteMessageId ?? null,
       extraction: {
         amount: extraction.amount,
         unit: extraction.unit,
@@ -526,12 +529,13 @@ const tools = {
       linkId?: string | undefined;
       category?: "venue" | "caterer" | "decorator" | "photographer" | undefined;
       functionKey?: string | null | undefined;
+      pasteMessageId?: string | null | undefined;
     },
     ToolResult,
     AssistantToolCtx
   >({
     description:
-      "When a Member pastes a Vendor's message with a price (a WhatsApp quote such as \"Veg 950/plate for 300 pax\"), turn it into a Quote Proposal on that Shortlisted Vendor. Don't read or pass any numbers yourself: the tool reads the message and code checks it. Give the Vendor's linkId if you know it, else its category (and functionKey if the Member said which Function); if several Vendors could have sent it, the tool lists them and you ask the Member. If it could be for several Functions, the tool lists them: ask the Member which one and call it again with that functionKey, never picking one yourself. Nothing is saved until a Member accepts the card.",
+      "When a Member pastes a Vendor's message with a price (a WhatsApp quote such as \"Veg 950/plate for 300 pax\"), turn it into a Quote Proposal on that Shortlisted Vendor. Don't read or pass any numbers yourself: the tool reads the message and code checks it. Give the Vendor's linkId if you know it, else its category (and functionKey if the Member said which Function); if several Vendors could have sent it, the tool lists them and you ask the Member. If it could be for several Functions, the tool lists them: ask the Member which one and end your reply; when they answer in their next message, call it again with the linkId, the functionKey their answer names and the pasteMessageId the tool gave. Never pick a Function yourself: the tool refuses a functionKey the Member's own message doesn't name. Nothing is saved until a Member accepts the card.",
     inputSchema: z.strictObject({
       linkId: z
         .string()
@@ -547,7 +551,15 @@ const tools = {
         .nullable()
         .optional()
         .describe(
-          "A Function key from readCanvas, only if the Member named one.",
+          "A Function key from readCanvas, only if the Member's own message names that Function.",
+        ),
+      pasteMessageId: z
+        .string()
+        .min(1)
+        .nullable()
+        .optional()
+        .describe(
+          "Only when calling again after a whichFunction answer: the pasteMessageId it gave, so the Quote is read from the earlier pasted message.",
         ),
     }),
     execute: async (ctx, input, { toolCallId }): Promise<ToolResult> =>
