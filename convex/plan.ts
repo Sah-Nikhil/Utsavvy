@@ -22,6 +22,7 @@ import { formatINR, formatLakh } from "../lib/format";
 import {
   amountAt,
   amountAtMost,
+  budgetCheckNote,
   deadlineDate,
   isLeadKey,
   LEAD_TIMES,
@@ -1454,6 +1455,87 @@ const CATERING = /^(catering_|party_catering$|prasad|cultural_snacks$)/;
 /** Lines that are a meal, for the Budget note's "because of five meals". */
 const MEALS = /^(catering_|party_catering$)/;
 
+/** "Catering is about 45% of the budget because of 5 meals", from 30% up. */
+function cateringNote(
+  catering: number,
+  budget: number,
+  meals: number,
+): string | null {
+  const share = Math.round((catering / budget) * 100);
+  if (share < 30) return null;
+  return `Catering is about ${share}% of the budget${meals > 1 ? ` because of ${meals} meals` : ""}.`;
+}
+
+/**
+ * Rewrites the Budget Item's note from a new Budget check (issue #102): the
+ * band's sentence and the lines with no Estimate yet from the check itself,
+ * and the catering share from the plan's stored lines, so the note and the
+ * badge always agree. Written as part of the change that moved the check, so
+ * its history and Undo all carry the note too. Writes nothing when the note
+ * is unchanged.
+ */
+async function refreshBudgetNote(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    check: BudgetCheck;
+    budget: number;
+    city: string | null;
+    /** Lines with no range to price them, which count as zero. */
+    missing: number;
+    by: Actor;
+    key: string;
+  },
+): Promise<void> {
+  const item = await planItemOf(ctx, args.eventId, "budget");
+  if (item === null || item.kind !== "budget") return;
+  let catering = 0;
+  const mealFunctions = new Set<string>();
+  for (const e of await ctx.db
+    .query("entries")
+    .withIndex("by_event_kind", (q) =>
+      q.eq("eventId", args.eventId).eq("kind", "budget"),
+    )
+    .take(MAX_PLAN_ENTRIES)) {
+    if (e.deletedAt !== null || e.kind !== "budget") continue;
+    if (e.itemId !== item._id || e.fields.role !== "line") continue;
+    if (e.fields.category === null || !MEALS.test(e.fields.category)) continue;
+    catering += entryAmount(e.fields);
+    if (e.functionKey !== null) mealFunctions.add(e.functionKey);
+  }
+  const parts = [
+    budgetCheckNote(args.check, args.budget, {
+      city: args.city,
+      missing: args.missing,
+    }),
+    cateringNote(catering, args.budget, mealFunctions.size),
+  ].filter((n): n is string => n !== null);
+  const note = parts.length > 0 ? parts.join(" ") : null;
+  if (item.data.note === note) return;
+  const patch = { data: { ...item.data, note } };
+  if (args.by.kind === "member") {
+    await memberWrite(ctx, {
+      table: "items",
+      id: item._id,
+      patch,
+      actor: args.by,
+    });
+    return;
+  }
+  await assistantWrite(ctx, {
+    table: "items",
+    id: item._id,
+    expectedVersion: item.version,
+    patch,
+    runId: args.by.runId,
+    proposalId: args.by.proposalId,
+    acceptedBy: args.by.acceptedBy,
+    forMembershipId: args.by.forMembershipId,
+    groupLabel: null,
+    toolCallId: `budgetNote:${args.key}`,
+  });
+}
+
 /**
  * The pricing step over a validated draft: `pricePlan` over the budget lines'
  * cascade ranges, costed Suggestions at the same position in their ranges,
@@ -1508,21 +1590,18 @@ export function pricePlanDraft(
   });
 
   // "Catering is about 45% of the budget because of five meals" (first-brief.md).
-  const notes = priced.note ? [priced.note] : [];
   const catering = budgetLines.reduce(
     (sum, l, i) =>
       MEALS.test(l.category) ? sum + (priced.entries[i]?.amount ?? 0) : sum,
     0,
   );
-  const share = Math.round((catering / input.event.budget) * 100);
   const meals = draft.functions.filter((fn) =>
     fn.budgetEntries.some((l) => MEALS.test(l.category)),
   ).length;
-  if (share >= 30) {
-    notes.push(
-      `Catering is about ${share}% of the budget${meals > 1 ? ` because of ${meals} meals` : ""}.`,
-    );
-  }
+  const notes = [
+    priced.note,
+    cateringNote(catering, input.event.budget, meals),
+  ].filter((n): n is string => n !== null);
 
   return {
     runId: input.runId,
@@ -2153,6 +2232,13 @@ export const end = internalMutation({
         await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
           eventId,
           relink: null,
+          by: {
+            kind: "assistant",
+            forMembershipId: run.requestedBy,
+            runId,
+            proposalId: null,
+            acceptedBy: null,
+          },
         });
     }
     if (run.status !== "running" && run.status !== "stopping") return null;
@@ -2981,6 +3067,8 @@ export type Repriced = {
   /** How far the lines alone pass the budget; 0 when they fit. */
   overBy: number;
   budgetCheck: BudgetCheck;
+  /** Lines with no range to price them, which count as zero. */
+  missing: number;
 };
 
 /**
@@ -3054,6 +3142,7 @@ export function repriceBudget(
     unallocated,
     overBy: Math.max(0, linesTotal - budget),
     budgetCheck: { ...check, contingency, unallocated },
+    missing: state.lines.length - all.length,
   };
 }
 
@@ -3815,6 +3904,7 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
           forMembershipId: actor.forMembershipId,
           acceptedBy: actor.acceptedBy,
         },
+        by: actor,
       });
     }
     return [event._id, ...touched, ...moved, ...repriced];
@@ -4197,6 +4287,15 @@ export const applyCityPrices = internalMutation({
           },
         },
       });
+      await refreshBudgetNote(ctx, {
+        eventId: args.eventId,
+        check: repriced.budgetCheck,
+        budget,
+        city: args.city,
+        missing: repriced.missing,
+        by: args.actor,
+        key: "city",
+      });
       return null;
     };
     // Once per Proposal: a step that runs again (a retry) writes nothing more.
@@ -4289,9 +4388,14 @@ export const recheckBudget = internalMutation({
       }),
       v.null(),
     ),
+    /**
+     * Who made the change the check follows, so the Budget note it rewrites
+     * is part of that change. Without it only the check is updated.
+     */
+    by: v.optional(actorValidator),
   },
   returns: v.null(),
-  handler: async (ctx, { eventId, relink }) => {
+  handler: async (ctx, { eventId, relink, by }) => {
     if (relink !== null && relink.proposalId !== null)
       await relinkChecklist(ctx, eventId, {
         ...relink,
@@ -4336,20 +4440,30 @@ export const recheckBudget = internalMutation({
         );
       }
     }
-    if (lines.length === 0) return null;
+    // With no line priced from a range there is no band to check against.
+    if (ranges.every((r) => r === null)) return null;
     const priced = pricePlan({ functions: [], eventWide: lines }, ranges, {
       budget: event.budgetTotal,
       contingencyShare: event.contingencyShare,
       households: event.households,
     });
+    const check = { ...priced.budgetCheck, contingency, unallocated };
     await ctx.db.patch("events", eventId, {
       budgetCheck: {
-        ...priced.budgetCheck,
-        contingency,
-        unallocated,
+        ...check,
         ...(event.budgetCheck?.basis ? { basis: event.budgetCheck.basis } : {}),
       },
     });
+    if (by !== undefined)
+      await refreshBudgetNote(ctx, {
+        eventId,
+        check,
+        budget: event.budgetTotal,
+        city: event.city?.name ?? null,
+        missing: ranges.filter((r) => r === null).length,
+        by,
+        key: "recheck",
+      });
     return null;
   },
 });

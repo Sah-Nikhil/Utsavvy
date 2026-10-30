@@ -717,6 +717,12 @@ export const setBudgetTotalOp: ProposalOpHandler<"setBudgetTotal"> = {
       patch: { budgetTotal: change.values.budgetTotal },
       ...(await writeOptions(ctx, change, actor)),
     });
+    // The Budget check and its note follow the new total (issue #102).
+    await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
+      eventId: change.docId,
+      relink: null,
+      by: actor,
+    });
     return [change.docId];
   },
 };

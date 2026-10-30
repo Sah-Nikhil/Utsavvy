@@ -224,28 +224,14 @@ export function pricePlan(
       : budget - entriesTotal;
   const unallocated = budget - entriesTotal - contingency;
 
-  const notes: string[] = [];
-  if (band === "belowMinimum") {
-    const shown = about(minimum);
-    const where = opts.city ? ` in ${opts.city}` : "";
-    notes.push(
-      `A plan like this${where} usually starts at about ${formatLakh(shown)}. You're about ${formatLakh(about(shown - budget))} short.`,
-    );
-  } else if (band === "tight") {
-    notes.push(
-      `${formatLakh(budget)} is below the typical ${formatLakh(about(typical))} for this plan, so Estimates sit near the low end.`,
-    );
-  } else if (band === "aboveHigh") {
-    notes.push(
-      `${formatLakh(budget)} is above the high end of ${formatLakh(about(high))} for this plan, so every Estimate sits at its high end${unallocated > 0 ? ` and ${formatINR(unallocated)} is Unallocated` : ""}.`,
-    );
-  }
-  const missing = entries.filter((e) => e === null).length;
-  if (missing === 1) {
-    notes.push("1 line has no Estimate yet and counts as zero.");
-  } else if (missing > 1) {
-    notes.push(`${missing} lines have no Estimate yet and count as zero.`);
-  }
+  const note = budgetCheckNote(
+    { band, minimum, typical, high, unallocated },
+    budget,
+    {
+      city: opts.city ?? null,
+      missing: entries.filter((e) => e === null).length,
+    },
+  );
 
   return {
     entries,
@@ -258,8 +244,45 @@ export function pricePlan(
       unallocated,
       perHousehold: perHousehold(budget, opts.households),
     },
-    note: notes.length > 0 ? notes.join(" ") : null,
+    note,
     belowUsualRange: band === "belowMinimum",
     fraction: band === "aboveHigh" ? 1 : band === "belowMinimum" ? scale : f,
   };
+}
+
+/**
+ * The Budget note for a Budget check: the band's sentence, then how many
+ * lines have no Estimate yet. Written from the same check the badge shows, so
+ * the two always agree (issue #102). Null when there is nothing to say.
+ */
+export function budgetCheckNote(
+  check: Pick<
+    BudgetCheck,
+    "band" | "minimum" | "typical" | "high" | "unallocated"
+  >,
+  budget: number,
+  opts: { city: string | null; missing: number },
+): string | null {
+  const notes: string[] = [];
+  if (check.band === "belowMinimum") {
+    const shown = about(check.minimum);
+    const where = opts.city ? ` in ${opts.city}` : "";
+    notes.push(
+      `A plan like this${where} usually starts at about ${formatLakh(shown)}. You're about ${formatLakh(about(shown - budget))} short.`,
+    );
+  } else if (check.band === "tight") {
+    notes.push(
+      `${formatLakh(budget)} is below the typical ${formatLakh(about(check.typical))} for this plan, so Estimates sit near the low end.`,
+    );
+  } else if (check.band === "aboveHigh") {
+    notes.push(
+      `${formatLakh(budget)} is above the high end of ${formatLakh(about(check.high))} for this plan, so every Estimate sits at its high end${check.unallocated > 0 ? ` and ${formatINR(check.unallocated)} is Unallocated` : ""}.`,
+    );
+  }
+  if (opts.missing === 1) {
+    notes.push("1 line has no Estimate yet and counts as zero.");
+  } else if (opts.missing > 1) {
+    notes.push(`${opts.missing} lines have no Estimate yet and count as zero.`);
+  }
+  return notes.length > 0 ? notes.join(" ") : null;
 }

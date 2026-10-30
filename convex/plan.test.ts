@@ -1499,6 +1499,119 @@ describe("changing an essential after the plan", () => {
     expect(event.budgetCheck?.band).toBe("belowMinimum");
   });
 
+  // Issue #102: the Budget Item kept the note the first plan wrote, so after a
+  // move to Mumbai it still said "is below the typical" beside a "Below the
+  // usual minimum" badge. The note follows every new Budget check.
+  const budgetNote = (s: S) =>
+    s.t.run(async (ctx) => {
+      const items = await ctx.db
+        .query("items")
+        .withIndex("by_event_kind", (q) =>
+          q.eq("eventId", s.eventId).eq("kind", "budget"),
+        )
+        .take(5);
+      const item = items.find((i) => i.deletedAt === null);
+      return item?.kind === "budget" ? item.data.note : null;
+    });
+
+  it("rewrites the Budget note when a budget Proposal changes the band", async () => {
+    const { s } = await plannedJaipur();
+    const first = await budgetNote(s);
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2000000 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    const check = event.budgetCheck!;
+    const note = await budgetNote(s);
+    expect(note).not.toBe(first);
+    expect(check.band).toBe("tight");
+    expect(note).toMatch(
+      /^₹20L is below the typical ₹[\d.]+L for this plan, so Estimates sit near the low end\./,
+    );
+  });
+
+  it("rewrites the Budget check and note when an accepted setBudgetTotal Proposal changes the total", async () => {
+    const { s } = await plannedJaipur();
+    const proposalId = await s.t.run(async (ctx) => {
+      const owner = (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner")!;
+      const event = (await ctx.db.get("events", s.eventId))!;
+      return await ctx.db.insert("proposals", {
+        eventId: s.eventId,
+        runId: null,
+        requestedBy: owner._id,
+        origin: { kind: "chat" },
+        summary: "Budget total to ₹1,00,00,000",
+        changes: [
+          {
+            op: "setBudgetTotal",
+            table: "events",
+            docId: s.eventId,
+            expectedVersion: event.version,
+            guards: [],
+            values: { budgetTotal: 10_000_000 },
+          },
+        ],
+        status: "open",
+        decidedBy: null,
+        decidedAt: null,
+        replacedBy: null,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        createdAt: Date.now(),
+      });
+    });
+    expect(
+      await s.asMeera.mutation(api.proposals.accept, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toEqual({ ok: true });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetTotal).toBe(10_000_000);
+    expect(event.budgetCheck?.band).toBe("aboveHigh");
+    expect(await budgetNote(s)).toMatch(
+      /^₹100L is above the high end of ₹[\d.]+L for this plan, so every Estimate sits at its high end/,
+    );
+  });
+
+  it("rewrites the Budget note to match the badge after a ₹20L plan moves to Mumbai", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2000000 },
+    });
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(await budgetNote(s)).toMatch(/is below the typical/);
+
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    await acceptNext(s);
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.budgetCheck?.minimum === 2370500,
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    const { event } = await rollupOf(s);
+    expect(event.budgetCheck?.band).toBe("belowMinimum");
+    const note = await budgetNote(s);
+    expect(note).not.toMatch(/typical/);
+    expect(note).toMatch(
+      /^A plan like this in Mumbai usually starts at about ₹23\.7L\. You're about ₹3\.7L short\./,
+    );
+  });
+
   // Issue #102, review of #114 L5: the city Accept doesn't depend on the lines.
   it("a city Proposal stays good when a budget line is touched before Accept", async () => {
     const { s } = await plannedJaipur();
