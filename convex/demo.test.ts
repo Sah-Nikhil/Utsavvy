@@ -12,6 +12,7 @@ import { api, components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { MAX_ROWS, seedInsert } from "./demo";
+import { quoteChoiceKey } from "./quotes";
 import {
   identityFor,
   insertEvent,
@@ -475,6 +476,28 @@ describe("reset is repeatable", () => {
     });
     await reset(t);
     expect(await snapshot(t)).toEqual(before);
+  });
+});
+
+describe("reset clears a pasted Quote's answered-Function rows", () => {
+  it("deletes this Event's quoteChoice rows and leaves another Event's", async () => {
+    const t = setup();
+    const event = await reset(t);
+    const other = await t.run((ctx) => insertEvent(ctx, "Another Event"));
+    const [mine, theirs] = await t.run(async (ctx) => {
+      const row = (eventId: Id<"events">) =>
+        ctx.db.insert("toolCalls", {
+          key: quoteChoiceKey(eventId, "msg_paste", "link_1", ["wedding"]),
+          result: "proposal_1",
+          at: Date.now(),
+        });
+      return [await row(event._id), await row(other)];
+    });
+    await reset(t);
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get("toolCalls", mine)).toBeNull();
+      expect(await ctx.db.get("toolCalls", theirs)).not.toBeNull();
+    });
   });
 });
 
