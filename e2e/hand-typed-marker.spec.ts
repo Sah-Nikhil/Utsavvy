@@ -140,6 +140,8 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     await page.keyboard.press("Escape");
     await expect(draft).toHaveCount(0);
     await expect(row).toContainText("No Marker yet");
+    // Focus goes back to the list control, not the page (review N3).
+    await expect(drop).toBeFocused();
 
     // Again: the arrow keys move it and Enter saves it.
     await drop.focus();
@@ -155,6 +157,8 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     });
     const marker = sheet.locator("[data-hand-typed-marker]");
     await expect(marker).toHaveCount(1);
+    // Focus lands on the placed Marker (review N3).
+    await expect(marker).toBeFocused();
     await expect(marker).toHaveAttribute(
       "aria-label",
       new RegExp(`^${NAME}, Caterer, .*Marker placed by a Member$`),
