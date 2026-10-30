@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import dynamic from "next/dynamic";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
 import type { FunctionIndex } from "@/components/ui/function-marker";
@@ -113,6 +113,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     n: number;
   } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const root = useRef<HTMLDivElement>(null);
 
   const listed = useMemo(
     () => (view ? applyFilters(view, category, functionKey) : []),
@@ -152,8 +153,30 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     marker: v.marker,
   }));
   const placingName = handTyped.find((v) => v._id === placing)?.name ?? null;
+  // Saving or cancelling a new Marker's draft takes its button, and the
+  // keyboard focus, off the page (review of PR 139, N3). When the element
+  // that had focus is gone, put focus on the placed Marker once the map draws
+  // it, or else back on the row's control.
+  const keepFocus = (
+    id: Id<"privateVendors">,
+    from: Element | null,
+    tries = 10,
+  ) => {
+    setTimeout(() => {
+      if (from?.isConnected) return;
+      const marker = root.current?.querySelector<HTMLElement>(
+        `[data-hand-typed-marker="${id}"]`,
+      );
+      if (!marker && tries > 1) return keepFocus(id, from, tries - 1);
+      (
+        marker ??
+        root.current?.querySelector<HTMLElement>(`[data-place-control="${id}"]`)
+      )?.focus({ preventScroll: true });
+    }, 50);
+  };
   const place = (id: Id<"privateVendors">, lat: number, lng: number) => {
     const vendor = handTyped.find((v) => v._id === id);
+    const from = document.activeElement;
     setPlacing(null);
     if (!vendor) return;
     setMoveError(null);
@@ -163,7 +186,14 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
       expectedVersion: vendor.version,
       lat,
       lng,
-    }).catch((error: unknown) => setMoveError(errorMessage(error)));
+    })
+      .catch((error: unknown) => setMoveError(errorMessage(error)))
+      .finally(() => keepFocus(id, from));
+  };
+  const cancelPlace = () => {
+    const id = placing;
+    setPlacing(null);
+    if (id !== null) keepFocus(id, document.activeElement, 1);
   };
   const move = (id: Id<"vendors">, lat: number, lng: number) => {
     setMoveError(null);
@@ -173,7 +203,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-0 md:flex-row">
+    <div ref={root} className="flex h-full min-h-0 flex-col gap-0 md:flex-row">
       <div className="relative order-2 flex min-h-0 flex-1 flex-col bg-surface-container md:order-1 md:w-[22.5rem] md:flex-none md:border-r md:border-rule">
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {/* The corner pieces scroll with the list, so they never cover a row. */}
@@ -290,7 +320,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
           handTyped={pins}
           placing={placing}
           onPlace={place}
-          onCancelPlace={() => setPlacing(null)}
+          onCancelPlace={cancelPlace}
         />
         {placingName ? (
           <p
@@ -493,6 +523,7 @@ function HandTypedList({
                   className="shrink-0"
                   variant={placing === v._id ? "filled" : "tonal"}
                   aria-pressed={placing === v._id}
+                  data-place-control={v._id}
                   aria-label={`${
                     placing === v._id
                       ? v.marker
