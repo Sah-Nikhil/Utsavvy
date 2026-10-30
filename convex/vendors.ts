@@ -639,13 +639,6 @@ export type ShortlistedView = {
   | { card: null; handTyped: HandTypedView }
 );
 
-function handTypedCategoryLabel(row: Doc<"privateVendors">): string {
-  if (row.freeLabel) return row.freeLabel;
-  if (row.vendorCategory && isVendorCategory(row.vendorCategory))
-    return CATEGORY_LABELS[row.vendorCategory];
-  return row.vendorCategory ?? "Vendor";
-}
-
 /**
  * The priced budget lines the hand-typed Vendor's checklist Entries pay for
  * (their `budgetEntryIds`), each once. Read from the Entries, never from the
@@ -688,20 +681,11 @@ async function entryEstimatesOf(
  */
 async function categoryEstimate(
   ctx: QueryCtx,
-  row: Doc<"privateVendors">,
+  category: VendorCategory | null,
   pricing: Pricing | null,
 ): Promise<LineEstimate | null> {
-  if (
-    pricing === null ||
-    !row.vendorCategory ||
-    !isVendorCategory(row.vendorCategory)
-  )
-    return null;
-  const line = estimateLineFor(
-    row.vendorCategory,
-    pricing.functionKey,
-    pricing.guests,
-  );
+  if (pricing === null || category === null) return null;
+  const line = estimateLineFor(category, pricing.functionKey, pricing.guests);
   return await cachedOrTableEstimate(
     ctx,
     pricing.city,
@@ -710,6 +694,34 @@ async function categoryEstimate(
     line.unit,
     pricing.asOf ?? Number.POSITIVE_INFINITY,
   );
+}
+
+/**
+ * How the card names a hand-typed Vendor's service and which fixed category,
+ * if any, its fallback Estimate prices: both from the linked checklist
+ * Entry as it is now (review of #129, round 3). An Entry with a free label,
+ * including a fixed one a Member renamed, is a free label: no category
+ * fallback. Without a live link, the Vendor's own copy of the Entry's
+ * classification is used.
+ */
+async function handTypedClassification(
+  ctx: QueryCtx,
+  row: Doc<"privateVendors">,
+  links: LinkView[],
+): Promise<{ label: string; fixed: VendorCategory | null }> {
+  const entry = links[0]
+    ? await ctx.db.get("entries", links[0].checklistEntryId)
+    : null;
+  const fields =
+    entry?.kind === "checklist"
+      ? entry.fields
+      : { freeLabel: row.freeLabel, vendorCategory: row.vendorCategory };
+  const freeLabel = fields.freeLabel?.trim() || null;
+  if (freeLabel !== null) return { label: freeLabel, fixed: null };
+  const category = fields.vendorCategory;
+  if (category && isVendorCategory(category))
+    return { label: CATEGORY_LABELS[category], fixed: category };
+  return { label: category ?? "Vendor", fixed: null };
 }
 
 async function shortlistedView(
@@ -745,6 +757,7 @@ async function shortlistedView(
     };
   const row = own!;
   const entryEstimates = await entryEstimatesOf(ctx, event._id, links);
+  const classification = await handTypedClassification(ctx, row, links);
   return {
     itemId: item._id,
     links,
@@ -755,15 +768,15 @@ async function shortlistedView(
       name: row.name,
       vendorCategory: row.vendorCategory,
       freeLabel: row.freeLabel,
-      // The Entry's current name, so a renamed free label shows here too.
-      categoryLabel: links[0]?.entryLabel ?? handTypedCategoryLabel(row),
+      // The Entry's current name, so a renamed Entry shows here too.
+      categoryLabel: classification.label,
       phone: row.phone,
       area: row.area,
       entryEstimates,
       estimate:
         entryEstimates.length > 0
           ? null
-          : await categoryEstimate(ctx, row, pricing),
+          : await categoryEstimate(ctx, classification.fixed, pricing),
     },
   };
 }

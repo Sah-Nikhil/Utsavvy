@@ -745,3 +745,36 @@ describe("the hand-typed Vendor card's Estimate is its checklist Entry's", () =>
     });
   });
 });
+
+// Review of PR 129, round 3.
+describe("a renamed fixed-category checklist Entry", () => {
+  it("is a free label on the card: its new name and no Caterer fallback Estimate", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const added = await as(t, a).mutation(api.vendors.addHandTyped, {
+      eventId: a.eventId,
+      checklistEntryId: a.entries.caterer,
+      ...SHARMA,
+    });
+    const before = await as(t, a).query(api.vendors.forItem, {
+      itemId: added.itemId,
+    });
+    expect(before.view?.handTyped).toMatchObject({
+      categoryLabel: "Caterer",
+      estimate: expect.objectContaining({ unit: "per_plate" }),
+    });
+
+    await as(t, a).mutation(api.entries.update, {
+      entryId: a.entries.caterer,
+      patch: { kind: "checklist", label: "Decorator" },
+    });
+    const after = await as(t, a).query(api.vendors.forItem, {
+      itemId: added.itemId,
+    });
+    expect(after.view?.handTyped).toMatchObject({
+      categoryLabel: "Decorator",
+      entryEstimates: [],
+      estimate: null,
+    });
+  });
+});
