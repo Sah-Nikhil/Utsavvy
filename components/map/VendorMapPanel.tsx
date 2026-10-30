@@ -18,7 +18,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { MapHandTypedVendor, MapVendor, MapView } from "@/convex/map";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { budgetLineFor, filterForFunction } from "./filter";
+import { budgetLineFor, filterForFunction, filterHandTyped } from "./filter";
 import { placeVendors } from "./placement";
 import type { HandTypedPin, MapVendorShown } from "./MapCanvas";
 import {
@@ -141,7 +141,8 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     setSelectedId(id);
     setReveal((r) => ({ id, n: (r?.n ?? 0) + 1 }));
   };
-  const handTyped = view.handTyped;
+  // The category and Function filters apply to hand-typed Vendors too.
+  const handTyped = filterHandTyped(view.handTyped, category, functionKey);
   const pins: HandTypedPin[] = handTyped.map((v) => ({
     id: v._id,
     name: v.name,

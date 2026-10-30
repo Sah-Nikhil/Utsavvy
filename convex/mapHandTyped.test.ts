@@ -268,3 +268,65 @@ describe("restoring an older hand-typed Marker change", () => {
     expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MALVIYA_NAGAR);
   });
 });
+
+// Review of PR 139, low 1: the Function filter goes by the Vendor's checklist links.
+describe("a hand-typed Vendor's Functions on the map", () => {
+  it("are those its linked checklist Entries serve, or null when one serves every Function", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const link = (functionKeys: string[]) =>
+      t.run(async (ctx) => {
+        const actor = { kind: "member" as const, membershipId: a.member };
+        const section = await ctx.db
+          .query("sections")
+          .withIndex("by_event", (q) => q.eq("eventId", a.eventId))
+          .first();
+        const checklist = await ctx.db.insert("items", {
+          eventId: a.eventId,
+          sectionId: section!._id,
+          kind: "checklist",
+          position: { x: 0, y: 0 },
+          size: null,
+          functionKey: null,
+          data: { note: null },
+          createdBy: actor,
+          version: 1,
+          deletedAt: null,
+        });
+        const entry = await ctx.db.insert("entries", {
+          eventId: a.eventId,
+          itemId: checklist,
+          kind: "checklist",
+          order: 0,
+          functionKey: null,
+          fields: {
+            vendorCategory: "caterer",
+            freeLabel: null,
+            functionKeys,
+            bookByEntryId: null,
+            budgetEntryIds: [],
+          },
+          assumed: [],
+          createdBy: actor,
+          version: 1,
+          deletedAt: null,
+        });
+        await ctx.db.insert("vendorLinks", {
+          eventId: a.eventId,
+          shortlistItemId: a.itemId,
+          checklistEntryId: entry,
+          status: "considering",
+          version: 1,
+        });
+      });
+    const functionsOnMap = async () =>
+      (await as(t, a.clerkId).query(api.map.view, { eventId: a.eventId }))
+        .handTyped[0]!.functionKeys;
+    await link(["sangeet"]);
+    expect(await functionsOnMap()).toEqual(["sangeet"]);
+    await link(["haldi", "sangeet"]);
+    expect(await functionsOnMap()).toEqual(["sangeet", "haldi"]);
+    await link([]);
+    expect(await functionsOnMap()).toBeNull();
+  });
+});

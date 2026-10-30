@@ -121,6 +121,8 @@ export type MapHandTypedVendor = {
   /** null until a Member drops one: the Vendor is listed beside the map. */
   marker: { lat: number; lng: number } | null;
   status: LinkStatus | null;
+  /** The Functions its linked checklist Entries serve; null when one serves every Function. */
+  functionKeys: string[] | null;
   /** For `placeHandTypedMarker`'s stale-write check. */
   version: number;
 };
@@ -172,6 +174,29 @@ async function liveShortlistItems(
     (item): item is Extract<Doc<"items">, { kind: "shortlistedVendor" }> =>
       item.kind === "shortlistedVendor" && item.deletedAt === null,
   );
+}
+
+/**
+ * The Functions a Shortlisted Vendor's live checklist Entries serve, for the
+ * map's Function filter; null when one of them serves every Function.
+ */
+async function functionKeysOf(
+  ctx: QueryCtx,
+  itemId: Id<"items">,
+): Promise<string[] | null> {
+  const links = await ctx.db
+    .query("vendorLinks")
+    .withIndex("by_item", (q) => q.eq("shortlistItemId", itemId))
+    .take(MAX_LINKS_PER_ITEM);
+  const keys: string[] = [];
+  for (const link of links) {
+    const entry = await ctx.db.get("entries", link.checklistEntryId);
+    if (entry?.kind !== "checklist" || entry.deletedAt !== null) continue;
+    if (entry.fields.functionKeys.length === 0) return null;
+    for (const key of entry.fields.functionKeys)
+      if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
 }
 
 /** The best status among the Item's links to live checklist Entries. */
@@ -276,6 +301,7 @@ export const view = query({
             area: row.area,
             marker: row.marker,
             status: await statusOf(ctx, item._id),
+            functionKeys: await functionKeysOf(ctx, item._id),
             version: row.version,
           });
         continue;

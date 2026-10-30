@@ -96,3 +96,25 @@ export function budgetLineFor<
     ) ?? null
   );
 }
+
+/**
+ * The panel's filters on the Event's hand-typed Vendors (review of PR 139):
+ * a category chip keeps those of that category (a free label matches none),
+ * and a Function keeps those whose checklist Entries serve it. `functionKeys`
+ * null means an Entry serves every Function, so the Vendor always stays.
+ */
+export function filterHandTyped<
+  V extends { category: string; functionKeys: string[] | null },
+>(
+  vendors: readonly V[],
+  category: string | null,
+  functionKey: string | null,
+): V[] {
+  return vendors.filter(
+    (v) =>
+      (category === null || v.category === category) &&
+      (functionKey === null ||
+        v.functionKeys === null ||
+        v.functionKeys.includes(functionKey)),
+  );
+}
