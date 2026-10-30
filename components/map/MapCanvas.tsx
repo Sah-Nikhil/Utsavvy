@@ -188,7 +188,12 @@ export default function MapCanvas({
     const frame = requestAnimationFrame(() =>
       setPinDraft({ id: placing, lat: start.lat, lng: start.lng }),
     );
-    return () => cancelAnimationFrame(frame);
+    // Placing ends however it ends (Enter, Escape, a click, or the list's
+    // Cancel), and an unsaved draft ends with it (review of PR 139).
+    return () => {
+      cancelAnimationFrame(frame);
+      setPinDraft(null);
+    };
     // Only a new placing request starts a draft, not new data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placing]);
