@@ -1,5 +1,10 @@
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
-import type { Browser, BrowserContext, TestInfo } from "@playwright/test";
+import type {
+  Browser,
+  BrowserContext,
+  Locator,
+  TestInfo,
+} from "@playwright/test";
 import {
   DEMO_QUOTE_PASTE,
   PLAN_THE_SANGEET,
@@ -117,6 +122,69 @@ async function signedIn(
 }
 
 /** Opens the demo Event from "Open the demo Event" and waits for its Canvas. */
+/**
+ * Pans the Canvas the way a Member does, dragging empty Canvas, until
+ * `target` is in the clear: the point at its centre is the target itself.
+ * At the demo's 1280 x 800 the Vendors Section's Map button starts past the
+ * window's right edge, behind the Chat. Left to Playwright, a click scrolls
+ * the Canvas's clipped (overflow hidden) layers to reach it, which shifts
+ * what is drawn away from where React Flow has it: the click, or a later
+ * one, lands on a Section header or the Function chips instead (#131).
+ */
+async function panTo(page: Page, target: Locator) {
+  const canvas = page.locator("[data-canvas]");
+  for (let drags = 0; drags < 8; drags++) {
+    const clear = await target.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      return hit !== null && el.contains(hit);
+    });
+    if (clear) return;
+    const box = await target.boundingBox();
+    if (box === null) throw new Error("The control isn't drawn at all");
+    const plan = await canvas.evaluate(
+      (element, at) => {
+        const r = element.getBoundingClientRect();
+        const chat = document.querySelector("[data-chat]");
+        const right = Math.min(
+          r.right,
+          window.innerWidth,
+          chat?.getBoundingClientRect().left ?? Infinity,
+        );
+        const bottom = Math.min(r.bottom, window.innerHeight);
+        // At most 300 px a drag, towards the middle of the open Canvas.
+        const clamp = (n: number) => Math.max(-300, Math.min(300, n));
+        const dx = clamp((r.left + right) / 2 - at.x);
+        const dy = clamp((r.top + bottom) / 2 - at.y);
+        for (let y = r.top + 60; y < bottom - 20; y += 12)
+          for (let x = r.left + 20; x < right - 20; x += 12) {
+            const ex = x + dx;
+            const ey = y + dy;
+            if (ex < r.left + 10 || ex > right - 10) continue;
+            if (ey < r.top + 10 || ey > bottom - 10) continue;
+            const hit = document.elementFromPoint(x, y);
+            if (
+              hit?.closest(".react-flow__pane") &&
+              !hit.closest(".react-flow__node")
+            )
+              return { x, y, dx, dy };
+          }
+        return null;
+      },
+      { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    );
+    if (plan === null) throw new Error("No empty Canvas to drag");
+    await page.mouse.move(plan.x, plan.y);
+    await page.mouse.down();
+    await page.mouse.move(plan.x + plan.dx, plan.y + plan.dy, { steps: 8 });
+    await page.mouse.up();
+  }
+  throw new Error("Couldn't pan the control into view");
+}
+
 async function openDemo(page: Page): Promise<string> {
   await page.goto("/events?open=demo");
   await expect(page).toHaveURL(/\/events\/[a-z0-9]+$/, { timeout: 20_000 });
@@ -307,10 +375,11 @@ test.describe("the demo path, on a local deployment", () => {
           ).toContainText("Vidaai");
           await shot(page, "0-35-canvas");
 
-          await page
+          const mapButton = page
             .getByRole("button", { name: "Map", exact: true })
-            .first()
-            .click();
+            .first();
+          await panTo(page, mapButton);
+          await mapButton.click();
           const sheet = page.getByRole("dialog", {
             name: "Vendors on the map",
           });
@@ -392,6 +461,7 @@ test.describe("the demo path, on a local deployment", () => {
 
         // Booked asks before using the Quote; Yes puts the Budget over.
         const status = caterer.getByRole("button", { name: /^Status for / });
+        await panTo(page, status);
         await status.click();
         await page.getByRole("menuitem", { name: "Booked" }).click();
         await expect(status).toContainText("Booked", { timeout: 10_000 });
@@ -399,7 +469,9 @@ test.describe("the demo path, on a local deployment", () => {
         await expect(ask).toContainText(
           "Use the ₹2.85L Quote as this line's amount?",
         );
-        await ask.getByRole("button", { name: "Yes, use it" }).click();
+        const yes = ask.getByRole("button", { name: "Yes, use it" });
+        await panTo(page, yes);
+        await yes.click();
         await expect(ask).toBeHidden({ timeout: 10_000 });
         await expect(row).toContainText("₹2,85,000");
 
@@ -546,7 +618,11 @@ test.describe("the demo path, on a local deployment", () => {
           const suggestions = page.locator('[data-canvas-item="suggestion"]');
           const suggestionsBefore = await suggestions.count();
           const card = inspirations.last();
-          await card.getByRole("button", { name: "Use for Theme" }).click();
+          const useForTheme = card.getByRole("button", {
+            name: "Use for Theme",
+          });
+          await panTo(page, useForTheme);
+          await useForTheme.click();
           await expect(card.getByText("Added to the Theme.")).toBeVisible({
             timeout: 20_000,
           });
