@@ -1911,6 +1911,74 @@ describe("changing an essential after the plan", () => {
     expect(note).toMatch(/2 lines have no Estimate yet and count as zero\./);
   });
 
+  // Review of #130, round 3: one recheck per Accept, never a second plain one.
+  const rechecks = (s: S) =>
+    s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect())
+        .filter(
+          (f) =>
+            /^plan(\.js)?:recheckBudget$/.test(f.name) &&
+            f.state.kind !== "canceled",
+        )
+        .map((f) => (f.args[0] as { relink: unknown }).relink),
+    );
+
+  it("an accepted setBudgetTotal schedules the Budget recheck once", async () => {
+    const { s } = await plannedJaipur();
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = (await rechecks(s)).length;
+    const proposalId = await setBudgetTotalProposal(s, 3_500_000);
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect((await rechecks(s)).slice(before)).toEqual([null]);
+  });
+
+  it("an accepted essential budget change schedules one recheck, the one that relinks the checklist", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 2_200_000 },
+    });
+    const proposal = await openProposal(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = (await rechecks(s)).length;
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposal._id,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const after = (await rechecks(s)).slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ proposalId: proposal._id });
+  });
+
+  it("an accepted city change schedules one recheck, and its new prices recompute in place", async () => {
+    const { s } = await plannedJaipur();
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "city", city: "Mumbai" },
+    });
+    const proposal = await openProposal(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = (await rechecks(s)).length;
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposal._id,
+    });
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.city?.tier === "X",
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+    const after = (await rechecks(s)).slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ proposalId: proposal._id });
+  });
+
   it("rewrites the Budget note to match the badge after a ₹20L plan moves to Mumbai", async () => {
     const { s } = await plannedJaipur();
     await s.asMeera.mutation(api.brief.editField, {

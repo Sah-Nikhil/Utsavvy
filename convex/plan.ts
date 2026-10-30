@@ -1582,8 +1582,69 @@ async function recomputeBudget(
     await ctx.db.patch("items", item._id, { data: { ...item.data, note } });
 }
 
-/** Events whose Budget recompute this mutation has already scheduled. */
-const budgetScheduledIn = new WeakMap<object, Set<Id<"events">>>();
+type Relink = {
+  proposalId: Id<"proposals"> | null;
+  forMembershipId: Id<"memberships">;
+  acceptedBy: Id<"memberships"> | null;
+};
+
+/**
+ * This mutation's Budget recheck per Event: the scheduled call and whether it
+ * relinks the checklist, or "inline" when the mutation recomputes in place.
+ */
+const budgetRecheckIn = new WeakMap<
+  object,
+  Map<
+    Id<"events">,
+    { id: Id<"_scheduled_functions">; relink: Relink | null } | "inline"
+  >
+>();
+
+function budgetRechecks(ctx: MutationCtx) {
+  let rechecks = budgetRecheckIn.get(ctx);
+  if (rechecks === undefined) {
+    rechecks = new Map();
+    budgetRecheckIn.set(ctx, rechecks);
+  }
+  return rechecks;
+}
+
+/**
+ * Schedules `internal.plan.recheckBudget` for an Event at most once per
+ * mutation (review of #130). A plain recheck already scheduled gives way to
+ * one that relinks the checklist; a relinking one, or an Event this mutation
+ * recomputes in place, takes no second call.
+ */
+async function scheduleBudgetRecheck(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  relink: Relink | null,
+): Promise<void> {
+  const rechecks = budgetRechecks(ctx);
+  const current = rechecks.get(eventId);
+  if (current === "inline") return;
+  if (current !== undefined) {
+    if (current.relink !== null || relink === null) return;
+    await ctx.scheduler.cancel(current.id);
+  }
+  const id = await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
+    eventId,
+    relink,
+  });
+  rechecks.set(eventId, { id, relink });
+}
+
+/** Marks an Event this mutation recomputes in place, cancelling any recheck already scheduled. */
+async function recomputeInPlace(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+): Promise<void> {
+  const rechecks = budgetRechecks(ctx);
+  const current = rechecks.get(eventId);
+  if (current !== undefined && current !== "inline")
+    await ctx.scheduler.cancel(current.id);
+  rechecks.set(eventId, "inline");
+}
 
 /** Whether a write moves something the Budget check or note rests on. */
 function movesBudget(event: WriteEvent): boolean {
@@ -1627,19 +1688,10 @@ export async function budgetAfterWrite(
   event: WriteEvent,
 ): Promise<void> {
   if (!movesBudget(event)) return;
-  let scheduled = budgetScheduledIn.get(ctx);
-  if (scheduled === undefined) {
-    scheduled = new Set();
-    budgetScheduledIn.set(ctx, scheduled);
-  }
-  if (scheduled.has(event.eventId)) return;
+  if (budgetRechecks(ctx).has(event.eventId)) return;
   const row = await ctx.db.get("events", event.eventId);
   if (row === null || row.briefState !== "planned") return;
-  scheduled.add(event.eventId);
-  await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-    eventId: event.eventId,
-    relink: null,
-  });
+  await scheduleBudgetRecheck(ctx, event.eventId, null);
 }
 
 /**
@@ -2334,11 +2386,7 @@ export const end = internalMutation({
         toolCallId: "plan:end",
       });
       // A plan that stopped part-way gets the Budget check of what it wrote.
-      if (wrote)
-        await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-          eventId,
-          relink: null,
-        });
+      if (wrote) await scheduleBudgetRecheck(ctx, eventId, null);
     }
     if (run.status !== "running" && run.status !== "stopping") return null;
     if (outcome === "failed") {
@@ -3992,14 +4040,13 @@ export const changeEssentialOp: ProposalOpHandler<"changeEssential"> = {
     }
     // Once the whole Accept has landed, the Budget check follows the plan and
     // the Vendor checklist follows a swapped Venue or decor line.
+    // One recheck for the whole Accept: it replaces the plain one the
+    // post-write hook scheduled for these writes.
     if (actor.kind === "assistant") {
-      await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-        eventId: event._id,
-        relink: {
-          proposalId: actor.proposalId,
-          forMembershipId: actor.forMembershipId,
-          acceptedBy: actor.acceptedBy,
-        },
+      await scheduleBudgetRecheck(ctx, event._id, {
+        proposalId: actor.proposalId,
+        forMembershipId: actor.forMembershipId,
+        acceptedBy: actor.acceptedBy,
       });
     }
     return [event._id, ...touched, ...moved, ...repriced];
@@ -4369,7 +4416,9 @@ export const applyCityPrices = internalMutation({
         args.actor,
         "city",
       );
-      // The check and the note follow the new prices.
+      // The check and the note follow the new prices, here rather than in a
+      // second scheduled recheck.
+      await recomputeInPlace(ctx, args.eventId);
       await recomputeBudget(ctx, args.eventId);
       return null;
     };

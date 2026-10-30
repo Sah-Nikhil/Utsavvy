@@ -718,18 +718,15 @@ export const setBudgetTotalOp: ProposalOpHandler<"setBudgetTotal"> = {
       patch: { budgetTotal: change.values.budgetTotal },
       ...(await writeOptions(ctx, change, actor)),
     });
-    // The plan's lines re-price for the new total, and the Budget check and
-    // its note follow (issue #102, review of #130).
+    // The plan's lines re-price for the new total. The post-write hook
+    // schedules the Budget check and note's recompute (issue #102, review of
+    // #130).
     const repriced = await repriceForNewTotal(
       ctx,
       change.docId,
       change.values.budgetTotal,
       actor,
     );
-    await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
-      eventId: change.docId,
-      relink: null,
-    });
     return [change.docId, ...repriced];
   },
 };
