@@ -1500,6 +1500,7 @@ async function recomputeBudget(
   let contingency = 0;
   let unallocated = 0;
   let researched = 0;
+  let allAtHigh = true;
   let catering = 0;
   const mealFunctions = new Set<string>();
   for (const e of await ctx.db
@@ -1534,6 +1535,14 @@ async function recomputeBudget(
         : null,
     );
     if (basis?.kind === "researched") researched++;
+    // At its high end as `pricePlan` places it above the high: a line a
+    // Member set or got a Quote for may sit below.
+    if (
+      basis &&
+      entryAmount(e.fields) !==
+        amountAtMost(basis.unit, basis.unitHigh, e.fields.quantity)
+    )
+      allAtHigh = false;
     if (e.fields.category !== null && MEALS.test(e.fields.category)) {
       catering += entryAmount(e.fields);
       if (e.functionKey !== null) mealFunctions.add(e.functionKey);
@@ -1556,9 +1565,11 @@ async function recomputeBudget(
       ...priced.budgetCheck,
       contingency,
       unallocated,
-      basis: { researched, lines: lines.length },
+      // Only the lines priced from a range; the note counts the others.
+      basis: { researched, lines: lines.length - missing },
     };
-    checkNote = budgetCheckNote(check, budget, { city, missing }) ?? "";
+    checkNote =
+      budgetCheckNote(check, budget, { city, missing, allAtHigh }) ?? "";
   }
   const parts = [
     checkNote,
@@ -1603,19 +1614,18 @@ function movesBudget(event: WriteEvent): boolean {
 }
 
 /**
- * Post-write hook (review of #130): after a Member's Restore, an Undo all or
- * a delete that moves the Budget total, the city, a budget Entry or the
- * Budget note, schedules `recomputeBudget` once per mutation, so the derived
- * check and note follow the history. It runs after the whole mutation, so an
- * Undo all is recomputed once, from its final state. The Assistant's own
- * writes schedule the same recheck where they change the Budget.
+ * Post-write hook (review of #130): after any write, by a Member or the
+ * Assistant, that moves the Budget total, the city, a budget Entry or the
+ * Budget note of a planned Event, schedules `recomputeBudget` once per
+ * mutation, so the derived check and note follow every edit, Restore and
+ * Undo all. It runs after the whole mutation, so an Undo all or an accepted
+ * Proposal is recomputed once, from its final state. Nothing is scheduled
+ * while the first plan is being written; its last step re-checks the Budget.
  */
 export async function budgetAfterWrite(
   ctx: MutationCtx,
   event: WriteEvent,
 ): Promise<void> {
-  if (event.actor.kind !== "member") return;
-  if (event.op !== "restore" && event.op !== "delete") return;
   if (!movesBudget(event)) return;
   let scheduled = budgetScheduledIn.get(ctx);
   if (scheduled === undefined) {
@@ -1623,6 +1633,8 @@ export async function budgetAfterWrite(
     budgetScheduledIn.set(ctx, scheduled);
   }
   if (scheduled.has(event.eventId)) return;
+  const row = await ctx.db.get("events", event.eventId);
+  if (row === null || row.briefState !== "planned") return;
   scheduled.add(event.eventId);
   await ctx.scheduler.runAfter(0, internal.plan.recheckBudget, {
     eventId: event.eventId,

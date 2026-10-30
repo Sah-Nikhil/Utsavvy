@@ -261,7 +261,16 @@ export function budgetCheckNote(
     "band" | "minimum" | "typical" | "high" | "unallocated"
   >,
   budget: number,
-  opts: { city: string | null; missing: number },
+  opts: {
+    city: string | null;
+    missing: number;
+    /**
+     * Whether every Estimate sits at its high end, as `pricePlan` places them
+     * above the high end. False when a line a Member set or got a Quote for
+     * stayed below it (review of #130). Defaults to true.
+     */
+    allAtHigh?: boolean;
+  },
 ): string | null {
   const notes: string[] = [];
   if (check.band === "belowMinimum") {
@@ -276,7 +285,7 @@ export function budgetCheckNote(
     );
   } else if (check.band === "aboveHigh") {
     notes.push(
-      `${formatLakh(budget)} is above the high end of ${formatLakh(about(check.high))} for this plan, so every Estimate sits at its high end${check.unallocated > 0 ? ` and ${formatINR(check.unallocated)} is Unallocated` : ""}.`,
+      `${formatLakh(budget)} is above the high end of ${formatLakh(about(check.high))} for this plan, so ${opts.allAtHigh === false ? "there's room for every Estimate at its high end" : "every Estimate sits at its high end"}${check.unallocated > 0 ? ` and ${formatINR(check.unallocated)} is Unallocated` : ""}.`,
     );
   }
   if (opts.missing === 1) {
