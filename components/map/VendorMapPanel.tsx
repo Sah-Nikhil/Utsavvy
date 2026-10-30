@@ -493,7 +493,15 @@ function HandTypedList({
                   className="shrink-0"
                   variant={placing === v._id ? "filled" : "tonal"}
                   aria-pressed={placing === v._id}
-                  aria-label={`${v.marker ? "Move the Marker" : "Drop a Marker"}: ${v.name}`}
+                  aria-label={`${
+                    placing === v._id
+                      ? v.marker
+                        ? "Cancel Marker move"
+                        : "Cancel Marker placement"
+                      : v.marker
+                        ? "Move the Marker"
+                        : "Drop a Marker"
+                  }: ${v.name}`}
                   onClick={() => onPlace(v._id)}
                 >
                   {placing === v._id
