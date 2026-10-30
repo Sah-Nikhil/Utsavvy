@@ -263,12 +263,12 @@ function ChecklistRow({
       <Badge tone={STATUS_TONE[status]} className="mt-px">
         {CHECKLIST_STATUS_LABELS[status]}
       </Badge>
-      {canEdit && fields.vendorCategory ? (
+      {canEdit && (fields.vendorCategory || fields.freeLabel) ? (
         <FindVendors
           eventId={entry.eventId}
           entryId={entry._id}
           entryName={name}
-          category={fields.vendorCategory}
+          category={(fields.freeLabel || fields.vendorCategory)!}
           functionKeys={fields.functionKeys}
           functions={functions}
         />

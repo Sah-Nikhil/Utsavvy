@@ -24,6 +24,7 @@ import type { ProposedChange } from "../lib/types/proposals";
 import { quoteUnitValidator } from "../lib/types/estimates";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { sharedVendorIdOf } from "./lib/vendors";
 import {
   action,
   env,
@@ -547,7 +548,8 @@ export const budgetComparison = query({
           item.deletedAt !== null
         )
           continue;
-        const vendorId = item.data.vendorId;
+        const vendorId = sharedVendorIdOf(item);
+        if (vendorId === null) continue;
         if (!vendors.has(vendorId)) {
           vendors.set(vendorId, await ctx.db.get("vendors", vendorId));
           prices.set(vendorId, await currentListedPrices(ctx, vendorId));
@@ -693,7 +695,8 @@ async function linkChoices(
     if (link.status === "dropped") continue;
     const item = await ctx.db.get("items", link.shortlistItemId);
     if (item?.kind !== "shortlistedVendor" || item.deletedAt !== null) continue;
-    const vendor = await ctx.db.get("vendors", item.data.vendorId);
+    const vendorId = sharedVendorIdOf(item);
+    const vendor = vendorId && (await ctx.db.get("vendors", vendorId));
     const entry = await ctx.db.get("entries", link.checklistEntryId);
     if (!vendor || entry?.kind !== "checklist" || entry.deletedAt !== null)
       continue;

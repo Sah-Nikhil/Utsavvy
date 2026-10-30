@@ -35,6 +35,7 @@ import { ASSISTANT_NAME, looksLikeAssistant, memberName } from "./chat";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { once } from "./lib/idempotency";
+import { privateVendorIdOf, sharedVendorIdOf } from "./lib/vendors";
 import schema from "./schema";
 import { checkQueueRoom, enqueueRun } from "./runs";
 
@@ -123,8 +124,12 @@ async function targetName(
   const item = await ctx.db.get("items", target.itemId);
   if (item === null) return "an Item";
   if (item.kind === "shortlistedVendor") {
-    const vendor = await ctx.db.get("vendors", item.data.vendorId);
-    if (vendor !== null) return vendor.name;
+    const vendorId = sharedVendorIdOf(item);
+    const vendor = vendorId && (await ctx.db.get("vendors", vendorId));
+    if (vendor) return vendor.name;
+    const privateId = privateVendorIdOf(item);
+    const typed = privateId && (await ctx.db.get("privateVendors", privateId));
+    if (typed) return typed.name;
   }
   if (item.kind === "suggestion") return item.data.title;
   return ITEM_NAMES[item.kind];

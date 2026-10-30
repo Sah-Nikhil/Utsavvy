@@ -21,6 +21,7 @@ import { planItemOf } from "./entries";
 import { requireAccess } from "./lib/access";
 import { AccessDenied } from "./lib/errors";
 import { memberInsert, memberWrite } from "./lib/write";
+import { sharedVendorIdOf } from "./lib/vendors";
 import {
   loadStarterSetRows,
   MAX_PRICE_ROWS,
@@ -230,8 +231,10 @@ export const view = query({
       { itemId: Id<"items">; status: LinkStatus | null }
     >();
     for (const item of await liveShortlistItems(ctx, args.eventId)) {
-      if (shortlisted.has(item.data.vendorId)) continue;
-      shortlisted.set(item.data.vendorId, {
+      // A hand-typed Vendor has a Marker only once a Member drops one (a follow-up to X7).
+      const vendorId = sharedVendorIdOf(item);
+      if (vendorId === null || shortlisted.has(vendorId)) continue;
+      shortlisted.set(vendorId, {
         itemId: item._id,
         status: await statusOf(ctx, item._id),
       });
@@ -319,7 +322,7 @@ export const moveMarker = mutation({
     const nearby = event.city !== null && inCity(vendor, event.city.name);
     if (!nearby) {
       const items = await liveShortlistItems(ctx, args.eventId);
-      if (!items.some((item) => item.data.vendorId === vendor._id))
+      if (!items.some((item) => sharedVendorIdOf(item) === vendor._id))
         throw new AccessDenied("wrongEvent", "vendor.manage");
     }
     if (vendor.marker === undefined)
