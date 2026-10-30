@@ -13,6 +13,7 @@ import {
 import { can } from "../lib/access/permissions";
 import type { LineEstimate } from "../lib/pricing/pricePlan";
 import type { Actor, MemberActor } from "../lib/types/actors";
+import type { PricedEstimate } from "../lib/types/estimates";
 import type { HistoryTable } from "../lib/types/history";
 import starterSet from "../seed/jaipur-vendors.json";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -27,6 +28,12 @@ import { placeNewItem } from "./canvas";
 import { nextOrder, planItemOf } from "./entries";
 import { cachedOrTableEstimate } from "./estimates";
 import { requireAccess } from "./lib/access";
+import { VersionConflict } from "./lib/errors";
+import {
+  loadPrivateVendorForEvent,
+  privateVendorIdOf,
+  sharedVendorIdOf,
+} from "./lib/vendors";
 import {
   memberInsert,
   memberWrite,
@@ -431,7 +438,7 @@ async function shortlistItemFor(
 ) {
   return (
     (await shortlistItems(ctx, eventId)).find(
-      (item) => item.data.vendorId === vendorId,
+      (item) => sharedVendorIdOf(item) === vendorId,
     ) ?? null
   );
 }
@@ -583,12 +590,139 @@ export const cards = query({
   },
 });
 
-/** One Shortlisted Vendor with its card and this Event's links. */
+/** An Estimate a hand-typed Vendor's card shows: one budget line its checklist Entry pays for. */
+export type EntryEstimateView = {
+  /** The budget line. */
+  entryId: Id<"entries">;
+  /** The budget line's label, such as "Catering, Sangeet". */
+  label: string;
+  estimate: PricedEstimate;
+};
+
+/**
+ * A hand-typed Vendor (X7) as its card shows it: only what a Member typed,
+ * plus the Estimates of the checklist Entry it is shortlisted under. It never
+ * has Listed prices, and nothing about it is stored beyond what was typed.
+ */
+export type HandTypedView = {
+  _id: Id<"privateVendors">;
+  version: number;
+  name: string;
+  vendorCategory: string | null;
+  freeLabel: string | null;
+  /** The linked checklist Entry as the Canvas names it ("Caterer", "Mehendi artist"). */
+  categoryLabel: string;
+  phone: string | null;
+  area: string | null;
+  /**
+   * The Estimates on the budget lines its checklist Entries pay for, kept
+   * current by the Entries' own re-price paths (a city change re-prices them).
+   */
+  entryEstimates: EntryEstimateView[];
+  /**
+   * Only for a fixed category whose Entries pay for no priced line: the same
+   * read-only Estimate a shared Vendor card shows (the city's cached
+   * researched range or the reference table). Null otherwise: "No Estimate yet".
+   */
+  estimate: LineEstimate | null;
+};
+
+/**
+ * One Shortlisted Vendor with this Event's links, and either the shared
+ * Vendor's card or the hand-typed Vendor's own details.
+ */
 export type ShortlistedView = {
   itemId: Id<"items">;
-  card: VendorView;
   links: LinkView[];
-};
+} & (
+  | { card: VendorView; handTyped: null }
+  | { card: null; handTyped: HandTypedView }
+);
+
+/**
+ * The priced budget lines the hand-typed Vendor's checklist Entries pay for
+ * (their `budgetEntryIds`), each once. Read from the Entries, never from the
+ * Vendor, so nothing the Member typed about it is ever priced.
+ */
+async function entryEstimatesOf(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  links: LinkView[],
+): Promise<EntryEstimateView[]> {
+  const seen = new Set<Id<"entries">>();
+  const views: EntryEstimateView[] = [];
+  for (const link of links) {
+    const entry = await ctx.db.get("entries", link.checklistEntryId);
+    if (entry?.kind !== "checklist") continue;
+    for (const lineId of entry.fields.budgetEntryIds) {
+      if (seen.has(lineId)) continue;
+      seen.add(lineId);
+      const line = await ctx.db.get("entries", lineId);
+      if (
+        line?.kind !== "budget" ||
+        line.eventId !== eventId ||
+        line.deletedAt !== null ||
+        line.fields.estimate === null
+      )
+        continue;
+      views.push({
+        entryId: line._id,
+        label: line.fields.label,
+        estimate: line.fields.estimate,
+      });
+    }
+  }
+  return views;
+}
+
+/**
+ * The fallback Estimate for a fixed category with no priced budget line: the
+ * one a shared Vendor card of that category shows. A query never searches.
+ */
+async function categoryEstimate(
+  ctx: QueryCtx,
+  category: VendorCategory | null,
+  pricing: Pricing | null,
+): Promise<LineEstimate | null> {
+  if (pricing === null || category === null) return null;
+  const line = estimateLineFor(category, pricing.functionKey, pricing.guests);
+  return await cachedOrTableEstimate(
+    ctx,
+    pricing.city,
+    pricing.tier,
+    line.category,
+    line.unit,
+    pricing.asOf ?? Number.POSITIVE_INFINITY,
+  );
+}
+
+/**
+ * How the card names a hand-typed Vendor's service and which fixed category,
+ * if any, its fallback Estimate prices: both from the linked checklist
+ * Entry as it is now (review of #129, round 3). An Entry with a free label,
+ * including a fixed one a Member renamed, is a free label: no category
+ * fallback. Without a live link, the Vendor's own copy of the Entry's
+ * classification is used.
+ */
+async function handTypedClassification(
+  ctx: QueryCtx,
+  row: Doc<"privateVendors">,
+  links: LinkView[],
+): Promise<{ label: string; fixed: VendorCategory | null }> {
+  const entry = links[0]
+    ? await ctx.db.get("entries", links[0].checklistEntryId)
+    : null;
+  const fields =
+    entry?.kind === "checklist"
+      ? entry.fields
+      : { freeLabel: row.freeLabel, vendorCategory: row.vendorCategory };
+  const freeLabel = fields.freeLabel?.trim() || null;
+  if (freeLabel !== null) return { label: freeLabel, fixed: null };
+  const category = fields.vendorCategory;
+  if (category && isVendorCategory(category))
+    return { label: CATEGORY_LABELS[category], fixed: category };
+  return { label: category ?? "Vendor", fixed: null };
+}
 
 async function shortlistedView(
   ctx: QueryCtx,
@@ -596,8 +730,15 @@ async function shortlistedView(
   item: Extract<Doc<"items">, { kind: "shortlistedVendor" }>,
   asOf: number | null,
 ): Promise<ShortlistedView | null> {
-  const vendor = await ctx.db.get("vendors", item.data.vendorId);
-  if (vendor === null) return null;
+  const vendorId = sharedVendorIdOf(item);
+  const vendor = vendorId && (await ctx.db.get("vendors", vendorId));
+  // Another Event's hand-typed Vendor is never shown, whatever the Item says.
+  const own = await loadPrivateVendorForEvent(
+    ctx,
+    event._id,
+    privateVendorIdOf(item),
+  );
+  if (!vendor && !own) return null;
   const links = await linksOf(ctx, item._id);
   // One Function linked: price the card for it; several or none: Event-wide.
   const keys = [...new Set(links.flatMap((l) => l.functionKeys))];
@@ -607,10 +748,36 @@ async function shortlistedView(
     keys.length === 1 ? keys[0]! : null,
     asOf,
   );
+  if (vendor)
+    return {
+      itemId: item._id,
+      links,
+      card: await vendorView(ctx, vendor, pricing),
+      handTyped: null,
+    };
+  const row = own!;
+  const entryEstimates = await entryEstimatesOf(ctx, event._id, links);
+  const classification = await handTypedClassification(ctx, row, links);
   return {
     itemId: item._id,
-    card: await vendorView(ctx, vendor, pricing),
     links,
+    card: null,
+    handTyped: {
+      _id: row._id,
+      version: row.version,
+      name: row.name,
+      vendorCategory: row.vendorCategory,
+      freeLabel: row.freeLabel,
+      // The Entry's current name, so a renamed Entry shows here too.
+      categoryLabel: classification.label,
+      phone: row.phone,
+      area: row.area,
+      entryEstimates,
+      estimate:
+        entryEstimates.length > 0
+          ? null
+          : await categoryEstimate(ctx, classification.fixed, pricing),
+    },
   };
 }
 
@@ -913,13 +1080,234 @@ export const link = mutation({
       "vendor.manage",
     );
     const actor: MemberActor = { kind: "member", membershipId: membership._id };
+    const vendorId = sharedVendorIdOf(item);
+    if (vendorId === null) {
+      const own = await loadPrivateVendorForEvent(
+        ctx,
+        item.eventId,
+        privateVendorIdOf(item),
+      );
+      if (own === null) notFound("privateVendor");
+      return await linkHandTyped(ctx, {
+        eventId: item.eventId,
+        itemId: item._id,
+        checklistEntryId: args.checklistEntryId,
+        insert: memberInserter(ctx, actor),
+      });
+    }
     return await shortlistIn(ctx, {
       eventId: item.eventId,
-      vendorId: item.data.vendorId,
+      vendorId,
       checklistEntryId: args.checklistEntryId,
       functionKey: null,
       actor,
       insert: memberInserter(ctx, actor),
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Hand-typed Vendors (X7, vendors.md "Adding a Vendor by hand")
+
+/** The longest name or area a Member can type. */
+export const HAND_TYPED_TEXT_MAX = 80;
+/** A phone number: digits, with spaces, dashes, brackets and a leading +. */
+const PHONE_PATTERN = /^\+?[0-9][0-9 ()-]{4,19}$/;
+
+function squash(value: string | null): string {
+  return (value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function typedArea(value: string | null): string | null {
+  const area = squash(value);
+  if (area === "") return null;
+  if (area.length > HAND_TYPED_TEXT_MAX)
+    invalid(`The area can be at most ${HAND_TYPED_TEXT_MAX} characters.`);
+  return area;
+}
+
+function typedName(value: string): string {
+  const name = squash(value);
+  if (name === "") invalid("Type the Vendor's name.");
+  if (name.length > HAND_TYPED_TEXT_MAX)
+    invalid(`The name can be at most ${HAND_TYPED_TEXT_MAX} characters.`);
+  return name;
+}
+
+function typedPhone(value: string | null): string | null {
+  const phone = squash(value);
+  if (phone === "") return null;
+  if (!PHONE_PATTERN.test(phone))
+    invalid("That phone number has something other than digits in it.");
+  return phone;
+}
+
+async function liveChecklistEntry(
+  ctx: Ctx,
+  eventId: Id<"events">,
+  entryId: Id<"entries">,
+): Promise<Extract<Doc<"entries">, { kind: "checklist" }>> {
+  const entry = await ctx.db.get("entries", entryId);
+  if (
+    entry === null ||
+    entry.eventId !== eventId ||
+    entry.kind !== "checklist" ||
+    entry.deletedAt !== null
+  )
+    notFound("checklistEntry");
+  return entry;
+}
+
+/** Links a hand-typed Vendor's Item to one more checklist Entry; an existing pair changes nothing. */
+async function linkHandTyped(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    itemId: Id<"items">;
+    checklistEntryId: Id<"entries">;
+    insert: Insert;
+  },
+): Promise<{ itemId: Id<"items">; linkId: Id<"vendorLinks"> }> {
+  await liveChecklistEntry(ctx, args.eventId, args.checklistEntryId);
+  const links = await ctx.db
+    .query("vendorLinks")
+    .withIndex("by_item", (q) => q.eq("shortlistItemId", args.itemId))
+    .take(MAX_LINKS_PER_ITEM);
+  const linked = links.find(
+    (link) => link.checklistEntryId === args.checklistEntryId,
+  );
+  if (linked) return { itemId: args.itemId, linkId: linked._id };
+  const linkId = await args.insert("vendorLinks", {
+    eventId: args.eventId,
+    shortlistItemId: args.itemId,
+    checklistEntryId: args.checklistEntryId,
+    status: "considering",
+  });
+  return { itemId: args.itemId, linkId };
+}
+
+/**
+ * "Type it in" from a checklist Entry's Find Vendors: a Vendor with no
+ * website, such as the family's usual caterer. It is private to this Event
+ * and holds only what the Member typed; its category is the Entry's (a fixed
+ * category or its free label). Like a shared Vendor it is shortlisted onto
+ * the Vendors Section and linked to the Entry as Considering, but it has no
+ * Listed prices and no Marker.
+ */
+export const addHandTyped = mutation({
+  args: {
+    eventId: v.id("events"),
+    checklistEntryId: v.id("entries"),
+    name: v.string(),
+    phone: v.union(v.string(), v.null()),
+    area: v.union(v.string(), v.null()),
+  },
+  returns: v.object({
+    privateVendorId: v.id("privateVendors"),
+    itemId: v.id("items"),
+    linkId: v.id("vendorLinks"),
+  }),
+  handler: async (ctx, args) => {
+    const { membership } = await requireAccess(
+      ctx,
+      args.eventId,
+      "vendor.manage",
+    );
+    const actor: MemberActor = { kind: "member", membershipId: membership._id };
+    const entry = await liveChecklistEntry(
+      ctx,
+      args.eventId,
+      args.checklistEntryId,
+    );
+    const name = typedName(args.name);
+    const phone = typedPhone(args.phone);
+    const area = typedArea(args.area);
+    const insert = memberInserter(ctx, actor);
+    const freeLabel = entry.fields.freeLabel?.trim() || null;
+    const privateVendorId = await insert("privateVendors", {
+      eventId: args.eventId,
+      name,
+      vendorCategory: freeLabel ? null : entry.fields.vendorCategory,
+      freeLabel,
+      phone,
+      area,
+      marker: null,
+      createdBy: actor,
+      createdAt: Date.now(),
+    });
+    const { sectionId, position } = await placeNewItem(ctx, {
+      eventId: args.eventId,
+      kind: "shortlistedVendor",
+      size: SHORTLISTED_CARD_SIZE,
+    });
+    const itemId = await insert("items", {
+      eventId: args.eventId,
+      sectionId,
+      kind: "shortlistedVendor",
+      position,
+      size: SHORTLISTED_CARD_SIZE,
+      functionKey: null,
+      data: { privateVendorId },
+      createdBy: actor,
+    });
+    const { linkId } = await linkHandTyped(ctx, {
+      eventId: args.eventId,
+      itemId,
+      checklistEntryId: entry._id,
+      insert,
+    });
+    return { privateVendorId, itemId, linkId };
+  },
+});
+
+/**
+ * "Edit" on a hand-typed Vendor's card: its name, phone and area. The
+ * category stays the Entry's. `expectedVersion` is the version the card
+ * showed; a newer edit by someone else refuses this one with
+ * `VersionConflict` (carrying the current values), so a stale form never
+ * overwrites it.
+ */
+export const editHandTyped = mutation({
+  args: {
+    privateVendorId: v.id("privateVendors"),
+    expectedVersion: v.number(),
+    name: v.string(),
+    phone: v.union(v.string(), v.null()),
+    area: v.union(v.string(), v.null()),
+  },
+  returns: v.object({ version: v.number() }),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("privateVendors", args.privateVendorId);
+    if (row === null) notFound("privateVendor");
+    const { membership } = await requireAccess(
+      ctx,
+      row.eventId,
+      "vendor.manage",
+    );
+    const actor: MemberActor = { kind: "member", membershipId: membership._id };
+    const patch = {
+      name: typedName(args.name),
+      phone: typedPhone(args.phone),
+      area: typedArea(args.area),
+    };
+    if (row.version !== args.expectedVersion)
+      throw new VersionConflict({
+        table: "privateVendors",
+        id: row._id,
+        expectedVersion: args.expectedVersion,
+        currentVersion: row.version,
+        current: {
+          name: row.name,
+          phone: row.phone,
+          area: row.area,
+          version: row.version,
+        },
+      });
+    return await memberWrite(ctx, {
+      table: "privateVendors",
+      id: row._id,
+      patch,
+      actor,
     });
   },
 });

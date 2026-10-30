@@ -1057,6 +1057,7 @@ Goal: transfer to a Co-owner or Member; delete after typing the Event's name (sh
 ### X7. Hand-typed Vendors (SHOULD)
 Labels: `slice`, `vendors`, `stretch`. Size: S. Blocked by: S9.
 Goal: a Member types a Vendor with no website (name, category, phone, area); it stays private to the Event, has only Quotes, and a Marker only if dropped on the map. A free-label category's Estimate comes from S3's estimate cascade ([ADR 0013](../adr/0013-estimates-are-researched-with-the-reference-table-as-fallback.md)); the hand-typed Vendor's details never reach the research prompt. Contract change: `privateVendors`.
+  - Amended 30 Oct: in v1 a hand-typed Vendor's card shows the Estimate of the budget lines its checklist Entry pays for. A free-label Entry gets one when a Member asks the Assistant (`addEntry`, through the estimate cascade); otherwise the card says "No Estimate yet". Checklist Entries carry no Estimate of their own, and creating a budget line unasked would change the Budget totals.
 
 ### X9. The other 9 vibe pick sets (SHOULD)
 Labels: `slice`, `inspirations`, `stretch`, `needs-human`. Size: S. Blocked by: S18.

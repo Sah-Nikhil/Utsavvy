@@ -29,6 +29,7 @@ import { requireAccessFor } from "../../lib/access";
 import { AccessDenied } from "../../lib/errors";
 import { once } from "../../lib/idempotency";
 import { assistantInsert, assistantWrite } from "../../lib/write";
+import { sharedVendorIdOf } from "../../lib/vendors";
 import {
   findKnownFor,
   linkStatusValidator,
@@ -481,10 +482,9 @@ export const setStatusForRun = internalMutation({
       if (link === null || link.eventId !== args.eventId)
         throw new AccessDenied("wrongEvent", "vendor.manage");
       const item = await ctx.db.get("items", link.shortlistItemId);
-      const vendor =
-        item?.kind === "shortlistedVendor"
-          ? await ctx.db.get("vendors", item.data.vendorId)
-          : null;
+      const vendorId =
+        item?.kind === "shortlistedVendor" ? sharedVendorIdOf(item) : null;
+      const vendor = vendorId ? await ctx.db.get("vendors", vendorId) : null;
       const entry = await ctx.db.get("entries", link.checklistEntryId);
       const text = await requestText(ctx, g.run);
       if (

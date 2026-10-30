@@ -203,6 +203,7 @@ function actionsFor(
     case "vendors":
     case "vendorLinks":
     case "quotes":
+    case "privateVendors":
       actions.add("vendor.manage");
       break;
     default:
@@ -330,6 +331,8 @@ function thingOf(table: HistoryTable, doc: Fields): string {
       return "a Shortlisted Vendor";
     case "quotes":
       return "a Quote";
+    case "privateVendors":
+      return `the Vendor${quoted(doc.name)}`;
   }
 }
 
@@ -983,6 +986,7 @@ function plainName(table: HistoryTable, doc: Fields): string {
     case "sections":
     case "eventFunctions":
     case "vendors":
+    case "privateVendors":
       return typeof doc.name === "string" && doc.name.trim() !== ""
         ? doc.name.trim()
         : thingOf(table, doc);
