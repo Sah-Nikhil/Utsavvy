@@ -245,7 +245,12 @@ export function HandTypedVendorCard({
             <p className="text-caption text-ink-3">{estimate.basis.text}</p>
           </>
         ) : (
-          <p className="text-label text-ink-2">No Estimate yet</p>
+          <>
+            <p className="text-label text-ink-2">No Estimate yet</p>
+            <p className="text-caption text-ink-3">
+              Ask Utsavvy in the Chat to estimate it.
+            </p>
+          </>
         )}
         <p className="text-caption text-ink-3">
           No Listed prices: record a Quote once you&rsquo;ve talked to them.
