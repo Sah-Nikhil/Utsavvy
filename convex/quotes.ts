@@ -16,6 +16,7 @@ import {
   standaloneTotal,
 } from "../components/quotes/quotes";
 import { can } from "../lib/access/permissions";
+import { functionKey as functionKeyOf } from "../lib/brief/functions";
 import { formatINR } from "../lib/format";
 import { referenceTableBasis } from "../lib/pricing";
 import type { EntryFields } from "../lib/types/canvas";
@@ -887,6 +888,63 @@ export function functionsNamedIn(
     .map((fn) => fn.key);
 }
 
+/**
+ * The Functions a Member's answer names: by name or key as written, or by the
+ * names and spellings the Brief knows (`functionKey` in lib/brief/functions.ts:
+ * "shaadi", "vivah" and "शादी" are the wedding), taken one word or two words
+ * at a time.
+ */
+function functionsAnsweredIn(
+  functions: readonly Doc<"eventFunctions">[],
+  text: string,
+): string[] {
+  const keys = new Set(functionsNamedIn(functions, text));
+  const words = text
+    .normalize("NFC")
+    .split(/[^\p{L}\p{M}\p{N}']+/u)
+    .filter((word) => word !== "");
+  const phrases = [
+    ...words,
+    ...words.slice(1).map((word, i) => `${words[i]} ${word}`),
+  ];
+  for (const phrase of phrases) {
+    const key = functionKeyOf(phrase);
+    if (functions.some((fn) => fn.key === key)) keys.add(key);
+  }
+  return [...keys];
+}
+
+/**
+ * Words that make an answer something other than a plain choice: a "no" or a
+ * doubt, in English, Hinglish or Hindi. The negations are the S9 intent
+ * gate's (`NEGATION` in components/vendors/asks.ts), with doubt and "except"
+ * added. Hindi words are matched as whole words, so "मतलब" is not "मत".
+ */
+const UNSURE_ANSWER =
+  /\b(?:no|not|nope|never|don'?t|do not|except|maybe|perhaps|either|neither|nor|unsure|nahi|nahin|nai|mat|na|shayad)\b/i;
+const UNSURE_HINDI = /(?<![\p{L}\p{M}])(?:नहीं|नही|मत|न|शायद)(?![\p{L}\p{M}])/u;
+
+/**
+ * What a Member's answer chooses among `options`: exactly one of them, said
+ * plainly. A "no" or a doubt anywhere, or more than one option named, is
+ * `unclear`, and the Member is asked again; an answer naming none of them is
+ * `none`. Never a pick on the Member's behalf.
+ */
+function answerChoice(
+  functions: readonly Doc<"eventFunctions">[],
+  text: string,
+  options: readonly Doc<"eventFunctions">[],
+): { key: string } | { unclear: true } | { none: true } {
+  if (UNSURE_ANSWER.test(text) || UNSURE_HINDI.test(text))
+    return { unclear: true };
+  const picked = functionsAnsweredIn(functions, text).filter((key) =>
+    options.some((fn) => fn.key === key),
+  );
+  if (picked.length > 1) return { unclear: true };
+  if (picked.length === 0) return { none: true };
+  return { key: picked[0]! };
+}
+
 type Cover =
   | { keys: string[]; named: boolean }
   | { ask: Doc<"eventFunctions">[]; unplaced: string[] }
@@ -1030,27 +1088,45 @@ export const proposeForRun = internalMutation({
             return notServed(
               `The ${cover.unserved.map(nameOf).join(" and the ")}`,
             );
-          const said = functionsNamedIn(functions, await requestText(ctx, run));
-          if (said.length !== 1 || said[0] !== choice)
-            return refusal(
-              "notNamed",
-              `The Member's message doesn't name the ${nameOf(choice)} as the one Function this Quote is for, so nothing was proposed. Don't pick a Function yourself: ask the Member which Function, and call proposeQuote again after they answer.`,
-            );
+          const served = [...functions]
+            .filter(
+              (fn) => entryKeys.length === 0 || entryKeys.includes(fn.key),
+            )
+            .sort((a, b) => a.order - b.order);
+          let options: Doc<"eventFunctions">[] | null = served;
           if (pasteMessageId !== null) {
             if (!("ask" in cover) || !cover.ask.some((fn) => fn.key === choice))
               return refusal(
                 "notAChoice",
                 `The ${nameOf(choice)} wasn't one of the Functions this Quote could be for, so nothing was proposed. Tell the Member, and ask again which of the Functions you listed it is for.`,
               );
-          } else if (
-            "keys" in cover &&
-            cover.named &&
-            (cover.keys.length !== 1 || cover.keys[0] !== choice)
-          )
-            return refusal(
-              "notNamed",
-              "The pasted message names other Functions than that one. Call proposeQuote again without a functionKey.",
+            options = cover.ask;
+          } else if ("keys" in cover && cover.named) {
+            // The paste names its Functions itself.
+            if (cover.keys.length !== 1 || cover.keys[0] !== choice)
+              return refusal(
+                "notNamed",
+                "The pasted message names other Functions than that one. Call proposeQuote again without a functionKey.",
+              );
+            options = null;
+          }
+          if (options !== null) {
+            const said = answerChoice(
+              functions,
+              await requestText(ctx, run),
+              options,
             );
+            if ("unclear" in said)
+              return refusal(
+                "unclearAnswer",
+                `The Member's message isn't one clear choice of Function: it says no or isn't sure, or names more than one. Nothing was proposed. Don't pick one yourself: ask them directly, "${options.map((fn) => fn.name).join(" or ")}?", and call proposeQuote again after they answer.`,
+              );
+            if ("none" in said || said.key !== choice)
+              return refusal(
+                "notNamed",
+                `The Member's message doesn't name the ${nameOf(choice)} as the one Function this Quote is for, so nothing was proposed. Don't pick a Function yourself: ask the Member which Function, and call proposeQuote again after they answer.`,
+              );
+          }
           functionKeys = [choice];
         } else {
           if (pasteMessageId !== null)
@@ -1108,6 +1184,35 @@ export const proposeForRun = internalMutation({
           values: { linkId: link._id, ...fields, fileId: null },
         };
         const line = await describeAddQuote(ctx, change);
+        // One answer makes one Proposal: a second tool call, or the Member
+        // saying it again later, gets the open card back (review of #128).
+        const choiceKey =
+          pasteMessageId === null
+            ? null
+            : `quoteChoice:${pasteMessageId}:${link._id}:${functionKeys.join(",")}`;
+        const chosen =
+          choiceKey === null
+            ? null
+            : await ctx.db
+                .query("toolCalls")
+                .withIndex("by_key", (q) => q.eq("key", choiceKey))
+                .unique();
+        if (chosen !== null) {
+          const proposalId = ctx.db.normalizeId(
+            "proposals",
+            String(chosen.result),
+          );
+          const open = proposalId
+            ? await ctx.db.get("proposals", proposalId)
+            : null;
+          if (open !== null && open.status === "open")
+            return {
+              ok: true,
+              proposalId: open._id,
+              changes: [line],
+              note: "This Quote's Proposal card is already in the Chat, waiting for a Member to Accept it; nothing new was made. Say so in one line.",
+            };
+        }
         const fromComment = run.source === "comment" && run.commentId !== null;
         try {
           const proposalId = await createProposal(ctx, {
@@ -1121,6 +1226,18 @@ export const proposeForRun = internalMutation({
             summary: line.split(":")[0]!,
             changes: [change],
           });
+          if (choiceKey !== null) {
+            if (chosen === null)
+              await ctx.db.insert("toolCalls", {
+                key: choiceKey,
+                result: proposalId,
+                at: Date.now(),
+              });
+            else
+              await ctx.db.patch("toolCalls", chosen._id, {
+                result: proposalId,
+              });
+          }
           return {
             ok: true,
             proposalId,
