@@ -1979,6 +1979,35 @@ describe("changing an essential after the plan", () => {
     expect(after[0]).toMatchObject({ proposalId: proposal._id });
   });
 
+  // Issue #132: Undo all takes back the Unallocated row its Accept added.
+  it("Undo all of a budget raise past the high end takes back its Unallocated row", async () => {
+    const { s } = await plannedJaipur();
+    const totalBefore = (await rollupOf(s)).rollup.total;
+    const unallocatedRows = async () =>
+      (await budgetEntries(s)).filter((e) => e.fields.role === "unallocated");
+    expect(await unallocatedRows()).toHaveLength(0);
+    await s.asMeera.mutation(api.brief.editField, {
+      eventId: s.eventId,
+      change: { field: "budget", budget: 10_000_000 },
+    });
+    const proposal = await openProposal(s);
+    await acceptNext(s);
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(await unallocatedRows()).toHaveLength(1);
+    expect((await rollupOf(s)).rollup.total).toBe(10_000_000);
+
+    const result = await s.asMeera.mutation(api.history.undoGroup, {
+      groupKey: proposal._id,
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(result.message).not.toMatch(/can't be undone/);
+    expect(result.undone).toBe(result.total);
+    const { event, rollup } = await rollupOf(s);
+    expect(event.budgetTotal).toBe(2500000);
+    expect(await unallocatedRows()).toHaveLength(0);
+    expect(rollup.total).toBe(totalBefore);
+  });
+
   it("rewrites the Budget note to match the badge after a ₹20L plan moves to Mumbai", async () => {
     const { s } = await plannedJaipur();
     await s.asMeera.mutation(api.brief.editField, {
