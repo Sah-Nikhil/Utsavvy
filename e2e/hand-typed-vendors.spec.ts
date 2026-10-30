@@ -225,7 +225,8 @@ test.describe("hand-typed Vendors, seeded on a local deployment", () => {
     });
     await expect(phoneSheet).toBeVisible();
     const box = await phoneSheet.boundingBox();
-    expect(box!.width).toBeLessThanOrEqual(PHONE.width);
+    // Sub-pixel layout can report 390.00001 for a full-width sheet.
+    expect(Math.round(box!.width)).toBeLessThanOrEqual(PHONE.width);
     await phoneSheet
       .getByRole("heading", { name: "No website? Type it in" })
       .scrollIntoViewIfNeeded();
