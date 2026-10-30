@@ -14,6 +14,7 @@ export const HISTORY_TABLES = [
   "vendors",
   "vendorLinks",
   "quotes",
+  "privateVendors",
 ] as const;
 export type HistoryTable = (typeof HISTORY_TABLES)[number];
 export const historyTableValidator = v.union(
@@ -25,6 +26,7 @@ export const historyTableValidator = v.union(
   v.literal("vendors"),
   v.literal("vendorLinks"),
   v.literal("quotes"),
+  v.literal("privateVendors"),
 );
 
 /** Tables with `deletedAt`, so a soft delete can be Restored. */
@@ -41,6 +43,7 @@ export const historyDocIdValidator = v.union(
   v.id("vendors"),
   v.id("vendorLinks"),
   v.id("quotes"),
+  v.id("privateVendors"),
 );
 
 /** `people` covers role switches, removals, unblocks and link resets (S1). */

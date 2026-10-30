@@ -897,7 +897,9 @@ describe("Vendors (S9): the starter set and the shortlist", () => {
     // seed/jaipur-vendors.json.
     const shortlist = items.map((item) => {
       if (item.kind !== "shortlistedVendor") throw new Error("not a Vendor");
-      const vendor = vendors.find((v) => v._id === item.data.vendorId)!;
+      const vendor = vendors.find(
+        (v) => "vendorId" in item.data && v._id === item.data.vendorId,
+      )!;
       const itemLinks = links.filter((l) => l.shortlistItemId === item._id);
       expect(itemLinks).toHaveLength(1);
       const link = itemLinks[0]!;

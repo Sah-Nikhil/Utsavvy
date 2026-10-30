@@ -62,7 +62,7 @@ describe.skipIf(!LIVE)("scripted cases (live model)", () => {
         expect(items).toHaveLength(1);
         const item = items[0]!;
         if (item.kind !== "shortlistedVendor") throw new Error("kind");
-        expect(item.data.vendorId).toBe(card!.vendorIds[1]);
+        expect(item.data).toEqual({ vendorId: card!.vendorIds[1] });
       },
     });
   });

@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { inlineControlClass } from "@/components/items/budget/parts";
+import { cn } from "@/lib/utils";
 import {
   CATEGORY_PLURALS,
   functionChoice,
@@ -16,6 +17,7 @@ import {
   pricingNote,
   type FunctionOption,
 } from "./cards";
+import { HandTypedVendorForm } from "./HandTypedVendorForm";
 import { VendorCard } from "./VendorCard";
 
 /*
@@ -24,6 +26,11 @@ import { VendorCard } from "./VendorCard";
  * Event's city, priced for its Function. "Add to Canvas" shortlists one and
  * links it to this Entry. Outside Jaipur there are none yet, so it points to
  * Chat web search instead. Only Members who can change the plan see it.
+ *
+ * "Type it in" (X7) adds a Vendor with no website, such as the family's usual
+ * caterer, by name, phone and area. It is private to the Event and is linked
+ * to this Entry the same way. A free-label Entry ("Mehendi artist") has no
+ * known Vendors, so its sheet offers only that.
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -38,8 +45,9 @@ export function FindVendors({
 }: {
   eventId: Id<"events">;
   entryId: Id<"entries">;
-  /** The Entry as Members read it: "Caterer", "Venue". */
+  /** The Entry as Members read it: "Caterer", "Venue", or its free label. */
   entryName: string;
+  /** A fixed category key, or the Entry's free label. */
   category: string;
   /** The Functions the Entry serves. */
   functionKeys: string[];
@@ -54,16 +62,18 @@ export function FindVendors({
   const functionName =
     choice.options.find((fn) => fn.key === functionKey)?.name ?? null;
   const [asOf] = useState(() => Math.floor(Date.now() / HOUR) * HOUR);
+  const known = isVendorCategory(category);
   const found = useQuery(
     api.vendors.findKnown,
-    open ? { eventId, category, functionKey, asOf } : "skip",
+    open && known ? { eventId, category, functionKey, asOf } : "skip",
   );
   const shortlist = useMutation(api.vendors.shortlist);
+  const addHandTyped = useMutation(api.vendors.addHandTyped);
   const [adding, setAdding] = useState<Id<"vendors"> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [typedIn, setTypedIn] = useState<string | null>(null);
 
-  if (!isVendorCategory(category)) return null;
-  const plural = CATEGORY_PLURALS[category];
+  const plural = known ? CATEGORY_PLURALS[category] : null;
 
   async function add(vendorId: Id<"vendors">) {
     setAdding(vendorId);
@@ -100,13 +110,15 @@ export function FindVendors({
         side="right"
         title={`Find Vendors: ${entryName}`}
         description={
-          found?.city
+          plural && found?.city
             ? `${plural[0]!.toUpperCase()}${plural.slice(1)} Utsavvy knows in ${found.city}`
-            : undefined
+            : plural
+              ? undefined
+              : "Type in a Vendor you already know"
         }
         className="sm:w-[min(26rem,100vw)]"
       >
-        {choice.options.length > 1 ? (
+        {known && choice.options.length > 1 ? (
           <label className="mb-2 flex items-center gap-2 text-label text-ink-2">
             Compare for
             <select
@@ -130,7 +142,7 @@ export function FindVendors({
             {pricingNote(functionName, found.guests, choice.options.length)}
           </p>
         ) : null}
-        {found === undefined ? (
+        {!known ? null : found === undefined ? (
           <div
             aria-hidden
             className="h-64 animate-pulse rounded-md bg-surface-sunk"
@@ -187,6 +199,51 @@ export function FindVendors({
             {error}
           </p>
         ) : null}
+        <section
+          aria-labelledby={`type-it-in-${entryId}`}
+          className={cn(
+            "mt-5 grid gap-3 rounded-lg bg-surface-sunk p-4",
+            known ? "" : "mt-0",
+          )}
+        >
+          <div className="grid gap-0.5">
+            <h3
+              id={`type-it-in-${entryId}`}
+              className="text-title font-semibold text-ink"
+            >
+              No website? Type it in
+            </h3>
+            <p className="text-caption text-ink-2">
+              For a Vendor you already know, such as the family&rsquo;s usual{" "}
+              {entryName.toLowerCase()}. Only this Event sees it, and only what
+              you type is kept.
+            </p>
+          </div>
+          <HandTypedVendorForm
+            idPrefix={`add-${entryId}`}
+            categoryLabel={entryName}
+            submitLabel="Add to Canvas"
+            busyLabel="Adding…"
+            onSubmit={async (values) => {
+              setTypedIn(null);
+              await addHandTyped({
+                eventId,
+                checklistEntryId: entryId,
+                ...values,
+              });
+              setTypedIn(values.name);
+            }}
+          />
+          {typedIn ? (
+            <p
+              role="status"
+              className="inline-flex items-center gap-1 text-label font-medium text-ink-2"
+            >
+              <Check aria-hidden className="size-4" />
+              Added {typedIn} to the Canvas, linked to {entryName}.
+            </p>
+          ) : null}
+        </section>
       </SheetContent>
     </Sheet>
   );
