@@ -3236,9 +3236,8 @@ export function repriceBudget(
   type Line = EssentialInput["lines"][number];
   const rangeOf = (l: Line) =>
     ranges.has(l.id) ? ranges.get(l.id)! : storedRange(l.fields);
-  const free = state.lines.filter(
-    (l) => !l.kept && l.fields.category !== null && rangeOf(l) !== null,
-  );
+  // A free-label line priced from a range moves with the others (#133).
+  const free = state.lines.filter((l) => !l.kept && rangeOf(l) !== null);
   const fixedTotal = state.lines
     .filter((l) => !free.includes(l))
     .reduce((sum, l) => sum + entryAmount(l.fields), 0);
@@ -4157,7 +4156,9 @@ export async function runCityReprice(
 /**
  * The new city's per-unit range for every line a city change re-prices (the
  * lines a Member didn't set or get a Quote for), from the estimate cascade,
- * with the version each line was read at.
+ * with the version each line was read at. A free-label line is priced from
+ * its label alone, with the city and the Event type (#133); nothing else
+ * from the Event reaches the cascade.
  */
 async function cityPrices(
   ctx: EstimateCtx,
@@ -4165,7 +4166,9 @@ async function cityPrices(
   city: { name: string; tier: CityTier },
   deps?: Partial<EstimateDeps>,
 ): Promise<CityPrice[]> {
-  const free = state.lines.filter((l) => !l.kept && l.fields.category !== null);
+  const free = state.lines.filter(
+    (l) => !l.kept && (l.fields.category ?? l.fields.label).trim() !== "",
+  );
   const ranges = await estimateLines(
     ctx,
     {
@@ -4174,7 +4177,7 @@ async function cityPrices(
       tier: city.tier,
       eventType: state.eventType,
       lines: free.map((l) => ({
-        category: l.fields.category!,
+        category: l.fields.category ?? l.fields.label,
         quantity: l.fields.quantity,
         unit: l.fields.unit,
       })),

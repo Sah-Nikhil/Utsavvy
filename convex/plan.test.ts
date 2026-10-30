@@ -13,7 +13,12 @@ import { getFunctionName, type FunctionReference } from "convex/server";
 import { cityRepriceNoticeId } from "../lib/chat/notices";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { estimateLines, stubEstimateDeps } from "./estimates";
+import {
+  estimateLines,
+  stubEstimateDeps,
+  type KnowledgeInput,
+} from "./estimates";
+import { knowledgeBasis } from "../lib/pricing/basis";
 import { addDays } from "../lib/brief/dates";
 import {
   languageModel,
@@ -1977,6 +1982,131 @@ describe("changing an essential after the plan", () => {
     const after = (await rechecks(s)).slice(before);
     expect(after).toHaveLength(1);
     expect(after[0]).toMatchObject({ proposalId: proposal._id });
+  });
+
+  // Issue #133: a free-label line follows a city change like any other line.
+  it("a city change re-estimates a free-label line for the new city from its label alone", async () => {
+    const { s } = await plannedJaipur();
+    const jaipurRange = { unit: "per_event", unitLow: 20000, unitHigh: 30000 };
+    const lineId = await s.t.run(async (ctx) => {
+      const item = (
+        await ctx.db
+          .query("items")
+          .withIndex("by_event_kind", (q) =>
+            q.eq("eventId", s.eventId).eq("kind", "budget"),
+          )
+          .take(5)
+      ).find((i) => i.deletedAt === null)!;
+      const owner = (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner")!;
+      return await ctx.db.insert("entries", {
+        eventId: s.eventId,
+        itemId: item._id,
+        order: 999,
+        functionKey: null,
+        kind: "budget",
+        fields: {
+          label: "Mehndi cones",
+          category: null,
+          quantity: 1,
+          unit: "per_event",
+          estimate: {
+            low: 20000,
+            high: 30000,
+            amount: 20000,
+            label: "Estimate",
+            basis: knowledgeBasis({ ...jaipurRange, reasoning: "Jaipur" }),
+          },
+          plannedAmount: null,
+          role: "line",
+          belowUsualRange: false,
+          editedByMember: false,
+        },
+        assumed: [],
+        createdBy: {
+          kind: "assistant",
+          forMembershipId: owner._id,
+          runId: null,
+          proposalId: null,
+          acceptedBy: null,
+        },
+        version: 1,
+        deletedAt: null,
+      });
+    });
+    const owner = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner"),
+    );
+    const asked: KnowledgeInput[] = [];
+    await runEssentialProposal(
+      actionCtx(s.t),
+      {
+        eventId: s.eventId,
+        change: { field: "city", city: "Mumbai" },
+        requestedBy: owner!._id,
+      },
+      {
+        claudeReachable: () => false,
+        knowledge: async (input) => {
+          asked.push(input);
+          return {
+            model: "stub",
+            results: input.lines.map((l) => ({
+              key: l.key,
+              unitLow: 45000,
+              unitHigh: 60000,
+              reasoning: "Mumbai prices",
+            })),
+          };
+        },
+      },
+    );
+    await acceptNext(s);
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.city?.tier === "X",
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+
+    const line = (await budgetEntries(s)).find((e) => e._id === lineId)!;
+    expect(line.fields.estimate!.basis).toMatchObject({
+      kind: "assistantKnowledge",
+      unitLow: 45000,
+      unitHigh: 60000,
+    });
+    expect(line.fields.estimate!.amount).toBeGreaterThanOrEqual(45000);
+    expect(line.fields.estimate!.amount).toBeLessThanOrEqual(60000);
+
+    // The estimate asked about the label, the city and the Event type only.
+    const prompt = JSON.stringify(asked);
+    expect(prompt).toContain("Mehndi cones");
+    expect(prompt).toContain("Mumbai");
+    const names = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(20)
+      ).map((m) => m.displayName),
+    );
+    for (const name of names) expect(prompt).not.toContain(name);
+
+    // The Budget check counts it as priced, at its Mumbai range.
+    const { event } = await rollupOf(s);
+    const priced = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line" && e.fields.estimate !== null,
+    ).length;
+    expect(event.budgetCheck!.basis!.lines).toBe(priced);
   });
 
   it("rewrites the Budget note to match the badge after a ₹20L plan moves to Mumbai", async () => {
