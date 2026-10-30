@@ -1500,6 +1500,9 @@ async function recomputeBudget(
   let contingency = 0;
   let unallocated = 0;
   let researched = 0;
+  /** Lines carrying an earlier Estimate's amount without a range (review of #134). */
+  let carried = 0;
+  const quoted = await quotedLines(ctx, eventId);
   let allAtHigh = true;
   let catering = 0;
   const mealFunctions = new Set<string>();
@@ -1543,6 +1546,13 @@ async function recomputeBudget(
         amountAtMost(basis.unit, basis.unitHigh, e.fields.quantity)
     )
       allAtHigh = false;
+    if (
+      !basis &&
+      e.fields.plannedAmount !== null &&
+      !e.fields.editedByMember &&
+      !quoted.has(e._id)
+    )
+      carried++;
     if (e.fields.category !== null && MEALS.test(e.fields.category)) {
       catering += entryAmount(e.fields);
       if (e.functionKey !== null) mealFunctions.add(e.functionKey);
@@ -1573,6 +1583,9 @@ async function recomputeBudget(
   }
   const parts = [
     checkNote,
+    carried === 0
+      ? null
+      : `${carried === 1 ? "1 line keeps" : `${carried} lines keep`} an earlier Estimate amount in the Event total.`,
     cateringNote(catering, budget, mealFunctions.size),
   ].filter((n): n is string => n !== null && n !== "");
   const note = parts.length > 0 ? parts.join(" ") : null;
@@ -2951,10 +2964,14 @@ export async function essentialInputOf(
           functionKey: entry.functionKey,
           fields: entry.fields,
           assumed: entry.assumed,
+          // A carried amount (an earlier Estimate's amount kept when the
+          // new city's cascade couldn't price the line; review of #134) isn't
+          // a Member's, so the line stays open to a later price.
           kept:
             entry.fields.editedByMember ||
-            entry.fields.plannedAmount !== null ||
-            quoted.has(entry._id),
+            quoted.has(entry._id) ||
+            (entry.fields.plannedAmount !== null &&
+              entry.fields.estimate !== null),
         });
       }
     } else if (
@@ -3264,6 +3281,8 @@ export function repriceBudget(
     const fields: EntryFields<"budget"> = {
       ...l.fields,
       estimate: priced.entries[i]!,
+      // A carried amount gives way to the new Estimate.
+      plannedAmount: null,
       belowUsualRange: priced.belowUsualRange,
     };
     linesTotal += entryAmount(fields);

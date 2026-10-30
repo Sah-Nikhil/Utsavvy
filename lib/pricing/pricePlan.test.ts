@@ -322,7 +322,7 @@ describe("a line with no Estimate yet", () => {
     expect(result.entries[1]).toBeNull();
     expect(result.budgetCheck.minimum).toBe(110000);
     expect(result.note).toContain(
-      "1 line has no Estimate yet and counts as zero.",
+      "1 line has no Estimate yet and counts as zero in the Budget check.",
     );
     expect(total(result)).toBe(330000);
   });

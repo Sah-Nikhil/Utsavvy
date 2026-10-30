@@ -40,6 +40,7 @@ import {
   pricePlanDraft,
   puneGaneshUtsavDraft,
   runCityReprice,
+  repriceBudget,
   runEssentialProposal,
   runPlan,
   toFirstPlanDraft,
@@ -1913,7 +1914,9 @@ describe("changing an essential after the plan", () => {
       (e) => e.fields.role === "line" && e.fields.estimate !== null,
     ).length;
     expect(check!.basis).toEqual({ researched: 0, lines: priced });
-    expect(note).toMatch(/2 lines have no Estimate yet and count as zero\./);
+    expect(note).toMatch(
+      /2 lines have no Estimate yet and count as zero in the Budget check\./,
+    );
   });
 
   // Review of #130, round 3: one recheck per Accept, never a second plain one.
@@ -2536,7 +2539,41 @@ describe("trying a failed city re-price again", () => {
       ).find((i) => i.deletedAt === null)!;
       return item.kind === "budget" ? item.data.note : null;
     });
-    expect(note).toMatch(/1 line has no Estimate yet and counts as zero\./);
+    expect(note).toMatch(
+      /1 line has no Estimate yet and counts as zero in the Budget check\. 1 line keeps an earlier Estimate amount in the Event total\./,
+    );
+
+    // Review of #134, round 2: the carried amount isn't a Member's, so the
+    // line stays open to a later city price, which clears the carried amount.
+    const state = await s.t.query(internal.plan.essentialInput, {
+      eventId: s.eventId,
+      today: TODAY,
+    });
+    const carried = state!.lines.find((l) => l.id === lineId)!;
+    expect(carried.kept).toBe(false);
+    const later = repriceBudget(
+      state!,
+      state!.budget!,
+      new Map([
+        [
+          lineId,
+          {
+            unit: "per_event",
+            unitLow: 45000,
+            unitHigh: 60000,
+            basis: knowledgeBasis({
+              unit: "per_event",
+              unitLow: 45000,
+              unitHigh: 60000,
+              reasoning: "Mumbai",
+            }),
+          },
+        ],
+      ]),
+    );
+    const repriced = later.lines.find((l) => l.id === lineId)!.fields;
+    expect(repriced.estimate!.basis.unitLow).toBe(45000);
+    expect(repriced.plannedAmount).toBeNull();
   });
 
   it("Try again applies the prices stored with the Proposal, without a new lookup", async () => {

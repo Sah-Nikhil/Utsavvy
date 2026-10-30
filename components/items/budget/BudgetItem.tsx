@@ -159,9 +159,7 @@ function BudgetBody({
   const indexOf = functionIndexer(functions);
   const lines = entries.filter((e) => e.fields.role === "line");
   const held = entries.filter((e) => e.fields.role !== "line");
-  const noEstimate = lines.filter(
-    (e) => e.fields.estimate === null && e.fields.plannedAmount === null,
-  ).length;
+  const noEstimate = lines.filter((e) => e.fields.estimate === null).length;
   const band = event.budgetCheck ? BAND_LABELS[event.budgetCheck.band] : null;
   const shownNote =
     note ??
@@ -248,11 +246,12 @@ function BudgetBody({
           {shownNote ? (
             <p className={scriptClass(shownNote)}>{shownNote}</p>
           ) : null}
-          {noEstimate > 0 ? (
+          {/* The derived note already counts them; this is for an older note. */}
+          {noEstimate > 0 && !shownNote?.includes("no Estimate yet") ? (
             <p>
               {noEstimate === 1
-                ? "1 line has no Estimate yet and counts as zero."
-                : `${noEstimate} lines have no Estimate yet and count as zero.`}
+                ? "1 line has no Estimate yet and counts as zero in the Budget check."
+                : `${noEstimate} lines have no Estimate yet and count as zero in the Budget check.`}
             </p>
           ) : null}
         </div>
@@ -474,7 +473,13 @@ function BudgetRow({
               />
             )}
             {fields.role === "line" && fields.plannedAmount !== null ? (
-              <span className="text-caption text-ink-3">Your amount</span>
+              <span className="text-caption text-ink-3">
+                {/* A carried amount: the earlier Estimate's, kept when the new
+                    city couldn't be priced (review of #134). */}
+                {fields.estimate === null && !fields.editedByMember
+                  ? "Earlier Estimate amount"
+                  : "Your amount"}
+              </span>
             ) : null}
           </span>
         )}

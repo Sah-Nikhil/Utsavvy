@@ -289,9 +289,13 @@ export function budgetCheckNote(
     );
   }
   if (opts.missing === 1) {
-    notes.push("1 line has no Estimate yet and counts as zero.");
+    notes.push(
+      "1 line has no Estimate yet and counts as zero in the Budget check.",
+    );
   } else if (opts.missing > 1) {
-    notes.push(`${opts.missing} lines have no Estimate yet and count as zero.`);
+    notes.push(
+      `${opts.missing} lines have no Estimate yet and count as zero in the Budget check.`,
+    );
   }
   return notes.length > 0 ? notes.join(" ") : null;
 }
