@@ -36,13 +36,16 @@ export async function loadPrivateVendorForEvent(
 /**
  * Who a Shortlisted Vendor Item is, for Quotes and their comparison: a shared
  * Vendor (whose Listed prices may be compared), or this Event's own
- * hand-typed Vendor (no Listed prices). Null when it is neither, including an
- * Item that points at another Event's hand-typed Vendor. The name goes only to
- * the Event's own Members and their Assistant run, never to research.
+ * hand-typed Vendor (no Listed prices). Null when it is neither: an Item of
+ * another Event than `eventId` (the Event the caller authorized, such as a
+ * link's), or an Item that points at another Event's hand-typed Vendor. The
+ * name goes only to the Event's own Members and their Assistant run, never
+ * to research.
  */
 export async function shortlistedVendorOf(
   ctx: Pick<QueryCtx, "db">,
   item: Pick<ShortlistedVendorItem, "eventId" | "data">,
+  eventId: Id<"events">,
 ): Promise<{
   name: string;
   /** A fixed category key, or the free label of a hand-typed Vendor. */
@@ -50,6 +53,7 @@ export async function shortlistedVendorOf(
   /** The shared Vendor, whose Listed prices count; null for a hand-typed one. */
   sharedVendorId: Id<"vendors"> | null;
 } | null> {
+  if (item.eventId !== eventId) return null;
   const vendorId = sharedVendorIdOf(item);
   if (vendorId !== null) {
     const vendor = await ctx.db.get("vendors", vendorId);

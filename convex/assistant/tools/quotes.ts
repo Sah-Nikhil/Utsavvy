@@ -295,8 +295,8 @@ export async function describeAddQuote(
   const link = await ctx.db.get("vendorLinks", change.values.linkId);
   const item = link && (await ctx.db.get("items", link.shortlistItemId));
   const vendor =
-    item?.kind === "shortlistedVendor"
-      ? await shortlistedVendorOf(ctx, item)
+    link !== null && item?.kind === "shortlistedVendor"
+      ? await shortlistedVendorOf(ctx, item, link.eventId)
       : null;
   const functions =
     link === null

@@ -550,7 +550,7 @@ export const budgetComparison = query({
           continue;
         // A shared Vendor or this Event's hand-typed one (X7), which has no
         // Listed prices; anything else is skipped.
-        const vendor = await shortlistedVendorOf(ctx, item);
+        const vendor = await shortlistedVendorOf(ctx, item, eventId);
         if (vendor === null) continue;
         const vendorId = vendor.sharedVendorId;
         if (vendorId !== null && !prices.has(vendorId))
@@ -742,9 +742,14 @@ async function linkChoices(
     if (link.status === "dropped") continue;
     const item = await ctx.db.get("items", link.shortlistItemId);
     if (item?.kind !== "shortlistedVendor" || item.deletedAt !== null) continue;
-    const vendor = await shortlistedVendorOf(ctx, item);
+    const vendor = await shortlistedVendorOf(ctx, item, eventId);
     const entry = await ctx.db.get("entries", link.checklistEntryId);
-    if (!vendor || entry?.kind !== "checklist" || entry.deletedAt !== null)
+    if (
+      !vendor ||
+      entry?.kind !== "checklist" ||
+      entry.eventId !== eventId ||
+      entry.deletedAt !== null
+    )
       continue;
     choices.push({
       link,
@@ -1135,13 +1140,15 @@ export const proposeForRun = internalMutation({
         if (
           item?.kind !== "shortlistedVendor" ||
           item.deletedAt !== null ||
-          (await shortlistedVendorOf(ctx, item)) === null
+          (await shortlistedVendorOf(ctx, item, args.eventId)) === null
         )
           return refusal(
             "noLink",
             "That link isn't a Shortlisted Vendor of this Event. Ask the Member which Vendor sent the Quote.",
           );
         const entry = await ctx.db.get("entries", link.checklistEntryId);
+        if (entry?.kind === "checklist" && entry.eventId !== args.eventId)
+          throw new AccessDenied("wrongEvent", "vendor.manage");
         if (entry?.kind !== "checklist" || entry.deletedAt !== null)
           return refusal("deleted", "That checklist Entry was deleted.");
         const functions = await ctx.db

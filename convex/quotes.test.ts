@@ -8,7 +8,7 @@ import { api, components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import type { ToolResult } from "./assistant/tools/core";
-import { runProposeQuote } from "./assistant/tools/quotes";
+import { describeAddQuote, runProposeQuote } from "./assistant/tools/quotes";
 import type { AssistantToolCtx } from "./assistant/agent";
 import { createStartingSections } from "./canvas";
 import { stubCalls } from "./lib/models";
@@ -1836,5 +1836,112 @@ describe("a Quote on a hand-typed Vendor", () => {
       .as("Meera")
       .query(api.quotes.budgetComparison, { eventId: s.eventId });
     expect(JSON.stringify(comparison)).not.toContain("Kabir's secret caterer");
+  });
+});
+
+// Review of PR 129, round 4: an Event A link whose Item is Event B's.
+describe("a link to another Event's Shortlisted Vendor Item", () => {
+  const SECRET = "Kabir's secret caterer";
+
+  /** Event B's hand-typed Vendor and its own Item, then an Event A link that points at that Item. */
+  async function crossEventLink(s: Setup) {
+    return await s.t.run(async (ctx) => {
+      const { eventId, membershipId } = await seedMembership(ctx, {
+        clerkId: "Kabir",
+        role: "owner",
+      });
+      const actor = { kind: "member" as const, membershipId };
+      const sections = await createStartingSections(ctx, eventId, actor);
+      const privateVendorId = await ctx.db.insert("privateVendors", {
+        eventId,
+        name: SECRET,
+        vendorCategory: "caterer",
+        freeLabel: null,
+        phone: null,
+        area: null,
+        marker: null,
+        createdBy: actor,
+        createdAt: Date.now(),
+        version: 1,
+      });
+      const item = await ctx.db.insert("items", {
+        eventId,
+        sectionId: sections.vendors,
+        kind: "shortlistedVendor",
+        position: { x: 0, y: 0 },
+        size: null,
+        functionKey: null,
+        data: { privateVendorId },
+        createdBy: actor,
+        version: 1,
+        deletedAt: null,
+      });
+      return await ctx.db.insert("vendorLinks", {
+        eventId: s.eventId,
+        shortlistItemId: item,
+        checklistEntryId: s.caterer,
+        status: "considering",
+        version: 1,
+      });
+    });
+  }
+
+  it("never shows Event B's Vendor in Event A's comparison, link choice, Quote tool or Proposal line", async () => {
+    const s = await setUpHandTyped();
+    const badLink = await crossEventLink(s);
+
+    const comparison = await s
+      .as("Meera")
+      .query(api.quotes.budgetComparison, { eventId: s.eventId });
+    expect(JSON.stringify(comparison)).not.toContain(SECRET);
+
+    const runId = await pastedRequest(s);
+    const context = await s.t.query(internal.quotes.pasteContext, {
+      runId,
+      eventId: s.eventId,
+      forMembershipId: s.people.Rohan,
+      toolCallId: "call_context_cross_event",
+      linkId: null,
+      category: "caterer",
+      functionKey: null,
+    });
+    expect(JSON.stringify(context)).not.toContain(SECRET);
+    // Only Event A's own hand-typed Vendor is a choice.
+    expect(context).toMatchObject({ ok: true, linkId: s.linkId });
+
+    const proposed = await s.t.mutation(internal.quotes.proposeForRun, {
+      runId,
+      eventId: s.eventId,
+      forMembershipId: s.people.Rohan,
+      toolCallId: "call_quote_cross_event_item",
+      linkId: badLink,
+      functionKey: null,
+      pasteMessageId: null,
+      extraction: EXTRACTED,
+    });
+    expect(proposed).toMatchObject({ ok: false, reason: "noLink" });
+    expect(JSON.stringify(proposed)).not.toContain(SECRET);
+
+    const line = await s.t.run((ctx) =>
+      describeAddQuote(ctx, {
+        op: "addQuote",
+        table: "quotes",
+        docId: null,
+        expectedVersion: null,
+        guards: [],
+        values: {
+          linkId: badLink,
+          amount: 950,
+          unit: "per_plate",
+          functionKeys: ["sangeet"],
+          guests: 300,
+          receivedAt: null,
+          note: null,
+          fileId: null,
+        },
+      } as Parameters<typeof describeAddQuote>[1]),
+    );
+    expect(line).not.toContain(SECRET);
+    expect(line).toContain("the Vendor");
   });
 });
