@@ -819,6 +819,9 @@ const extractionValidator = v.object({
  * Which Functions the Quote covers: those the message names, else the one the
  * model was told about, else the only one the link's Entry serves, else the
  * one of those whose Guests match the Quote's. None means the whole Entry.
+ * When several of the Entry's Functions have the Quote's Guests, it could be
+ * for any of them, so they come back as `ask` and the Member says which one:
+ * matching Guests never picks one of several (#127).
  */
 function functionKeysFor(
   functions: readonly Doc<"eventFunctions">[],
@@ -826,7 +829,7 @@ function functionKeysFor(
   hint: string | null,
   entryKeys: readonly string[],
   guests: number | null,
-): string[] {
+): { keys: string[] } | { ask: Doc<"eventFunctions">[] } {
   const byWord = (word: string) => {
     const w = word.trim().toLowerCase();
     return functions.find(
@@ -836,16 +839,19 @@ function functionKeysFor(
   const fromText = [
     ...new Set(named.map(byWord).filter((k): k is string => !!k)),
   ];
-  if (fromText.length > 0) return fromText;
-  if (hint !== null && functions.some((fn) => fn.key === hint)) return [hint];
-  if (entryKeys.length === 1) return [...entryKeys];
+  if (fromText.length > 0) return { keys: fromText };
+  if (hint !== null && functions.some((fn) => fn.key === hint))
+    return { keys: [hint] };
+  if (entryKeys.length === 1) return { keys: [...entryKeys] };
   if (guests !== null) {
     const matching = functions.filter(
       (fn) => entryKeys.includes(fn.key) && fn.guests === guests,
     );
-    if (matching.length === 1) return [matching[0]!.key];
+    if (matching.length === 1) return { keys: [matching[0]!.key] };
+    if (matching.length > 1)
+      return { ask: [...matching].sort((a, b) => a.order - b.order) };
   }
-  return [];
+  return { keys: [] };
 }
 
 /**
@@ -896,17 +902,30 @@ export const proposeForRun = internalMutation({
           .query("eventFunctions")
           .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
           .take(50);
+        const covered = functionKeysFor(
+          functions,
+          extraction.functions,
+          args.functionKey,
+          entry.fields.functionKeys,
+          extraction.guests,
+        );
+        if ("ask" in covered) {
+          const listed = covered.ask.map((fn) => ({
+            functionKey: fn.key,
+            name: fn.name,
+            guests: fn.guests,
+          }));
+          return {
+            ok: false,
+            reason: "whichFunction",
+            message: `This Quote could be for more than one Function: ${covered.ask.map((fn) => fn.name).join(" or ")} each have ${extraction.guests} Guests. Ask the Member which Function it is for, then call proposeQuote again with linkId ${link._id} and that functionKey. Don't pick one yourself: ${JSON.stringify(listed)}`,
+          };
+        }
         const fields = cleanQuote({
           amount: extraction.amount,
           unit: extraction.unit,
           guests: extraction.guests,
-          functionKeys: functionKeysFor(
-            functions,
-            extraction.functions,
-            args.functionKey,
-            entry.fields.functionKeys,
-            extraction.guests,
-          ),
+          functionKeys: covered.keys,
           // Received today: the Member pasted it now.
           receivedAt: Date.now(),
           note: extraction.note,

@@ -531,7 +531,7 @@ const tools = {
     AssistantToolCtx
   >({
     description:
-      "When a Member pastes a Vendor's message with a price (a WhatsApp quote such as \"Veg 950/plate for 300 pax\"), turn it into a Quote Proposal on that Shortlisted Vendor. Don't read or pass any numbers yourself: the tool reads the message and code checks it. Give the Vendor's linkId if you know it, else its category (and functionKey if the Member said which Function); if several Vendors could have sent it, the tool lists them and you ask the Member. Nothing is saved until a Member accepts the card.",
+      "When a Member pastes a Vendor's message with a price (a WhatsApp quote such as \"Veg 950/plate for 300 pax\"), turn it into a Quote Proposal on that Shortlisted Vendor. Don't read or pass any numbers yourself: the tool reads the message and code checks it. Give the Vendor's linkId if you know it, else its category (and functionKey if the Member said which Function); if several Vendors could have sent it, the tool lists them and you ask the Member. If it could be for several Functions, the tool lists them: ask the Member which one and call it again with that functionKey, never picking one yourself. Nothing is saved until a Member accepts the card.",
     inputSchema: z.strictObject({
       linkId: z
         .string()
