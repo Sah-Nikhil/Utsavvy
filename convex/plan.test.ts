@@ -2584,6 +2584,7 @@ describe("trying a failed city re-price again", () => {
     return {
       s,
       proposalId: proposal!._id,
+      summary: proposal!.summary,
       lineId,
       args,
       acceptedAt,
@@ -2640,6 +2641,18 @@ describe("trying a failed city re-price again", () => {
       state: "failed",
       canRetry: true,
     });
+  });
+
+  // Review of #134, round 4: the card says so before Accept, from the same
+  // prices its Budget check uses.
+  it("the city Proposal's card counts a free-label line it can't price among the lines with no Estimate", async () => {
+    const { summary } = await unpricedFreeLabel();
+    expect(summary).toMatch(
+      /1 line has no Estimate yet and counts as zero in the Budget check/,
+    );
+    expect(summary).toMatch(/re-priced for Mumbai/);
+    expect(summary.length).toBeLessThanOrEqual(300);
+    expect(summary.endsWith("...")).toBe(false);
   });
 
   it("runs the landed re-price once: the same step again writes nothing more", async () => {
