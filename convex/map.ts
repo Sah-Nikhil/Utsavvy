@@ -485,6 +485,17 @@ export const placeHandTypedMarker = mutation({
     if (row === null) throw new AccessDenied("wrongEvent", "vendor.manage");
     const event = await ctx.db.get("events", args.eventId);
     if (event === null) notFound("event");
+    // Before the distance rules: a save from a draft another Member has since
+    // moved is refused as a concurrent change, not as too far from their new
+    // spot (review of PR 139, round 3).
+    if (row.version !== args.expectedVersion)
+      throw new VersionConflict({
+        table: "privateVendors",
+        id: row._id,
+        expectedVersion: args.expectedVersion,
+        currentVersion: row.version,
+        current: { marker: row.marker, version: row.version },
+      });
     if (
       !Number.isFinite(args.lat) ||
       !Number.isFinite(args.lng) ||
@@ -501,14 +512,6 @@ export const placeHandTypedMarker = mutation({
       invalid(
         `A Marker moves at most ${MAX_MOVE_KM} km from where it was; that point is too far from this Vendor.`,
       );
-    if (row.version !== args.expectedVersion)
-      throw new VersionConflict({
-        table: "privateVendors",
-        id: row._id,
-        expectedVersion: args.expectedVersion,
-        currentVersion: row.version,
-        current: { marker: row.marker, version: row.version },
-      });
     const actor: MemberActor = { kind: "member", membershipId: membership._id };
     return await memberWrite(ctx, {
       table: "privateVendors",
