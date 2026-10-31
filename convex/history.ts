@@ -1008,19 +1008,18 @@ function plainName(table: HistoryTable, doc: Fields): string {
 
 /**
  * Whether Undo all may delete this row again: an Item other than the plan's
- * Budget, Timeline and Vendor checklist, an Entry other than a Contingency or
- * Unallocated line, or a custom Section. Deleting anything else has its own
- * rules elsewhere.
+ * Budget, Timeline and Vendor checklist, an Entry other than a Contingency
+ * line, or a custom Section. An Unallocated line goes too: a budget raise
+ * past the plan's high end adds one, and the restored total has no room for
+ * it (#132). Deleting anything else has its own rules elsewhere.
  */
 function canTakeBack(table: string, doc: Fields | null): boolean {
   if (doc === null) return false;
   switch (table) {
     case "items":
       return !PLAN_ITEM_KINDS.includes(doc.kind as string);
-    case "entries": {
-      const role = ((doc.fields ?? {}) as Fields).role;
-      return role !== "contingency" && role !== "unallocated";
-    }
+    case "entries":
+      return ((doc.fields ?? {}) as Fields).role !== "contingency";
     case "sections":
       return doc.kind === "custom";
     default:
