@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import type { TestInfo } from "@playwright/test";
 import { expectNoSeriousA11yViolations } from "./axe";
 import { expect, test, type Page } from "./fixtures";
@@ -81,6 +82,8 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     page,
     signIn,
     cspViolations,
+    browser,
+    baseURL,
   }, testInfo) => {
     test.setTimeout(150_000);
     await page.setViewportSize(DESKTOP);
@@ -202,6 +205,50 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     await marker.focus();
     await page.keyboard.press("Enter");
     await page.waitForTimeout(1_000);
+    expect((await marker.boundingBox())!.x).toBeLessThan(saved.x + 2);
+
+    // Another Member moves the Marker while this Member's keyboard draft is
+    // open. Enter is then refused instead of overwriting their move, and the
+    // Marker shows where they put it (review of PR 139, medium).
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(async () => (await marker.boundingBox())!.x)
+      .toBeGreaterThan(saved.x + 20);
+    // A second browser, signed in on its own, stands in for the other Member.
+    const otherBrowser = await browser.newContext({
+      baseURL,
+      viewport: DESKTOP,
+    });
+    const other = await otherBrowser.newPage();
+    await setupClerkTestingToken({ page: other });
+    await other.goto("/");
+    await clerk.signIn({ page: other, emailAddress: ownerEmail() });
+    await other.goto(`/events/${eventId}`);
+    await expect(other.locator(".react-flow__node-section")).toHaveCount(4, {
+      timeout: 20_000,
+    });
+    const otherMarker = (await openMap(other)).locator(
+      "[data-hand-typed-marker]",
+    );
+    const otherBefore = (await otherMarker.boundingBox())!;
+    await otherMarker.focus();
+    for (let i = 0; i < 5; i++) await other.keyboard.press("ArrowUp");
+    await other.keyboard.press("Enter");
+    await expect
+      .poll(async () => (await otherMarker.boundingBox())!.y, {
+        timeout: 10_000,
+      })
+      .toBeLessThan(otherBefore.y - 20);
+    await otherBrowser.close();
+    await expect(marker).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(sheet.getByRole("alert")).toContainText(
+      "Another Member changed this Marker",
+      { timeout: 10_000 },
+    );
+    await expect
+      .poll(async () => (await marker.boundingBox())!.y, { timeout: 10_000 })
+      .toBeLessThan(saved.y - 20);
     expect((await marker.boundingBox())!.x).toBeLessThan(saved.x + 2);
 
     // "Show" flies to the Marker and focuses it (review of PR 139).
