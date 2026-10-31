@@ -1,0 +1,358 @@
+/// <reference types="vite/client" />
+import { describe, expect, it } from "vitest";
+import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { createStartingSections } from "./canvas";
+import {
+  identityFor,
+  insertEvent,
+  newTest,
+  seedMembership,
+} from "./lib/test.helpers";
+import { MAX_FROM_CITY_KM, MAX_MOVE_KM } from "./map";
+
+// Issue #136: a Member drops a Marker for a hand-typed Vendor (X7). The Marker
+// is the Member's own knowledge, private to the Event like the Vendor, and
+// held to the same area as a dragged shared Marker.
+
+type T = ReturnType<typeof newTest>;
+
+const JAIPUR = {
+  name: "Jaipur",
+  tier: "Y" as const,
+  centre: { lat: 26.9124, lng: 75.7873 },
+};
+/** Malviya Nagar, about 7 km from Jaipur's centre. */
+const MALVIYA_NAGAR = { lat: 26.8549, lng: 75.8243 };
+/** Mansarovar, about 8 km from Malviya Nagar. */
+const MANSAROVAR = { lat: 26.8682, lng: 75.7599 };
+/** Ajmer, about 120 km away. */
+const AJMER = { lat: 26.4499, lng: 74.6399 };
+
+type Seeded = {
+  eventId: Id<"events">;
+  clerkId: string;
+  member: Id<"memberships">;
+  privateVendorId: Id<"privateVendors">;
+  itemId: Id<"items">;
+};
+
+async function seedEvent(ctx: MutationCtx, clerkId: string): Promise<Seeded> {
+  const eventId = await insertEvent(ctx, `${clerkId}'s wedding`);
+  await ctx.db.patch("events", eventId, {
+    city: JAIPUR,
+    briefState: "planned",
+  });
+  const { membershipId } = await seedMembership(ctx, { clerkId, eventId });
+  const actor = { kind: "member" as const, membershipId };
+  const sections = await createStartingSections(ctx, eventId, actor);
+  const privateVendorId = await ctx.db.insert("privateVendors", {
+    eventId,
+    name: `${clerkId}'s family caterer`,
+    vendorCategory: "caterer",
+    freeLabel: null,
+    phone: null,
+    area: "Malviya Nagar",
+    marker: null,
+    createdBy: actor,
+    createdAt: Date.now(),
+    version: 1,
+  });
+  const itemId = await ctx.db.insert("items", {
+    eventId,
+    sectionId: sections.vendors,
+    kind: "shortlistedVendor",
+    position: { x: 0, y: 0 },
+    size: null,
+    functionKey: null,
+    data: { privateVendorId },
+    createdBy: actor,
+    version: 1,
+    deletedAt: null,
+  });
+  return { eventId, clerkId, member: membershipId, privateVendorId, itemId };
+}
+
+const setup = (t: T, clerkId = "Meera") =>
+  t.run((ctx) => seedEvent(ctx, clerkId));
+const as = (t: T, clerkId: string) => t.withIdentity(identityFor(clerkId));
+const rowOf = (t: T, id: Id<"privateVendors">) =>
+  t.run(async (ctx) => (await ctx.db.get("privateVendors", id))!);
+
+describe("api.map.placeHandTypedMarker", () => {
+  it("drops a Marker where the Member puts it, bumps the version and records it in the history", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { version } = await as(t, a.clerkId).mutation(
+      api.map.placeHandTypedMarker,
+      {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion: 1,
+        ...MALVIYA_NAGAR,
+      },
+    );
+    expect(version).toBe(2);
+    expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MALVIYA_NAGAR);
+    const changes = await t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", a.privateVendorId))
+        .collect(),
+    );
+    expect(changes).toHaveLength(1);
+  });
+
+  it("moves it again within the move limit, and refuses a stale version", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const place = (expectedVersion: number, at: { lat: number; lng: number }) =>
+      as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion,
+        ...at,
+      });
+    await place(1, MALVIYA_NAGAR);
+    await place(2, MANSAROVAR);
+    expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MANSAROVAR);
+    await expect(place(2, MALVIYA_NAGAR)).rejects.toThrow(/VersionConflict/);
+    expect((await rowOf(t, a.privateVendorId)).version).toBe(3);
+  });
+
+  // Review of PR 139, round 3 (L1): a stale save is refused as a concurrent
+  // change even when it is also too far from where the other Member put the
+  // Marker, so the Member is told why.
+  it(`refuses a stale save as a VersionConflict even when it is more than ${MAX_MOVE_KM} km from the current Marker`, async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const place = (expectedVersion: number, at: { lat: number; lng: number }) =>
+      as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion,
+        ...at,
+      });
+    // Both moves are about 10 km from the city centre, one each way.
+    const east = { lat: JAIPUR.centre.lat, lng: JAIPUR.centre.lng + 0.1 };
+    const west = { lat: JAIPUR.centre.lat, lng: JAIPUR.centre.lng - 0.1 };
+    await place(1, JAIPUR.centre);
+    // Another Member moves it east while this Member's draft starts at version 2.
+    await place(2, east);
+    // West is valid from where the draft started but about 20 km from east.
+    await expect(place(2, west)).rejects.toThrow(/VersionConflict/);
+    const row = await rowOf(t, a.privateVendorId);
+    expect(row.marker).toEqual(east);
+    expect(row.version).toBe(3);
+  });
+
+  it(`refuses a point more than ${MAX_FROM_CITY_KM} km from the Event's city, or off the map`, async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const place = (at: { lat: number; lng: number }) =>
+      as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion: 1,
+        ...at,
+      });
+    await expect(place(AJMER)).rejects.toThrow(/outside Jaipur/);
+    await expect(place({ lat: 95, lng: 75 })).rejects.toThrow(
+      /isn't on the map/,
+    );
+    expect((await rowOf(t, a.privateVendorId)).marker).toBeNull();
+  });
+
+  it("refuses a Viewer, and another Event's hand-typed Vendor", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const b = await setup(t, "Kabir");
+    await t.run((ctx) =>
+      seedMembership(ctx, {
+        clerkId: "Dadi",
+        role: "viewer",
+        eventId: a.eventId,
+      }),
+    );
+    await expect(
+      as(t, "Dadi").mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion: 1,
+        ...MALVIYA_NAGAR,
+      }),
+    ).rejects.toThrow(/AccessDenied/);
+    // Kabir through his own Event, naming Meera's Vendor.
+    await expect(
+      as(t, b.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: b.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion: 1,
+        ...MALVIYA_NAGAR,
+      }),
+    ).rejects.toThrow(/AccessDenied/);
+    expect((await rowOf(t, a.privateVendorId)).marker).toBeNull();
+  });
+});
+
+describe("hand-typed Vendors on the map", () => {
+  it("lists the Event's own hand-typed Vendors, with a Marker once one is dropped, and never another Event's", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const b = await setup(t, "Kabir");
+    const before = await as(t, a.clerkId).query(api.map.view, {
+      eventId: a.eventId,
+    });
+    expect(before.handTyped).toEqual([
+      expect.objectContaining({
+        _id: a.privateVendorId,
+        itemId: a.itemId,
+        name: "Meera's family caterer",
+        marker: null,
+        version: 1,
+      }),
+    ]);
+    await as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+      eventId: a.eventId,
+      privateVendorId: a.privateVendorId,
+      expectedVersion: 1,
+      ...MALVIYA_NAGAR,
+    });
+    const after = await as(t, a.clerkId).query(api.map.view, {
+      eventId: a.eventId,
+    });
+    expect(after.handTyped).toEqual([
+      expect.objectContaining({ marker: MALVIYA_NAGAR, version: 2 }),
+    ]);
+    const kabirs = await as(t, b.clerkId).query(api.map.view, {
+      eventId: b.eventId,
+    });
+    expect(kabirs.handTyped.map((v) => v.name)).toEqual([
+      "Kabir's family caterer",
+    ]);
+  });
+});
+
+// Review of PR 139, Medium 2: Restore can't put back a stale Marker.
+describe("restoring an older hand-typed Marker change", () => {
+  async function placedTwice(t: T, a: Seeded) {
+    const place = (expectedVersion: number, at: { lat: number; lng: number }) =>
+      as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion,
+        ...at,
+      });
+    await place(1, MALVIYA_NAGAR);
+    await place(2, MANSAROVAR);
+    const changes = await t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_doc", (q) => q.eq("docId", a.privateVendorId))
+        .collect(),
+    );
+    return { drop: changes[0]!, move: changes[1]! };
+  }
+
+  it("is refused for the drop after a later move, writing nothing", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { drop } = await placedTwice(t, a);
+    await expect(
+      as(t, a.clerkId).mutation(api.history.restore, { changeId: drop._id }),
+    ).rejects.toThrow(/markerMovedSince/);
+    expect(await rowOf(t, a.privateVendorId)).toMatchObject({
+      marker: MANSAROVAR,
+      version: 3,
+    });
+  });
+
+  it("is refused for an older move after a later one", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { move } = await placedTwice(t, a);
+    await as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+      eventId: a.eventId,
+      privateVendorId: a.privateVendorId,
+      expectedVersion: 3,
+      ...MALVIYA_NAGAR,
+    });
+    await expect(
+      as(t, a.clerkId).mutation(api.history.restore, { changeId: move._id }),
+    ).rejects.toThrow(/markerMovedSince/);
+    expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MALVIYA_NAGAR);
+  });
+
+  it("still restores the latest move", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const { move } = await placedTwice(t, a);
+    await as(t, a.clerkId).mutation(api.history.restore, {
+      changeId: move._id,
+    });
+    expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MALVIYA_NAGAR);
+  });
+});
+
+// Review of PR 139, low 1: the Function filter goes by the Vendor's checklist links.
+describe("a hand-typed Vendor's Functions on the map", () => {
+  it("are those its linked checklist Entries serve, or null when one serves every Function", async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const link = (functionKeys: string[]) =>
+      t.run(async (ctx) => {
+        const actor = { kind: "member" as const, membershipId: a.member };
+        const section = await ctx.db
+          .query("sections")
+          .withIndex("by_event", (q) => q.eq("eventId", a.eventId))
+          .first();
+        const checklist = await ctx.db.insert("items", {
+          eventId: a.eventId,
+          sectionId: section!._id,
+          kind: "checklist",
+          position: { x: 0, y: 0 },
+          size: null,
+          functionKey: null,
+          data: { note: null },
+          createdBy: actor,
+          version: 1,
+          deletedAt: null,
+        });
+        const entry = await ctx.db.insert("entries", {
+          eventId: a.eventId,
+          itemId: checklist,
+          kind: "checklist",
+          order: 0,
+          functionKey: null,
+          fields: {
+            vendorCategory: "caterer",
+            freeLabel: null,
+            functionKeys,
+            bookByEntryId: null,
+            budgetEntryIds: [],
+          },
+          assumed: [],
+          createdBy: actor,
+          version: 1,
+          deletedAt: null,
+        });
+        await ctx.db.insert("vendorLinks", {
+          eventId: a.eventId,
+          shortlistItemId: a.itemId,
+          checklistEntryId: entry,
+          status: "considering",
+          version: 1,
+        });
+      });
+    const functionsOnMap = async () =>
+      (await as(t, a.clerkId).query(api.map.view, { eventId: a.eventId }))
+        .handTyped[0]!.functionKeys;
+    await link(["sangeet"]);
+    expect(await functionsOnMap()).toEqual(["sangeet"]);
+    await link(["haldi", "sangeet"]);
+    expect(await functionsOnMap()).toEqual(["sangeet", "haldi"]);
+    await link([]);
+    expect(await functionsOnMap()).toBeNull();
+  });
+});

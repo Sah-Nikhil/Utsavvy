@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import dynamic from "next/dynamic";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
 import type { FunctionIndex } from "@/components/ui/function-marker";
@@ -15,11 +15,12 @@ import {
 } from "@/components/vendors/cards";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { MapVendor, MapView } from "@/convex/map";
+import type { MapHandTypedVendor, MapVendor, MapView } from "@/convex/map";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { budgetLineFor, filterForFunction } from "./filter";
+import { budgetLineFor, filterForFunction, filterHandTyped } from "./filter";
 import { placeVendors } from "./placement";
-import type { MapVendorShown } from "./MapCanvas";
+import type { HandTypedPin, MapVendorShown } from "./MapCanvas";
 import {
   LEGEND,
   TONE_CLASS,
@@ -41,6 +42,11 @@ import { SectionOrnament } from "@/components/shell/SectionOrnament";
  * inside the panel (so it never covers the map), Shortlisted and Others lists
  * and a diamond between them. Corner pieces and the diamond follow the
  * Ornaments setting.
+ *
+ * Hand-typed Vendors (X7) are listed under "Typed in by Members". A Member
+ * drops one's Marker with "Drop a Marker" and a click on the map, and moves
+ * it the same way or by dragging it (issue #136); the Marker is labelled as
+ * placed by a Member and stays private to the Event.
  */
 
 const MapCanvas = dynamic(() => import("./MapCanvas"), {
@@ -89,6 +95,8 @@ function errorMessage(error: unknown): string {
   if (error instanceof ConvexError) {
     const data = error.data as { kind?: string; message?: string };
     if (data.kind === "AccessDenied") return "You can't move this Marker.";
+    if (data.kind === "VersionConflict")
+      return "Another Member changed this Marker while you were placing it, so yours wasn't saved. The map shows it as it is now.";
     if (data.message) return data.message;
   }
   return "The Marker couldn't be moved. Try again.";
@@ -97,13 +105,17 @@ function errorMessage(error: unknown): string {
 export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
   const view = useQuery(api.map.view, { eventId });
   const moveMarker = useMutation(api.map.moveMarker);
+  const placeMarker = useMutation(api.map.placeHandTypedMarker);
+  const [placing, setPlacing] = useState<Id<"privateVendors"> | null>(null);
   const [category, setCategory] = useState<VendorCategory | null>(null);
   const [functionKey, setFunctionKey] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<Id<"vendors"> | null>(null);
-  const [reveal, setReveal] = useState<{ id: Id<"vendors">; n: number } | null>(
-    null,
-  );
+  const [reveal, setReveal] = useState<{
+    id: Id<"vendors"> | Id<"privateVendors">;
+    n: number;
+  } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const root = useRef<HTMLDivElement>(null);
 
   const listed = useMemo(
     () => (view ? applyFilters(view, category, functionKey) : []),
@@ -132,6 +144,65 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     setSelectedId(id);
     setReveal((r) => ({ id, n: (r?.n ?? 0) + 1 }));
   };
+  // The category and Function filters apply to hand-typed Vendors too.
+  const handTyped = filterHandTyped(view.handTyped, category, functionKey);
+  const pins: HandTypedPin[] = handTyped.map((v) => ({
+    id: v._id,
+    name: v.name,
+    category: v.category,
+    categoryLabel: v.categoryLabel,
+    tone: v.status ?? "considering",
+    marker: v.marker,
+    version: v.version,
+  }));
+  const placingName = handTyped.find((v) => v._id === placing)?.name ?? null;
+  // Saving or cancelling a new Marker's draft takes its button, and the
+  // keyboard focus, off the page (review of PR 139, N3). When the element
+  // that had focus is gone, put focus on the placed Marker once the map draws
+  // it, or else back on the row's control.
+  const keepFocus = (
+    id: Id<"privateVendors">,
+    from: Element | null,
+    tries = 10,
+  ) => {
+    setTimeout(() => {
+      if (from?.isConnected) return;
+      const marker = root.current?.querySelector<HTMLElement>(
+        `[data-hand-typed-marker="${id}"]`,
+      );
+      if (!marker && tries > 1) return keepFocus(id, from, tries - 1);
+      (
+        marker ??
+        root.current?.querySelector<HTMLElement>(`[data-place-control="${id}"]`)
+      )?.focus({ preventScroll: true });
+    }, 50);
+  };
+  const place = (
+    id: Id<"privateVendors">,
+    lat: number,
+    lng: number,
+    expectedVersion: number,
+  ) => {
+    const vendor = handTyped.find((v) => v._id === id);
+    const from = document.activeElement;
+    setPlacing(null);
+    if (!vendor) return;
+    setMoveError(null);
+    placeMarker({
+      eventId,
+      privateVendorId: id,
+      expectedVersion,
+      lat,
+      lng,
+    })
+      .catch((error: unknown) => setMoveError(errorMessage(error)))
+      .finally(() => keepFocus(id, from));
+  };
+  const cancelPlace = () => {
+    const id = placing;
+    setPlacing(null);
+    if (id !== null) keepFocus(id, document.activeElement, 1);
+  };
   const move = (id: Id<"vendors">, lat: number, lng: number) => {
     setMoveError(null);
     moveMarker({ eventId, vendorId: id, lat, lng }).catch((error: unknown) =>
@@ -140,7 +211,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-0 md:flex-row">
+    <div ref={root} className="flex h-full min-h-0 flex-col gap-0 md:flex-row">
       <div className="relative order-2 flex min-h-0 flex-1 flex-col bg-surface-container md:order-1 md:w-[22.5rem] md:flex-none md:border-r md:border-rule">
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {/* The corner pieces scroll with the list, so they never cover a row. */}
@@ -229,6 +300,13 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
               detail={(v) => v.locality}
               note={`outside ${cityName}`}
             />
+            <HandTypedList
+              vendors={handTyped}
+              canPlace={view.canMove && view.city?.centre != null}
+              placing={placing}
+              onPlace={(id) => setPlacing((p) => (p === id ? null : id))}
+              onShow={(id) => setReveal((r) => ({ id, n: (r?.n ?? 0) + 1 }))}
+            />
             <PlainList
               title="Without an address"
               vendors={noAddress}
@@ -247,7 +325,20 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
           onSelect={setSelectedId}
           onMove={move}
           reveal={reveal}
+          handTyped={pins}
+          placing={placing}
+          onPlace={place}
+          onCancelPlace={cancelPlace}
         />
+        {placingName ? (
+          <p
+            role="status"
+            className="absolute bottom-10 left-1/2 -translate-x-1/2 rounded-md bg-surface-container px-3 py-1.5 text-label text-ink shadow-overlay"
+          >
+            Click the map where {placingName} is, or move the Marker with the
+            arrow keys and press Enter.
+          </p>
+        ) : null}
         {moveError ? (
           <p
             role="alert"
@@ -367,6 +458,102 @@ function VendorList({
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** The Event's hand-typed Vendors, with "Drop a Marker" for a Member. */
+function HandTypedList({
+  vendors,
+  canPlace,
+  placing,
+  onPlace,
+  onShow,
+}: {
+  vendors: MapHandTypedVendor[];
+  canPlace: boolean;
+  placing: Id<"privateVendors"> | null;
+  onPlace: (id: Id<"privateVendors">) => void;
+  onShow: (id: Id<"privateVendors">) => void;
+}) {
+  const id = useId();
+  if (vendors.length === 0) return null;
+  return (
+    <section aria-labelledby={id} className="grid gap-1.5">
+      <h3
+        id={id}
+        className="font-display text-[15px] leading-tight font-medium text-ink"
+      >
+        Typed in by Members{" "}
+        <span className="ml-1 font-text text-[13px] font-normal text-ink-3">
+          {vendors.length}
+        </span>
+      </h3>
+      <ul className="grid gap-1">
+        {vendors.map((v) => {
+          const tone = v.status ?? "considering";
+          return (
+            <li
+              key={v._id}
+              data-hand-typed-vendor={v._id}
+              className="flex min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-label text-ink-2"
+            >
+              <span className="grid w-7 shrink-0 place-items-center">
+                <StatusGlyph tone={tone} approximate={false} size={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-ink">
+                  {v.name}
+                </span>
+                <span className="block truncate text-caption text-ink-3">
+                  {v.categoryLabel}
+                  {v.area ? ` · ${v.area}` : ""}
+                </span>
+                {/* Its own line, so it is never cut short on a phone. */}
+                <span className="block text-caption text-ink-3">
+                  {v.marker ? "Marker placed by a Member" : "No Marker yet"}
+                </span>
+              </span>
+              {v.marker ? (
+                <Button
+                  size="sm"
+                  variant="text"
+                  className="shrink-0"
+                  aria-label={`Show on the map: ${v.name}`}
+                  onClick={() => onShow(v._id)}
+                >
+                  Show
+                </Button>
+              ) : null}
+              {canPlace ? (
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  variant={placing === v._id ? "filled" : "tonal"}
+                  aria-pressed={placing === v._id}
+                  data-place-control={v._id}
+                  aria-label={`${
+                    placing === v._id
+                      ? v.marker
+                        ? "Cancel Marker move"
+                        : "Cancel Marker placement"
+                      : v.marker
+                        ? "Move the Marker"
+                        : "Drop a Marker"
+                  }: ${v.name}`}
+                  onClick={() => onPlace(v._id)}
+                >
+                  {placing === v._id
+                    ? "Cancel"
+                    : v.marker
+                      ? "Move"
+                      : "Drop a Marker"}
+                </Button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

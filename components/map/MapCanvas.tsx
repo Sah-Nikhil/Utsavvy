@@ -17,7 +17,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MapVendor, MapView } from "@/convex/map";
-import { approximateTag, markerLabel, toneOf } from "./markers";
+import {
+  approximateTag,
+  markerLabel,
+  toneOf,
+  TONE_LABELS,
+  type MarkerTone,
+} from "./markers";
+import { HandTypedMarker } from "./HandTypedMarker";
 import { MarkerStamp } from "./MarkerStamp";
 import {
   footprintImage,
@@ -53,6 +60,18 @@ export type MapVendorShown = MapVendor & {
   noPrice: boolean;
 };
 
+/** A hand-typed Vendor's Marker, which a Member dropped (issue #136). */
+export type HandTypedPin = {
+  id: Id<"privateVendors">;
+  name: string;
+  category: string;
+  categoryLabel: string;
+  tone: MarkerTone;
+  marker: { lat: number; lng: number } | null;
+  /** The hand-typed Vendor's version, for the stale-write check on a save. */
+  version: number;
+};
+
 export type MapCanvasProps = {
   city: MapView["city"];
   vendors: MapVendorShown[];
@@ -60,8 +79,25 @@ export type MapCanvasProps = {
   selectedId: Id<"vendors"> | null;
   onSelect: (id: Id<"vendors"> | null) => void;
   onMove: (id: Id<"vendors">, lat: number, lng: number) => void;
-  /** Fly to this Vendor's Marker and focus it; `n` repeats the same request. */
-  reveal: { id: Id<"vendors">; n: number } | null;
+  /** Fly to this Vendor's Marker (shared or hand-typed) and focus it; `n` repeats the same request. */
+  reveal: { id: Id<"vendors"> | Id<"privateVendors">; n: number } | null;
+  /** The Event's hand-typed Vendors; those with a Marker are drawn. */
+  handTyped?: HandTypedPin[];
+  /** The hand-typed Vendor whose Marker the next click on the map drops. */
+  placing?: Id<"privateVendors"> | null;
+  /**
+   * Drops or moves a hand-typed Vendor's Marker. `expectedVersion` is the
+   * version the Member saw when they started, so the save is refused if
+   * another Member changed the Vendor since.
+   */
+  onPlace?: (
+    id: Id<"privateVendors">,
+    lat: number,
+    lng: number,
+    expectedVersion: number,
+  ) => void;
+  /** Escape while placing: nothing is saved. */
+  onCancelPlace?: () => void;
 };
 
 const STREET_ZOOM = 15;
@@ -125,6 +161,10 @@ export default function MapCanvas({
   onSelect,
   onMove,
   reveal,
+  handTyped = [],
+  placing = null,
+  onPlace,
+  onCancelPlace,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -140,6 +180,103 @@ export default function MapCanvas({
     lat: number;
     lng: number;
   } | null>(null);
+
+  // A hand-typed Vendor's Marker being placed or moved with the keyboard
+  // (review of PR 139): it starts where the Marker is, or at the middle of the
+  // map for a new one, and Enter saves it. It keeps the version it started
+  // from, so saving it can't overwrite another Member's move made meanwhile.
+  const [pinDraft, setPinDraft] = useState<{
+    id: Id<"privateVendors">;
+    lat: number;
+    lng: number;
+    version: number;
+  } | null>(null);
+  useEffect(() => {
+    if (placing === null) return;
+    const pin = handTyped.find((p) => p.id === placing);
+    if (!pin) return;
+    const middle = mapRef.current?.getCenter();
+    const start =
+      pin.marker ??
+      (middle ? { lat: middle.lat, lng: middle.lng } : city?.centre);
+    if (!start) return;
+    const frame = requestAnimationFrame(() =>
+      setPinDraft({
+        id: placing,
+        lat: start.lat,
+        lng: start.lng,
+        version: pin.version,
+      }),
+    );
+    // Placing ends however it ends (Enter, Escape, a click, or the list's
+    // Cancel), and an unsaved draft ends with it (review of PR 139).
+    return () => {
+      cancelAnimationFrame(frame);
+      setPinDraft(null);
+    };
+    // Only a new placing request starts a draft, not new data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placing]);
+
+  // Focus a draft being placed once its Marker is in the page, so the arrow
+  // keys move it at once. The map attaches Markers after rendering them.
+  const draftId = pinDraft?.id ?? null;
+  useEffect(() => {
+    if (draftId === null || draftId !== placing) return;
+    const timer = setTimeout(
+      () =>
+        holder.current
+          ?.querySelector<HTMLButtonElement>(
+            `[data-hand-typed-marker="${draftId}"]`,
+          )
+          ?.focus({ preventScroll: true }),
+      50,
+    );
+    return () => clearTimeout(timer);
+  }, [draftId, placing]);
+
+  function nudgePin(
+    pin: HandTypedPin,
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) {
+    const map = mapRef.current;
+    if (!map || !onPlace) return;
+    const step = event.shiftKey ? 60 : 12;
+    const moves: Record<string, [number, number]> = {
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+    };
+    const current =
+      pinDraft?.id === pin.id
+        ? pinDraft
+        : pin.marker
+          ? { id: pin.id, ...pin.marker, version: pin.version }
+          : null;
+    if (current === null) return;
+    if (event.key in moves) {
+      event.preventDefault();
+      const [dx, dy] = moves[event.key]!;
+      const point = map.project([current.lng, current.lat]);
+      const moved = map.unproject([point.x + dx, point.y + dy]);
+      setPinDraft({
+        id: pin.id,
+        lat: moved.lat,
+        lng: moved.lng,
+        version: current.version,
+      });
+    } else if (event.key === "Enter" && pinDraft?.id === pin.id) {
+      event.preventDefault();
+      onPlace(pin.id, pinDraft.lat, pinDraft.lng, pinDraft.version);
+      setPinDraft(null);
+    } else if (event.key === "Escape" && pinDraft?.id === pin.id) {
+      event.preventDefault();
+      event.stopPropagation();
+      setPinDraft(null);
+      onCancelPlace?.();
+    }
+  }
 
   useEffect(() => {
     // Read the map tokens once the map's element is in the document.
@@ -163,8 +300,8 @@ export default function MapCanvas({
   // The Markers drawn, where they stand now, for their footprints in the
   // style; MapLibre hides any label that would cross one.
   const points = useMemo<MarkerPoint[]>(
-    () =>
-      vendors.map((v) => {
+    () => [
+      ...vendors.map((v) => {
         const at = draft?.id === v._id ? draft : v.marker;
         return {
           id: v._id,
@@ -173,7 +310,14 @@ export default function MapCanvas({
           faint: v.shortlist === null,
         };
       }),
-    [vendors, draft],
+      // Placed hand-typed Markers keep labels off their stamps too.
+      ...handTyped.flatMap((pin) =>
+        pin.marker === null
+          ? []
+          : [{ id: pin.id, ...pin.marker, faint: false }],
+      ),
+    ],
+    [vendors, draft, handTyped],
   );
   const style = useMemo<StyleSpecification | string | null>(() => {
     if (look === null) return null;
@@ -181,12 +325,17 @@ export default function MapCanvas({
     return buildMapStyle(look.colours, { ornaments: look.ornaments, points });
   }, [look, points]);
 
+  // Placed hand-typed Markers count for the opening view, so one dropped
+  // near the city's edge opens on screen (review of PR 139).
+  const placedPins = handTyped.flatMap((pin) =>
+    pin.marker === null ? [] : [{ marker: pin.marker }],
+  );
   const centre = centreOf(city, vendors);
   // The opening view and reach are fixed when the map mounts.
   const [initial] = useState(() =>
     centre
       ? {
-          fit: openingFit(centre, vendors),
+          fit: openingFit(centre, [...vendors, ...placedPins]),
           bounds: cityBounds(centre),
         }
       : null,
@@ -195,15 +344,21 @@ export default function MapCanvas({
   useEffect(() => {
     if (reveal === null) return;
     const vendor = vendors.find((v) => v._id === reveal.id);
-    if (!vendor) return;
+    const pin = handTyped.find((p) => p.id === reveal.id);
+    const at = vendor?.marker ?? pin?.marker ?? null;
+    if (at === null) return;
     const map = mapRef.current;
     map?.flyTo({
-      center: [vendor.marker.lng, vendor.marker.lat],
+      center: [at.lng, at.lat],
       zoom: Math.max(map.getZoom(), STREET_ZOOM - 1),
       duration: 700,
     });
     holder.current
-      ?.querySelector<HTMLButtonElement>(`[data-marker-id="${reveal.id}"]`)
+      ?.querySelector<HTMLButtonElement>(
+        vendor
+          ? `[data-marker-id="${reveal.id}"]`
+          : `[data-hand-typed-marker="${reveal.id}"]`,
+      )
       ?.focus({ preventScroll: true });
     // Only a new request moves the map, not new data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,7 +459,18 @@ export default function MapCanvas({
           touchPitch={false}
           pitchWithRotate={false}
           attributionControl={false}
-          onClick={() => onSelect(null)}
+          onClick={(e) => {
+            const pin = handTyped.find((p) => p.id === placing);
+            if (pin && onPlace) {
+              const version =
+                pinDraft?.id === pin.id ? pinDraft.version : pin.version;
+              setPinDraft(null);
+              onPlace(pin.id, e.lngLat.lat, e.lngLat.lng, version);
+              return;
+            }
+            onSelect(null);
+          }}
+          cursor={placing !== null ? "crosshair" : undefined}
           onLoad={(e) => {
             if (look && "colours" in look) addImages(e.target, look.colours);
           }}
@@ -359,10 +525,60 @@ export default function MapCanvas({
               </Marker>
             );
           })}
+          {handTyped.map((pin) => {
+            // A new Marker's draft shows only while it is being placed.
+            const drafting =
+              pinDraft?.id === pin.id &&
+              (pin.marker !== null || placing === pin.id);
+            const at = drafting ? pinDraft : pin.marker;
+            if (at === null) return null;
+            const movable = canMove && onPlace !== undefined;
+            const label =
+              pin.marker !== null
+                ? `${pin.name}, ${pin.categoryLabel}, ${TONE_LABELS[pin.tone]}, Marker placed by a Member`
+                : `New Marker for ${pin.name}`;
+            return (
+              <Marker
+                key={pin.id}
+                latitude={at.lat}
+                longitude={at.lng}
+                anchor="center"
+                draggable={movable}
+                onDragEnd={(e) => {
+                  setPinDraft(null);
+                  onPlace?.(
+                    pin.id,
+                    e.lngLat.lat,
+                    e.lngLat.lng,
+                    drafting ? pinDraft.version : pin.version,
+                  );
+                }}
+              >
+                <HandTypedMarker
+                  id={pin.id}
+                  label={label}
+                  movable={movable}
+                  onKeyDown={(e) => nudgePin(pin, e)}
+                >
+                  <MarkerStamp
+                    category={pin.category}
+                    tone={pin.tone}
+                    approximate={false}
+                    selected={drafting}
+                    tag="none"
+                  />
+                </HandTypedMarker>
+              </Marker>
+            );
+          })}
         </Map>
       ) : (
         <div className="size-full bg-[var(--map-land)]" />
       )}
+      <p id="map-place-hint" className="sr-only">
+        Placed by a Member: use the arrow keys and then Enter to put it where
+        the Vendor is, or drag it. Escape cancels.
+      </p>
       <p id="map-move-hint" className="sr-only">
         Approximate: drag it, or use the arrow keys and then Enter, to put it
         where the Vendor really is. Escape puts it back.

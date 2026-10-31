@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   budgetLineFor,
   filterForFunction,
+  filterHandTyped,
   type FilterableVendor,
 } from "./filter";
 
@@ -168,5 +169,38 @@ describe("budgetLineFor", () => {
   it("is null when the Function has no line for the category", () => {
     expect(budgetLineFor(entries, "sangeet", "photographer")).toBeNull();
     expect(budgetLineFor(entries, "haldi", "venue")).toBeNull();
+  });
+});
+
+// Review of PR 139, low 1: the panel's filters apply to hand-typed Vendors.
+describe("filterHandTyped", () => {
+  const caterer = {
+    name: "Sharma ji",
+    category: "caterer",
+    functionKeys: ["sangeet"],
+  };
+  const anyFunction = { name: "Rekha aunty", category: "", functionKeys: null };
+  const decorator = {
+    name: "Phool wale",
+    category: "decorator",
+    functionKeys: ["wedding"],
+  };
+  const all = [caterer, anyFunction, decorator];
+
+  it("keeps every hand-typed Vendor with no filter", () => {
+    expect(filterHandTyped(all, null, null)).toEqual(all);
+  });
+
+  it("keeps only the chosen category; a free label matches no category chip", () => {
+    expect(filterHandTyped(all, "caterer", null)).toEqual([caterer]);
+    expect(filterHandTyped(all, "venue", null)).toEqual([]);
+  });
+
+  it("keeps a Vendor whose checklist Entries serve the Function, or serve every Function", () => {
+    expect(filterHandTyped(all, null, "sangeet")).toEqual([
+      caterer,
+      anyFunction,
+    ]);
+    expect(filterHandTyped(all, "decorator", "sangeet")).toEqual([]);
   });
 });
