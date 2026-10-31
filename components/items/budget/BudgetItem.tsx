@@ -472,14 +472,12 @@ function BudgetRow({
                 className="text-label font-semibold text-ink"
               />
             )}
-            {fields.role === "line" && fields.plannedAmount !== null ? (
-              <span className="text-caption text-ink-3">
-                {/* A carried amount: the earlier Estimate's, kept when the new
-                    city couldn't be priced (review of #134). */}
-                {fields.estimate === null && !fields.editedByMember
-                  ? "Earlier Estimate amount"
-                  : "Your amount"}
-              </span>
+            {/* A carried amount (the earlier Estimate's, kept when the new
+                city couldn't be priced; review of #134) isn't the Member's. */}
+            {fields.role === "line" &&
+            fields.plannedAmount !== null &&
+            (fields.estimate !== null || fields.editedByMember) ? (
+              <span className="text-caption text-ink-3">Your amount</span>
             ) : null}
           </span>
         )}
