@@ -23,6 +23,7 @@ import {
   amountAt,
   amountAtMost,
   budgetCheckNote,
+  missingEstimates,
   uncheckedBudgetNote,
   deadlineDate,
   isLeadKey,
@@ -2951,10 +2952,14 @@ export async function essentialInputOf(
           functionKey: entry.functionKey,
           fields: entry.fields,
           assumed: entry.assumed,
+          // A carried amount (an earlier Estimate's amount kept when the
+          // new city's cascade couldn't price the line; review of #134) isn't
+          // a Member's, so the line stays open to a later price.
           kept:
             entry.fields.editedByMember ||
-            entry.fields.plannedAmount !== null ||
-            quoted.has(entry._id),
+            quoted.has(entry._id) ||
+            (entry.fields.plannedAmount !== null &&
+              entry.fields.estimate !== null),
         });
       }
     } else if (
@@ -3214,6 +3219,8 @@ export type Repriced = {
   /** How far the lines alone pass the budget; 0 when they fit. */
   overBy: number;
   budgetCheck: BudgetCheck;
+  /** Lines with no Estimate at these prices, which the check leaves out. */
+  missing: number;
 };
 
 /**
@@ -3236,9 +3243,8 @@ export function repriceBudget(
   type Line = EssentialInput["lines"][number];
   const rangeOf = (l: Line) =>
     ranges.has(l.id) ? ranges.get(l.id)! : storedRange(l.fields);
-  const free = state.lines.filter(
-    (l) => !l.kept && l.fields.category !== null && rangeOf(l) !== null,
-  );
+  // A free-label line priced from a range moves with the others (#133).
+  const free = state.lines.filter((l) => !l.kept && rangeOf(l) !== null);
   const fixedTotal = state.lines
     .filter((l) => !free.includes(l))
     .reduce((sum, l) => sum + entryAmount(l.fields), 0);
@@ -3265,12 +3271,31 @@ export function repriceBudget(
     const fields: EntryFields<"budget"> = {
       ...l.fields,
       estimate: priced.entries[i]!,
+      // A carried amount gives way to the new Estimate.
+      plannedAmount: null,
       belowUsualRange: priced.belowUsualRange,
     };
     linesTotal += entryAmount(fields);
     if (JSON.stringify(fields) !== JSON.stringify(l.fields))
       lines.push({ id: l.id, version: l.version, fields });
   });
+  // A line the cascade couldn't price for the new city (review of #134):
+  // its old range goes, so it shows "No Estimate yet" and the check counts it
+  // among the lines with no Estimate, but its amount stays.
+  for (const l of state.lines) {
+    if (l.kept || !ranges.has(l.id) || ranges.get(l.id) !== null) continue;
+    if (storedRange(l.fields) === null) continue;
+    lines.push({
+      id: l.id,
+      version: l.version,
+      fields: {
+        ...l.fields,
+        estimate: null,
+        plannedAmount: entryAmount(l.fields),
+        belowUsualRange: false,
+      },
+    });
+  }
   const unallocated = priced.budgetCheck.unallocated;
   const contingency = Math.max(0, budget - linesTotal - unallocated);
   // The Budget check over every line, at the prices it now rests on.
@@ -3287,6 +3312,7 @@ export function repriceBudget(
     unallocated,
     overBy: Math.max(0, linesTotal - budget),
     budgetCheck: { ...check, contingency, unallocated },
+    missing: state.lines.length - all.length,
   };
 }
 
@@ -3712,13 +3738,18 @@ export function describeEssentialChange(
       /Venue capacity/.test((c.values.fields as { title: string }).title),
   );
   if (recheck) parts.push("Venue capacity to recheck");
-  if (extra) parts.push(extra);
   if (change.field === "city" && cityRanges !== null && state.budget !== null) {
     const city = { name: change.city, tier: cityTier(change.city) };
     const r = repriceBudget({ ...state, city }, state.budget, cityRanges);
     const below = belowMinimumNote(r.budgetCheck, state.budget, city.name);
     if (below) parts.push(below);
+    // The lines this check leaves out, as the Budget note will count them
+    // after Accept (review of #134, round 4).
+    if (r.missing > 0) parts.push(missingEstimates(r.missing));
   }
+  // Last, so a summary cut at 300 characters loses the general sentence
+  // rather than a warning.
+  if (extra) parts.push(extra);
   const text = parts.length > 0 ? `${head}: ${parts.join("; ")}.` : `${head}.`;
   return text.length > 300 ? `${text.slice(0, 297)}...` : text;
 }
@@ -4123,6 +4154,53 @@ export async function runCityReprice(
   if (state === null || state.city?.name !== args.city) return;
   const proposalId =
     args.actor.kind === "assistant" ? args.actor.proposalId : null;
+  // The notice carries the Proposal, so its Try again (`retryCityReprice`)
+  // knows what to re-price.
+  const notice = (text: string) =>
+    ctx.runMutation(internal.chat.postSystem, {
+      eventId: args.eventId,
+      card: {
+        kind: "system",
+        id: proposalId === null ? null : cityRepriceNoticeId(proposalId),
+      },
+      text,
+    });
+  const unpriced = (n: number, still: boolean) =>
+    `I ${still ? "still " : ""}couldn't find an Estimate in ${args.city} for ${n === 1 ? "1 line" : `${n} lines`}, so ${n === 1 ? "it shows" : "they show"} "No Estimate yet".${proposalId ? ` Use Try again to price ${n === 1 ? "it" : "them"}.` : ""}`;
+  // Once the re-price has landed, a Try again prices only the lines it left
+  // with no Estimate, with a fresh lookup (review of #134).
+  const left: CityRepriceLeft | null =
+    proposalId === null
+      ? null
+      : await ctx.runQuery(internal.plan.cityRepriceLeft, {
+          eventId: args.eventId,
+          proposalId,
+        });
+  if (left !== null) {
+    if (left.ids.length === 0) return;
+    try {
+      const ids = new Set<string>(left.ids);
+      const lines = state.lines.filter((l) => ids.has(l.id));
+      const result: AppliedCityPrices = await ctx.runMutation(
+        internal.plan.applyCityPrices,
+        {
+          eventId: args.eventId,
+          city: args.city,
+          actor: args.actor,
+          prices: await cityPrices(ctx, { ...state, lines }, state.city, deps),
+          attempt: left.attempt,
+        },
+      );
+      if (result !== null && result.missing.length > 0)
+        await notice(unpriced(result.missing.length, true));
+    } catch (error) {
+      console.warn(
+        `The lines with no Estimate couldn't be priced for ${args.city}: ${error instanceof Error ? error.message.slice(0, 300) : "unknown error"}`,
+      );
+      await notice(unpriced(left.ids.length, true));
+    }
+    return;
+  }
   try {
     const stored: CityPrice[] | null =
       proposalId === null
@@ -4131,33 +4209,37 @@ export async function runCityReprice(
             proposalId,
             city: args.city,
           });
-    await ctx.runMutation(internal.plan.applyCityPrices, {
-      eventId: args.eventId,
-      city: args.city,
-      actor: args.actor,
-      prices: stored ?? (await cityPrices(ctx, state, state.city, deps)),
-    });
+    const result: AppliedCityPrices = await ctx.runMutation(
+      internal.plan.applyCityPrices,
+      {
+        eventId: args.eventId,
+        city: args.city,
+        actor: args.actor,
+        prices: stored ?? (await cityPrices(ctx, state, state.city, deps)),
+      },
+    );
+    // Every other line re-priced; a free-label line the cascade couldn't
+    // price for the new city shows "No Estimate yet" until Try again.
+    if (result !== null && result.missing.length > 0)
+      await notice(
+        `I re-priced the Budget for ${args.city}. ${unpriced(result.missing.length, false)}`,
+      );
   } catch (error) {
     console.warn(
       `The Budget couldn't be re-priced for ${args.city}: ${error instanceof Error ? error.message.slice(0, 300) : "unknown error"}`,
     );
-    // The notice carries the Proposal, so its Try again (`retryCityReprice`)
-    // knows what to re-price.
-    await ctx.runMutation(internal.chat.postSystem, {
-      eventId: args.eventId,
-      card: {
-        kind: "system",
-        id: proposalId === null ? null : cityRepriceNoticeId(proposalId),
-      },
-      text: `I couldn't re-price the Budget for ${args.city} just now, so its Estimates keep their earlier prices.${proposalId ? " Use Try again to re-price them." : ""}`,
-    });
+    await notice(
+      `I couldn't re-price the Budget for ${args.city} just now, so its Estimates keep their earlier prices.${proposalId ? " Use Try again to re-price them." : ""}`,
+    );
   }
 }
 
 /**
  * The new city's per-unit range for every line a city change re-prices (the
  * lines a Member didn't set or get a Quote for), from the estimate cascade,
- * with the version each line was read at.
+ * with the version each line was read at. A free-label line is priced from
+ * its label alone, with the city and the Event type (#133); nothing else
+ * from the Event reaches the cascade.
  */
 async function cityPrices(
   ctx: EstimateCtx,
@@ -4165,7 +4247,9 @@ async function cityPrices(
   city: { name: string; tier: CityTier },
   deps?: Partial<EstimateDeps>,
 ): Promise<CityPrice[]> {
-  const free = state.lines.filter((l) => !l.kept && l.fields.category !== null);
+  const free = state.lines.filter(
+    (l) => !l.kept && (l.fields.category ?? l.fields.label).trim() !== "",
+  );
   const ranges = await estimateLines(
     ctx,
     {
@@ -4174,7 +4258,7 @@ async function cityPrices(
       tier: city.tier,
       eventType: state.eventType,
       lines: free.map((l) => ({
-        category: l.fields.category!,
+        category: l.fields.category ?? l.fields.label,
         quantity: l.fields.quantity,
         unit: l.fields.unit,
       })),
@@ -4205,6 +4289,12 @@ type CityRetry =
       askerProblem: string | null;
       /** The `toolCalls` row that holds the last retry's scheduled step. */
       last: Doc<"toolCalls"> | null;
+      /**
+       * The lines a landed re-price left with no Estimate (review of #134).
+       * While there are any, the re-price shows as failed, so Try again
+       * prices them.
+       */
+      left: Id<"entries">[];
     };
 
 /**
@@ -4255,16 +4345,20 @@ async function cityRetryOf(
       .query("toolCalls")
       .withIndex("by_key", (q) => q.eq("key", key))
       .unique();
-  if ((await keyed(cityRepriceKey(proposalId))) !== null)
+  const landed = await keyed(cityRepriceKey(proposalId));
+  const left =
+    landed === null ? [] : await stillUnpriced(ctx, eventId, landed.result);
+  const last = await keyed(`${cityRepriceKey(proposalId)}:retry`);
+  if (landed !== null && left.length === 0)
     return {
       problem: null,
       proposal,
       city,
       state: "landed",
       askerProblem,
-      last: null,
+      last,
+      left,
     };
-  const last = await keyed(`${cityRepriceKey(proposalId)}:retry`);
   const step =
     last === null
       ? null
@@ -4282,7 +4376,72 @@ async function cityRetryOf(
     state: waiting ? "retrying" : "failed",
     askerProblem,
     last,
+    left,
   };
+}
+
+/**
+ * The lines a landed city re-price left with no Estimate (`missing` in its
+ * once-key's result) that still have none and that no Member has since set
+ * an amount for or got a Quote for. Before #134 the result was null.
+ */
+async function stillUnpriced(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  result: unknown,
+): Promise<Id<"entries">[]> {
+  const ids = (result as AppliedCityPrices | undefined)?.missing ?? [];
+  if (ids.length === 0) return [];
+  const quoted = await quotedLines(ctx, eventId);
+  const left: Id<"entries">[] = [];
+  for (const id of ids) {
+    const entry = await ctx.db.get("entries", id);
+    if (
+      entry?.kind === "budget" &&
+      entry.eventId === eventId &&
+      entry.deletedAt === null &&
+      entry.fields.role === "line" &&
+      entry.fields.estimate === null &&
+      !entry.fields.editedByMember &&
+      !quoted.has(id)
+    )
+      left.push(id);
+  }
+  return left;
+}
+
+type CityRepriceLeft = { ids: Id<"entries">[]; attempt: number };
+
+/**
+ * For a city Proposal whose re-price has landed: the lines it left with no
+ * Estimate, and which Try again this is, for its once-keys. Null while the
+ * re-price hasn't landed.
+ */
+export const cityRepriceLeft = internalQuery({
+  args: { eventId: v.id("events"), proposalId: v.id("proposals") },
+  returns: v.union(
+    v.object({ ids: v.array(v.id("entries")), attempt: v.number() }),
+    v.null(),
+  ),
+  handler: async (ctx, { eventId, proposalId }) => {
+    const keyed = (key: string) =>
+      ctx.db
+        .query("toolCalls")
+        .withIndex("by_key", (q) => q.eq("key", key))
+        .unique();
+    const landed = await keyed(cityRepriceKey(proposalId));
+    if (landed === null) return null;
+    const retry = await keyed(`${cityRepriceKey(proposalId)}:retry`);
+    return {
+      ids: await stillUnpriced(ctx, eventId, landed.result),
+      attempt: retryAttempt(retry),
+    };
+  },
+});
+
+/** How many times Try again has been tapped for a city Proposal. */
+function retryAttempt(row: Doc<"toolCalls"> | null): number {
+  return (row?.result as { attempt?: number } | undefined)?.attempt ?? 0;
 }
 
 /**
@@ -4324,9 +4483,10 @@ export const cityRepriceStatus = query({
 
 /**
  * "Try again" on the notice of a failed city re-price: schedules the
- * re-price step again for that accepted Proposal, as it was accepted. Members
- * only. Once the re-price has landed, or while a retry is still waiting or
- * running, it schedules nothing.
+ * re-price step again for that accepted Proposal, as it was accepted. Once
+ * the re-price has landed, the step prices only the lines it left with no
+ * Estimate (review of #134). Members only. With nothing left to price, or
+ * while a retry is still waiting or running, it schedules nothing.
  */
 export const retryCityReprice = mutation({
   args: { eventId: v.id("events"), proposalId: v.id("proposals") },
@@ -4365,7 +4525,10 @@ export const retryCityReprice = mutation({
         },
       },
     );
-    const record = { result: { scheduledId }, at: Date.now() };
+    const record = {
+      result: { scheduledId, attempt: retryAttempt(retry.last) + 1 },
+      at: Date.now(),
+    };
     if (retry.last === null)
       await ctx.db.insert("toolCalls", {
         key: `${cityRepriceKey(proposalId)}:retry`,
@@ -4376,11 +4539,21 @@ export const retryCityReprice = mutation({
   },
 });
 
+/** The lines a city re-price left with no Estimate, or null when it wrote nothing. */
+const appliedCityPricesValidator = v.union(
+  v.object({ missing: v.array(v.id("entries")) }),
+  v.null(),
+);
+type AppliedCityPrices = Infer<typeof appliedCityPricesValidator>;
+
 /**
  * Writes the new city's prices: each line priced by the cascade, at the
  * plan's position for the budget, with the Contingency and Unallocated from
  * the same arithmetic. A line that moved since it was priced keeps its own
- * price; a line the cascade couldn't price keeps its amount.
+ * price; a line the cascade couldn't price keeps its amount and loses its
+ * range, and is returned in `missing` so Try again can price it later. A Try
+ * again after the re-price landed passes its `attempt` and only the lines
+ * left with no Estimate.
  */
 export const applyCityPrices = internalMutation({
   args: {
@@ -4388,9 +4561,10 @@ export const applyCityPrices = internalMutation({
     city: v.string(),
     actor: actorValidator,
     prices: v.array(cityPriceValidator),
+    attempt: v.optional(v.number()),
   },
-  returns: v.null(),
-  handler: async (ctx, args) => {
+  returns: appliedCityPricesValidator,
+  handler: async (ctx, args): Promise<AppliedCityPrices> => {
     const state = await essentialInputOf(ctx, args.eventId, istDay(Date.now()));
     if (
       state === null ||
@@ -4407,26 +4581,36 @@ export const applyCityPrices = internalMutation({
     });
     const ranges = new Map(args.prices.map((p) => [p.id, p.range] as const));
     const budget = state.budget;
+    // A Try again writes under its own keys: the first re-price already
+    // used "city" for these lines.
+    const key =
+      args.attempt === undefined ? "city" : `city:missing:${args.attempt}`;
     const apply = async () => {
       const repriced = repriceBudget({ ...state, lines }, budget, ranges);
-      await writeRepriced(
-        ctx,
-        { ...state, lines },
-        repriced,
-        args.actor,
-        "city",
-      );
+      await writeRepriced(ctx, { ...state, lines }, repriced, args.actor, key);
       // The check and the note follow the new prices, here rather than in a
       // second scheduled recheck.
       await recomputeInPlace(ctx, args.eventId);
       await recomputeBudget(ctx, args.eventId);
-      return null;
+      return {
+        missing: lines
+          .filter((l) => !l.kept && ranges.get(l.id) === null)
+          .map((l) => l.id),
+      };
     };
-    // Once per Proposal: a step that runs again (a retry) writes nothing more.
-    if (args.actor.kind === "assistant" && args.actor.proposalId !== null)
-      await once(ctx, cityRepriceKey(args.actor.proposalId), apply);
-    else await apply();
-    return null;
+    // Once per Proposal (and per Try again after it landed): a step that
+    // runs again writes nothing more.
+    if (args.actor.kind === "assistant" && args.actor.proposalId !== null) {
+      const landedKey = cityRepriceKey(args.actor.proposalId);
+      return await once(
+        ctx,
+        args.attempt === undefined
+          ? landedKey
+          : `${landedKey}:missing:${args.attempt}`,
+        apply,
+      );
+    }
+    return await apply();
   },
 });
 

@@ -13,7 +13,13 @@ import { getFunctionName, type FunctionReference } from "convex/server";
 import { cityRepriceNoticeId } from "../lib/chat/notices";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { estimateLines, stubEstimateDeps } from "./estimates";
+import {
+  estimateLines,
+  stubEstimateDeps,
+  type EstimateDeps,
+  type KnowledgeInput,
+} from "./estimates";
+import { knowledgeBasis } from "../lib/pricing/basis";
 import { addDays } from "../lib/brief/dates";
 import {
   languageModel,
@@ -1908,7 +1914,9 @@ describe("changing an essential after the plan", () => {
       (e) => e.fields.role === "line" && e.fields.estimate !== null,
     ).length;
     expect(check!.basis).toEqual({ researched: 0, lines: priced });
-    expect(note).toMatch(/2 lines have no Estimate yet and count as zero\./);
+    expect(note).toMatch(
+      /2 lines have no Estimate yet and count as zero in the Budget check\./,
+    );
   });
 
   // Review of #130, round 3: one recheck per Accept, never a second plain one.
@@ -1977,6 +1985,131 @@ describe("changing an essential after the plan", () => {
     const after = (await rechecks(s)).slice(before);
     expect(after).toHaveLength(1);
     expect(after[0]).toMatchObject({ proposalId: proposal._id });
+  });
+
+  // Issue #133: a free-label line follows a city change like any other line.
+  it("a city change re-estimates a free-label line for the new city from its label alone", async () => {
+    const { s } = await plannedJaipur();
+    const jaipurRange = { unit: "per_event", unitLow: 20000, unitHigh: 30000 };
+    const lineId = await s.t.run(async (ctx) => {
+      const item = (
+        await ctx.db
+          .query("items")
+          .withIndex("by_event_kind", (q) =>
+            q.eq("eventId", s.eventId).eq("kind", "budget"),
+          )
+          .take(5)
+      ).find((i) => i.deletedAt === null)!;
+      const owner = (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner")!;
+      return await ctx.db.insert("entries", {
+        eventId: s.eventId,
+        itemId: item._id,
+        order: 999,
+        functionKey: null,
+        kind: "budget",
+        fields: {
+          label: "Mehndi cones",
+          category: null,
+          quantity: 1,
+          unit: "per_event",
+          estimate: {
+            low: 20000,
+            high: 30000,
+            amount: 20000,
+            label: "Estimate",
+            basis: knowledgeBasis({ ...jaipurRange, reasoning: "Jaipur" }),
+          },
+          plannedAmount: null,
+          role: "line",
+          belowUsualRange: false,
+          editedByMember: false,
+        },
+        assumed: [],
+        createdBy: {
+          kind: "assistant",
+          forMembershipId: owner._id,
+          runId: null,
+          proposalId: null,
+          acceptedBy: null,
+        },
+        version: 1,
+        deletedAt: null,
+      });
+    });
+    const owner = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner"),
+    );
+    const asked: KnowledgeInput[] = [];
+    await runEssentialProposal(
+      actionCtx(s.t),
+      {
+        eventId: s.eventId,
+        change: { field: "city", city: "Mumbai" },
+        requestedBy: owner!._id,
+      },
+      {
+        claudeReachable: () => false,
+        knowledge: async (input) => {
+          asked.push(input);
+          return {
+            model: "stub",
+            results: input.lines.map((l) => ({
+              key: l.key,
+              unitLow: 45000,
+              unitHigh: 60000,
+              reasoning: "Mumbai prices",
+            })),
+          };
+        },
+      },
+    );
+    await acceptNext(s);
+    await until(
+      s,
+      () => rollupOf(s),
+      ({ event }) => event.city?.tier === "X",
+    );
+    await s.t.finishAllScheduledFunctions(() => {});
+
+    const line = (await budgetEntries(s)).find((e) => e._id === lineId)!;
+    expect(line.fields.estimate!.basis).toMatchObject({
+      kind: "assistantKnowledge",
+      unitLow: 45000,
+      unitHigh: 60000,
+    });
+    expect(line.fields.estimate!.amount).toBeGreaterThanOrEqual(45000);
+    expect(line.fields.estimate!.amount).toBeLessThanOrEqual(60000);
+
+    // The estimate asked about the label, the city and the Event type only.
+    const prompt = JSON.stringify(asked);
+    expect(prompt).toContain("Mehndi cones");
+    expect(prompt).toContain("Mumbai");
+    const names = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(20)
+      ).map((m) => m.displayName),
+    );
+    for (const name of names) expect(prompt).not.toContain(name);
+
+    // The Budget check counts it as priced, at its Mumbai range.
+    const { event } = await rollupOf(s);
+    const priced = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line" && e.fields.estimate !== null,
+    ).length;
+    expect(event.budgetCheck!.basis!.lines).toBe(priced);
   });
 
   // Issue #132: Undo all takes back the Unallocated row its Accept added.
@@ -2269,6 +2402,366 @@ describe("trying a failed city re-price again", () => {
     ).toMatchObject({ ok: false });
     expect(await pendingReprices(s)).toHaveLength(0);
     expect(await status(s.asAditi)).toMatchObject({ state: "landed" });
+  });
+
+  // Review of #134: a line the cascade can't price for the new city must not
+  // keep its old city's Estimate as if current. Its range goes, its amount
+  // stays, every other line re-prices, and Try again prices it later.
+  const mumbaiKnowledge = {
+    claudeReachable: () => true,
+    research: async () => null,
+    knowledge: async (input: KnowledgeInput) => ({
+      model: "stub",
+      results: input.lines.map((l) => ({
+        key: l.key,
+        unitLow: 45000,
+        unitHigh: 60000,
+        reasoning: "Mumbai prices",
+      })),
+    }),
+  };
+  // Research finds no source (as after its time limit) and the own estimate
+  // fails.
+  const noPrice = {
+    claudeReachable: () => true,
+    research: async () => null,
+    knowledge: async (): Promise<null> => {
+      throw new Error("the own estimate failed");
+    },
+  };
+  const budgetNoteOf = (s: S) =>
+    s.t.run(async (ctx) => {
+      const item = (
+        await ctx.db
+          .query("items")
+          .withIndex("by_event_kind", (q) =>
+            q.eq("eventId", s.eventId).eq("kind", "budget"),
+          )
+          .take(5)
+      ).find((i) => i.deletedAt === null)!;
+      return item.kind === "budget" ? item.data.note : null;
+    });
+  const changesSince = (s: S, at: number) =>
+    s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("changes")
+          .withIndex("by_event_at", (q) =>
+            q.eq("eventId", s.eventId).gt("at", at),
+          )
+          .take(500)
+      ).filter((c) => c.table === "entries"),
+    );
+  const systemNotices = (s: S) =>
+    s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("chatAnnotations")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(100)
+      ).filter((a) => a.card?.kind === "system"),
+    );
+
+  /**
+   * A planned Jaipur wedding with an Assistant-priced free-label line,
+   * "Mehndi cones" at ₹20,000 to ₹30,000, moved to Mumbai and accepted by
+   * Meera, where the cascade can't price that line: not when the Proposal is
+   * made, not at Accept.
+   */
+  async function unpricedFreeLabel() {
+    const s = await jaipurAtSummary();
+    await planWith(s, jaipurWeddingDraft);
+    const lineId = await s.t.run(async (ctx) => {
+      const item = (
+        await ctx.db
+          .query("items")
+          .withIndex("by_event_kind", (q) =>
+            q.eq("eventId", s.eventId).eq("kind", "budget"),
+          )
+          .take(5)
+      ).find((i) => i.deletedAt === null)!;
+      const owner = (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner")!;
+      return await ctx.db.insert("entries", {
+        eventId: s.eventId,
+        itemId: item._id,
+        order: 999,
+        functionKey: null,
+        kind: "budget",
+        fields: {
+          label: "Mehndi cones",
+          category: null,
+          quantity: 1,
+          unit: "per_event",
+          estimate: {
+            low: 20000,
+            high: 30000,
+            amount: 20000,
+            label: "Estimate",
+            basis: knowledgeBasis({
+              unit: "per_event",
+              unitLow: 20000,
+              unitHigh: 30000,
+              reasoning: "Jaipur",
+            }),
+          },
+          plannedAmount: null,
+          role: "line",
+          belowUsualRange: false,
+          editedByMember: false,
+        },
+        assumed: [],
+        createdBy: {
+          kind: "assistant",
+          forMembershipId: owner._id,
+          runId: null,
+          proposalId: null,
+          acceptedBy: null,
+        },
+        version: 1,
+        deletedAt: null,
+      });
+    });
+    const owner = await s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_event", (q) => q.eq("eventId", s.eventId))
+          .take(10)
+      ).find((m) => m.role === "owner"),
+    );
+    vi.useFakeTimers();
+    await runEssentialProposal(
+      actionCtx(s.t),
+      {
+        eventId: s.eventId,
+        change: { field: "city", city: "Mumbai" },
+        requestedBy: owner!._id,
+      },
+      noPrice,
+    );
+    await settle(s);
+    const [proposal] = await openProposals(s);
+    const acceptedAt = Date.now();
+    await s.asMeera.mutation(api.proposals.accept, {
+      eventId: s.eventId,
+      proposalId: proposal!._id,
+    });
+    const [step] = await pendingReprices(s);
+    const args = step!.args[0] as Parameters<typeof runCityReprice>[1];
+    await s.t.run((ctx) => ctx.scheduler.cancel(step!._id));
+    await settle(s);
+    await runCityReprice(actionCtx(s.t), args, noPrice);
+    await settle(s);
+    const mehndi = async () =>
+      (await budgetEntries(s)).find((e) => e._id === lineId)!.fields;
+    const status = () =>
+      s.asMeera.query(api.plan.cityRepriceStatus, {
+        eventId: s.eventId,
+        proposalId: proposal!._id,
+      });
+    /** Taps Try again and runs its step with `deps`, through `ctx` if given. */
+    const tryAgain = async (
+      deps: Partial<EstimateDeps>,
+      ctx: Parameters<typeof runCityReprice>[0] = actionCtx(s.t),
+    ) => {
+      expect(
+        await s.asAditi.mutation(api.plan.retryCityReprice, {
+          eventId: s.eventId,
+          proposalId: proposal!._id,
+        }),
+      ).toEqual({ ok: true });
+      const [retry] = await pendingReprices(s);
+      const retryArgs = retry!.args[0] as Parameters<typeof runCityReprice>[1];
+      await s.t.run((c) => c.scheduler.cancel(retry!._id));
+      await runCityReprice(ctx, retryArgs, deps);
+      await settle(s);
+    };
+    return {
+      s,
+      proposalId: proposal!._id,
+      summary: proposal!.summary,
+      lineId,
+      args,
+      acceptedAt,
+      mehndi,
+      status,
+      tryAgain,
+    };
+  }
+
+  it("clears the range of a free-label line the cascade can't price for the new city, keeps its amount, and re-prices the rest", async () => {
+    const { s, proposalId, lineId, acceptedAt, mehndi, status } =
+      await unpricedFreeLabel();
+    // The fixed-category lines re-priced for Mumbai.
+    expect(await receptionBasis(s)).toMatch(/X tier/);
+    // The free-label line has no Estimate now, but keeps its amount.
+    const fields = await mehndi();
+    expect(fields.estimate).toBeNull();
+    expect(entryAmount(fields)).toBe(20000);
+    expect(fields.editedByMember).toBe(false);
+    // The check and the note count it among the lines with no Estimate, in
+    // the existing sentence and nothing more.
+    const { event } = await s.t.run(async (ctx) => ({
+      event: (await ctx.db.get("events", s.eventId))!,
+    }));
+    const priced = (await budgetEntries(s)).filter(
+      (e) => e.fields.role === "line" && e.fields.estimate !== null,
+    ).length;
+    expect(event.budgetCheck!.basis!.lines).toBe(priced);
+    const note = await budgetNoteOf(s);
+    expect(note).toMatch(
+      /1 line has no Estimate yet and counts as zero in the Budget check\./,
+    );
+    expect(note).not.toMatch(/earlier Estimate/);
+    // The Accept and its re-price are one history group, the Proposal's.
+    const changes = await changesSince(s, acceptedAt);
+    expect(changes.some((c) => c.docId === lineId)).toBe(true);
+    expect(new Set(changes.map((c) => c.groupKey))).toEqual(
+      new Set([proposalId]),
+    );
+    // The line isn't kept: a later price can still reach it.
+    const state = await s.t.query(internal.plan.essentialInput, {
+      eventId: s.eventId,
+      today: TODAY,
+    });
+    expect(state!.lines.find((l) => l.id === lineId)!.kept).toBe(false);
+    // The notice offers Try again for it.
+    const notices = await systemNotices(s);
+    expect(notices.at(-1)!.card).toEqual({
+      kind: "system",
+      id: cityRepriceNoticeId(proposalId),
+    });
+    expect(await status()).toEqual({
+      city: "Mumbai",
+      state: "failed",
+      canRetry: true,
+    });
+  });
+
+  // Review of #134, round 4: the card says so before Accept, from the same
+  // prices its Budget check uses.
+  it("the city Proposal's card counts a free-label line it can't price among the lines with no Estimate", async () => {
+    const { summary } = await unpricedFreeLabel();
+    expect(summary).toMatch(
+      /1 line has no Estimate yet and counts as zero in the Budget check/,
+    );
+    expect(summary).toMatch(/re-priced for Mumbai/);
+    expect(summary.length).toBeLessThanOrEqual(300);
+    expect(summary.endsWith("...")).toBe(false);
+  });
+
+  it("runs the landed re-price once: the same step again writes nothing more", async () => {
+    const { s, proposalId, args } = await unpricedFreeLabel();
+    const before = await changesSince(s, 0);
+    const prices = await s.t.query(internal.plan.storedCityPrices, {
+      proposalId,
+      city: "Mumbai",
+    });
+    await s.t.mutation(internal.plan.applyCityPrices, {
+      eventId: s.eventId,
+      city: "Mumbai",
+      actor: args.actor,
+      prices: prices!,
+    });
+    expect(await changesSince(s, 0)).toHaveLength(before.length);
+  });
+
+  it("Try again prices a line left with no Estimate, clears its carried amount, and then has nothing left to do", async () => {
+    const { s, proposalId, lineId, mehndi, status, tryAgain } =
+      await unpricedFreeLabel();
+    const otherLines = async () =>
+      (await budgetEntries(s))
+        .filter((e) => e._id !== lineId && e.fields.role === "line")
+        .map((e) => [e._id, e.version]);
+    const othersBefore = await otherLines();
+    const triedAt = Date.now();
+    await tryAgain(mumbaiKnowledge);
+
+    const fields = await mehndi();
+    expect(fields.estimate!.basis).toMatchObject({
+      kind: "assistantKnowledge",
+      unitLow: 45000,
+      unitHigh: 60000,
+    });
+    expect(fields.plannedAmount).toBeNull();
+    // Only that line moved; the others stay where the re-price put them.
+    expect(await otherLines()).toEqual(othersBefore);
+    const event = await s.t.run((ctx) => ctx.db.get("events", s.eventId));
+    expect(budgetRollup(await budgetEntries(s), event!.budgetTotal).total).toBe(
+      2500000,
+    );
+    expect(await budgetNoteOf(s)).not.toMatch(/no Estimate yet/);
+    // Its writes join the Proposal's history group.
+    const changes = await changesSince(s, triedAt);
+    expect(changes.some((c) => c.docId === lineId)).toBe(true);
+    expect(new Set(changes.map((c) => c.groupKey))).toEqual(
+      new Set([proposalId]),
+    );
+    expect(await status()).toMatchObject({ state: "landed" });
+    expect(
+      await s.asAditi.mutation(api.plan.retryCityReprice, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toMatchObject({ ok: false });
+    expect(await pendingReprices(s)).toHaveLength(0);
+  });
+
+  it("a Try again that still finds no price leaves the line as it was and offers Try again again", async () => {
+    const { s, mehndi, status, tryAgain } = await unpricedFreeLabel();
+    const before = await mehndi();
+    const notices = (await systemNotices(s)).length;
+    await tryAgain(noPrice);
+    expect(await mehndi()).toEqual(before);
+    expect(await systemNotices(s)).toHaveLength(notices + 1);
+    expect(await status()).toMatchObject({ state: "failed", canRetry: true });
+    await tryAgain(mumbaiKnowledge);
+    expect((await mehndi()).estimate).not.toBeNull();
+  });
+
+  it("Try again keeps a line a Member changed while its price was looked up", async () => {
+    const { s, lineId, mehndi, tryAgain } = await unpricedFreeLabel();
+    const base = actionCtx(s.t);
+    const target = getFunctionName(internal.plan.applyCityPrices);
+    const editFirst: Parameters<typeof runCityReprice>[0] = {
+      ...base,
+      runMutation: (async (
+        ref: FunctionReference<"mutation", "internal">,
+        args: Record<string, unknown>,
+      ) => {
+        if (getFunctionName(ref) === target)
+          await s.asAditi.mutation(api.entries.update, {
+            entryId: lineId,
+            patch: { kind: "budget", label: "Mehndi cones and artist" },
+          });
+        return base.runMutation(ref, args);
+      }) as typeof base.runMutation,
+    };
+    await tryAgain(mumbaiKnowledge, editFirst);
+    const fields = await mehndi();
+    expect(fields.label).toBe("Mehndi cones and artist");
+    expect(fields.estimate).toBeNull();
+    expect(entryAmount(fields)).toBe(20000);
+  });
+
+  it("a line a Member gives an amount needs no Try again", async () => {
+    const { s, proposalId, lineId, status } = await unpricedFreeLabel();
+    await s.asAditi.mutation(api.entries.update, {
+      entryId: lineId,
+      patch: { kind: "budget", plannedAmount: 25000 },
+    });
+    expect(await status()).toMatchObject({ state: "landed" });
+    expect(
+      await s.asAditi.mutation(api.plan.retryCityReprice, {
+        eventId: s.eventId,
+        proposalId,
+      }),
+    ).toMatchObject({ ok: false });
   });
 
   // Review of #118, M1: Try again applies the prices the card was made from.
