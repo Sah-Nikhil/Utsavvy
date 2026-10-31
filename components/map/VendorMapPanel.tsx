@@ -95,6 +95,8 @@ function errorMessage(error: unknown): string {
   if (error instanceof ConvexError) {
     const data = error.data as { kind?: string; message?: string };
     if (data.kind === "AccessDenied") return "You can't move this Marker.";
+    if (data.kind === "VersionConflict")
+      return "Another Member changed this Marker while you were placing it, so yours wasn't saved. The map shows it as it is now.";
     if (data.message) return data.message;
   }
   return "The Marker couldn't be moved. Try again.";
@@ -151,6 +153,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     categoryLabel: v.categoryLabel,
     tone: v.status ?? "considering",
     marker: v.marker,
+    version: v.version,
   }));
   const placingName = handTyped.find((v) => v._id === placing)?.name ?? null;
   // Saving or cancelling a new Marker's draft takes its button, and the
@@ -174,7 +177,12 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
       )?.focus({ preventScroll: true });
     }, 50);
   };
-  const place = (id: Id<"privateVendors">, lat: number, lng: number) => {
+  const place = (
+    id: Id<"privateVendors">,
+    lat: number,
+    lng: number,
+    expectedVersion: number,
+  ) => {
     const vendor = handTyped.find((v) => v._id === id);
     const from = document.activeElement;
     setPlacing(null);
@@ -183,7 +191,7 @@ export function VendorMapPanel({ eventId }: { eventId: Id<"events"> }) {
     placeMarker({
       eventId,
       privateVendorId: id,
-      expectedVersion: vendor.version,
+      expectedVersion,
       lat,
       lng,
     })

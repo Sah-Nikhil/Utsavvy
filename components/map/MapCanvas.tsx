@@ -67,6 +67,8 @@ export type HandTypedPin = {
   categoryLabel: string;
   tone: MarkerTone;
   marker: { lat: number; lng: number } | null;
+  /** The hand-typed Vendor's version, for the stale-write check on a save. */
+  version: number;
 };
 
 export type MapCanvasProps = {
@@ -82,8 +84,17 @@ export type MapCanvasProps = {
   handTyped?: HandTypedPin[];
   /** The hand-typed Vendor whose Marker the next click on the map drops. */
   placing?: Id<"privateVendors"> | null;
-  /** Drops or moves a hand-typed Vendor's Marker. */
-  onPlace?: (id: Id<"privateVendors">, lat: number, lng: number) => void;
+  /**
+   * Drops or moves a hand-typed Vendor's Marker. `expectedVersion` is the
+   * version the Member saw when they started, so the save is refused if
+   * another Member changed the Vendor since.
+   */
+  onPlace?: (
+    id: Id<"privateVendors">,
+    lat: number,
+    lng: number,
+    expectedVersion: number,
+  ) => void;
   /** Escape while placing: nothing is saved. */
   onCancelPlace?: () => void;
 };
@@ -171,22 +182,30 @@ export default function MapCanvas({
 
   // A hand-typed Vendor's Marker being placed or moved with the keyboard
   // (review of PR 139): it starts where the Marker is, or at the middle of the
-  // map for a new one, and Enter saves it.
+  // map for a new one, and Enter saves it. It keeps the version it started
+  // from, so saving it can't overwrite another Member's move made meanwhile.
   const [pinDraft, setPinDraft] = useState<{
     id: Id<"privateVendors">;
     lat: number;
     lng: number;
+    version: number;
   } | null>(null);
   useEffect(() => {
     if (placing === null) return;
     const pin = handTyped.find((p) => p.id === placing);
+    if (!pin) return;
     const middle = mapRef.current?.getCenter();
     const start =
-      pin?.marker ??
+      pin.marker ??
       (middle ? { lat: middle.lat, lng: middle.lng } : city?.centre);
     if (!start) return;
     const frame = requestAnimationFrame(() =>
-      setPinDraft({ id: placing, lat: start.lat, lng: start.lng }),
+      setPinDraft({
+        id: placing,
+        lat: start.lat,
+        lng: start.lng,
+        version: pin.version,
+      }),
     );
     // Placing ends however it ends (Enter, Escape, a click, or the list's
     // Cancel), and an unsaved draft ends with it (review of PR 139).
@@ -232,7 +251,7 @@ export default function MapCanvas({
       pinDraft?.id === pin.id
         ? pinDraft
         : pin.marker
-          ? { id: pin.id, ...pin.marker }
+          ? { id: pin.id, ...pin.marker, version: pin.version }
           : null;
     if (current === null) return;
     if (event.key in moves) {
@@ -240,10 +259,15 @@ export default function MapCanvas({
       const [dx, dy] = moves[event.key]!;
       const point = map.project([current.lng, current.lat]);
       const moved = map.unproject([point.x + dx, point.y + dy]);
-      setPinDraft({ id: pin.id, lat: moved.lat, lng: moved.lng });
+      setPinDraft({
+        id: pin.id,
+        lat: moved.lat,
+        lng: moved.lng,
+        version: current.version,
+      });
     } else if (event.key === "Enter" && pinDraft?.id === pin.id) {
       event.preventDefault();
-      onPlace(pin.id, pinDraft.lat, pinDraft.lng);
+      onPlace(pin.id, pinDraft.lat, pinDraft.lng, pinDraft.version);
       setPinDraft(null);
     } else if (event.key === "Escape" && pinDraft?.id === pin.id) {
       event.preventDefault();
@@ -435,9 +459,12 @@ export default function MapCanvas({
           pitchWithRotate={false}
           attributionControl={false}
           onClick={(e) => {
-            if (placing !== null && onPlace) {
+            const pin = handTyped.find((p) => p.id === placing);
+            if (pin && onPlace) {
+              const version =
+                pinDraft?.id === pin.id ? pinDraft.version : pin.version;
               setPinDraft(null);
-              onPlace(placing, e.lngLat.lat, e.lngLat.lng);
+              onPlace(pin.id, e.lngLat.lat, e.lngLat.lng, version);
               return;
             }
             onSelect(null);
@@ -515,7 +542,12 @@ export default function MapCanvas({
                 draggable={movable}
                 onDragEnd={(e) => {
                   setPinDraft(null);
-                  onPlace?.(pin.id, e.lngLat.lat, e.lngLat.lng);
+                  onPlace?.(
+                    pin.id,
+                    e.lngLat.lat,
+                    e.lngLat.lng,
+                    drafting ? pinDraft.version : pin.version,
+                  );
                 }}
               >
                 <button
