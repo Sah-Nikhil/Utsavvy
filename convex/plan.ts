@@ -23,6 +23,7 @@ import {
   amountAt,
   amountAtMost,
   budgetCheckNote,
+  missingEstimates,
   uncheckedBudgetNote,
   deadlineDate,
   isLeadKey,
@@ -3218,6 +3219,8 @@ export type Repriced = {
   /** How far the lines alone pass the budget; 0 when they fit. */
   overBy: number;
   budgetCheck: BudgetCheck;
+  /** Lines with no Estimate at these prices, which the check leaves out. */
+  missing: number;
 };
 
 /**
@@ -3309,6 +3312,7 @@ export function repriceBudget(
     unallocated,
     overBy: Math.max(0, linesTotal - budget),
     budgetCheck: { ...check, contingency, unallocated },
+    missing: state.lines.length - all.length,
   };
 }
 
@@ -3734,13 +3738,18 @@ export function describeEssentialChange(
       /Venue capacity/.test((c.values.fields as { title: string }).title),
   );
   if (recheck) parts.push("Venue capacity to recheck");
-  if (extra) parts.push(extra);
   if (change.field === "city" && cityRanges !== null && state.budget !== null) {
     const city = { name: change.city, tier: cityTier(change.city) };
     const r = repriceBudget({ ...state, city }, state.budget, cityRanges);
     const below = belowMinimumNote(r.budgetCheck, state.budget, city.name);
     if (below) parts.push(below);
+    // The lines this check leaves out, as the Budget note will count them
+    // after Accept (review of #134, round 4).
+    if (r.missing > 0) parts.push(missingEstimates(r.missing));
   }
+  // Last, so a summary cut at 300 characters loses the general sentence
+  // rather than a warning.
+  if (extra) parts.push(extra);
   const text = parts.length > 0 ? `${head}: ${parts.join("; ")}.` : `${head}.`;
   return text.length > 300 ? `${text.slice(0, 297)}...` : text;
 }

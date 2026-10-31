@@ -288,16 +288,19 @@ export function budgetCheckNote(
       `${formatLakh(budget)} is above the high end of ${formatLakh(about(check.high))} for this plan, so ${opts.allAtHigh === false ? "there's room for every Estimate at its high end" : "every Estimate sits at its high end"}${check.unallocated > 0 ? ` and ${formatINR(check.unallocated)} is Unallocated` : ""}.`,
     );
   }
-  if (opts.missing === 1) {
-    notes.push(
-      "1 line has no Estimate yet and counts as zero in the Budget check.",
-    );
-  } else if (opts.missing > 1) {
-    notes.push(
-      `${opts.missing} lines have no Estimate yet and count as zero in the Budget check.`,
-    );
-  }
+  if (opts.missing > 0) notes.push(`${missingEstimates(opts.missing)}.`);
   return notes.length > 0 ? notes.join(" ") : null;
+}
+
+/**
+ * "1 line has no Estimate yet and counts as zero in the Budget check", with
+ * no full stop: the Budget note ends it, a Proposal's card joins it to its
+ * other parts.
+ */
+export function missingEstimates(n: number): string {
+  return n === 1
+    ? "1 line has no Estimate yet and counts as zero in the Budget check"
+    : `${n} lines have no Estimate yet and count as zero in the Budget check`;
 }
 
 /**
