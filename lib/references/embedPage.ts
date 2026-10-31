@@ -23,6 +23,27 @@ export const EMBED_FALLBACK_MESSAGE = "utsavvy-embed-fallback";
 export const PINTEREST_SCRIPT = "https://assets.pinterest.com/js/pinit.js";
 export const INSTAGRAM_SCRIPT = "https://www.instagram.com/embed.js";
 
+/**
+ * The scroll height of Pinterest's board widget (`data-pin-scale-height`), in
+ * pixels. A card keeps the default; the Browse ideas sheet (S21) asks for more.
+ */
+export const BOARD_HEIGHT_DEFAULT = 240;
+export const BOARD_HEIGHT_MAX = 900;
+
+/**
+ * The board height from the page's `height` query parameter: a whole number of
+ * pixels clamped to 240 to 900, or the default when it is missing or not a
+ * number.
+ */
+export function boardHeightFromParam(raw: string | null): number {
+  const value = raw === null || raw.trim() === "" ? NaN : Number(raw);
+  if (!Number.isFinite(value)) return BOARD_HEIGHT_DEFAULT;
+  return Math.min(
+    BOARD_HEIGHT_MAX,
+    Math.max(BOARD_HEIGHT_DEFAULT, Math.floor(value)),
+  );
+}
+
 /** How long a widget has to draw before the page shows the link instead. */
 const WIDGET_TIMEOUT_MS = 10_000;
 
@@ -39,6 +60,8 @@ type PageConfig = {
   /** The platform's widget script, or null to show the link straight away. */
   script: string | null;
   platform: ReferencePlatform;
+  /** The board widget's scroll height, Pinterest boards only. */
+  boardHeight?: number;
 };
 
 /** JSON safe to place inside an inline script. */
@@ -91,7 +114,7 @@ function pageScript(config: PageConfig): string {
       anchor.setAttribute("data-pin-width", width >= 600 ? "large" : width >= 345 ? "medium" : "small");
     } else {
       anchor.setAttribute("data-pin-board-width", String(Math.max(150, width - 2)));
-      anchor.setAttribute("data-pin-scale-height", "240");
+      anchor.setAttribute("data-pin-scale-height", String(config.boardHeight || ${BOARD_HEIGHT_DEFAULT}));
       anchor.setAttribute("data-pin-scale-width", "80");
     }
   }
@@ -163,7 +186,7 @@ export function isFramed(request: Request): boolean {
  */
 export function pinterestEmbedPage(
   url: string | null,
-  options: { framed: boolean } = { framed: true },
+  options: { framed: boolean; boardHeight?: number } = { framed: true },
 ): string {
   const parsed = url === null ? null : parseReferenceUrl(url);
   if (
@@ -189,7 +212,11 @@ export function pinterestEmbedPage(
     title: parsed.urlKind === "pin" ? "Pinterest Pin" : "Pinterest board",
     embedHtml: `<a data-pin-do="${pinDo}" href="${escapeHtml(parsed.embedUrl)}"></a>`,
     link: parsed.embedUrl,
-    config: { script: PINTEREST_SCRIPT, platform: "pinterest" },
+    config: {
+      script: PINTEREST_SCRIPT,
+      platform: "pinterest",
+      boardHeight: options.boardHeight ?? BOARD_HEIGHT_DEFAULT,
+    },
   });
 }
 

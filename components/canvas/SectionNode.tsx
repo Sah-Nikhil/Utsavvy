@@ -4,6 +4,7 @@ import type { Node, NodeProps } from "@xyflow/react";
 import { GripVertical, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { memo } from "react";
 import { VendorMap } from "@/components/map/VendorMap";
+import { PinterestIdeasButton } from "@/components/pinterest-ideas/PinterestIdeasSheet";
 import { SectionOrnament } from "@/components/shell/SectionOrnament";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
@@ -79,6 +80,11 @@ function SectionNodeView({ data }: NodeProps<SectionNodeType>) {
           // row (a preview that opens the full-screen map), so Items never sit under it.
           <div data-mount="vendor-map" className="nodrag nopan nowheel">
             <VendorMap eventId={eventId} />
+          </div>
+        ) : null}
+        {section.kind === "inspirations" ? (
+          <div className="nodrag nopan">
+            <PinterestIdeasButton />
           </div>
         ) : null}
         {canRename || canDelete ? (
