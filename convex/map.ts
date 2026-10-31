@@ -19,9 +19,13 @@ import {
 } from "./_generated/server";
 import { planItemOf } from "./entries";
 import { requireAccess } from "./lib/access";
-import { AccessDenied } from "./lib/errors";
+import { AccessDenied, VersionConflict } from "./lib/errors";
 import { memberInsert, memberWrite } from "./lib/write";
-import { sharedVendorIdOf } from "./lib/vendors";
+import {
+  loadPrivateVendorForEvent,
+  privateVendorIdOf,
+  sharedVendorIdOf,
+} from "./lib/vendors";
 import {
   loadStarterSetRows,
   MAX_PRICE_ROWS,
@@ -39,6 +43,10 @@ import {
  * into place moves it for every Event. The change is recorded in the history
  * of the Event it was moved from only (`memberWrite` records a shared row in
  * the acting membership's Event).
+ *
+ * A hand-typed Vendor (X7) has a Marker only once a Member drops one
+ * (issue #136). That Marker is private to the Event, like the Vendor, and is
+ * held to the same area as a dragged shared Marker.
  */
 
 const MAX_SHORTLISTED = 200;
@@ -100,6 +108,25 @@ export type MapVendor = {
   inCity: boolean;
 };
 
+/** A hand-typed Vendor of this Event, with the Marker a Member dropped, if any. */
+export type MapHandTypedVendor = {
+  _id: Id<"privateVendors">;
+  itemId: Id<"items">;
+  name: string;
+  /** A fixed category key, for the stamp's drawing; "" for a free label. */
+  category: string;
+  /** "Caterer", or the free label as typed. */
+  categoryLabel: string;
+  area: string | null;
+  /** null until a Member drops one: the Vendor is listed beside the map. */
+  marker: { lat: number; lng: number } | null;
+  status: LinkStatus | null;
+  /** The Functions its linked checklist Entries serve; null when one serves every Function. */
+  functionKeys: string[] | null;
+  /** For `placeHandTypedMarker`'s stale-write check. */
+  version: number;
+};
+
 export type MapBudgetLine = {
   functionKey: string | null;
   category: string | null;
@@ -114,6 +141,7 @@ export type MapView = {
   functions: { key: string; name: string; guests: number | null }[];
   budgetLines: MapBudgetLine[];
   vendors: MapVendor[];
+  handTyped: MapHandTypedVendor[];
 };
 
 function notFound(what: string): never {
@@ -146,6 +174,29 @@ async function liveShortlistItems(
     (item): item is Extract<Doc<"items">, { kind: "shortlistedVendor" }> =>
       item.kind === "shortlistedVendor" && item.deletedAt === null,
   );
+}
+
+/**
+ * The Functions a Shortlisted Vendor's live checklist Entries serve, for the
+ * map's Function filter; null when one of them serves every Function.
+ */
+async function functionKeysOf(
+  ctx: QueryCtx,
+  itemId: Id<"items">,
+): Promise<string[] | null> {
+  const links = await ctx.db
+    .query("vendorLinks")
+    .withIndex("by_item", (q) => q.eq("shortlistItemId", itemId))
+    .take(MAX_LINKS_PER_ITEM);
+  const keys: string[] = [];
+  for (const link of links) {
+    const entry = await ctx.db.get("entries", link.checklistEntryId);
+    if (entry?.kind !== "checklist" || entry.deletedAt !== null) continue;
+    if (entry.fields.functionKeys.length === 0) return null;
+    for (const key of entry.fields.functionKeys)
+      if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
 }
 
 /** The best status among the Item's links to live checklist Entries. */
@@ -230,10 +281,32 @@ export const view = query({
       Id<"vendors">,
       { itemId: Id<"items">; status: LinkStatus | null }
     >();
+    const handTyped: MapHandTypedVendor[] = [];
     for (const item of await liveShortlistItems(ctx, args.eventId)) {
-      // A hand-typed Vendor has a Marker only once a Member drops one (a follow-up to X7).
       const vendorId = sharedVendorIdOf(item);
-      if (vendorId === null || shortlisted.has(vendorId)) continue;
+      if (vendorId === null) {
+        // This Event's own hand-typed Vendor only, never another Event's.
+        const row = await loadPrivateVendorForEvent(
+          ctx,
+          args.eventId,
+          privateVendorIdOf(item),
+        );
+        if (row !== null)
+          handTyped.push({
+            _id: row._id,
+            itemId: item._id,
+            name: row.name,
+            category: row.freeLabel ? "" : (row.vendorCategory ?? ""),
+            categoryLabel: handTypedLabel(row),
+            area: row.area,
+            marker: row.marker,
+            status: await statusOf(ctx, item._id),
+            functionKeys: await functionKeysOf(ctx, item._id),
+            version: row.version,
+          });
+        continue;
+      }
+      if (shortlisted.has(vendorId)) continue;
       shortlisted.set(vendorId, {
         itemId: item._id,
         status: await statusOf(ctx, item._id),
@@ -290,6 +363,7 @@ export const view = query({
       functions,
       budgetLines: await budgetLinesOf(ctx, args.eventId),
       vendors,
+      handTyped,
     };
   },
 });
@@ -366,6 +440,83 @@ export const moveMarker = mutation({
           attribution: "Placed by a Member",
         },
       },
+      actor,
+    });
+  },
+});
+
+function handTypedLabel(row: Doc<"privateVendors">): string {
+  if (row.freeLabel) return row.freeLabel;
+  const category = row.vendorCategory;
+  if (category && (VENDOR_CATEGORIES as readonly string[]).includes(category))
+    return category[0]!.toUpperCase() + category.slice(1);
+  return category ?? "Vendor";
+}
+
+/**
+ * Drops or moves a hand-typed Vendor's Marker (issue #136): a Member's own
+ * knowledge of where the family's Vendor is, since a hand-typed Vendor is
+ * never geocoded. Only this Event's Members, for this Event's own hand-typed
+ * Vendor. The point must lie within MAX_FROM_CITY_KM of the Event's city, and
+ * a Marker already placed moves at most MAX_MOVE_KM, as a dragged shared
+ * Marker does. `expectedVersion` is the version the map showed; a newer edit
+ * refuses this one with `VersionConflict`.
+ */
+export const placeHandTypedMarker = mutation({
+  args: {
+    eventId: v.id("events"),
+    privateVendorId: v.id("privateVendors"),
+    expectedVersion: v.number(),
+    lat: v.number(),
+    lng: v.number(),
+  },
+  returns: v.object({ version: v.number() }),
+  handler: async (ctx, args) => {
+    const { membership } = await requireAccess(
+      ctx,
+      args.eventId,
+      "vendor.manage",
+    );
+    const row = await loadPrivateVendorForEvent(
+      ctx,
+      args.eventId,
+      args.privateVendorId,
+    );
+    if (row === null) throw new AccessDenied("wrongEvent", "vendor.manage");
+    const event = await ctx.db.get("events", args.eventId);
+    if (event === null) notFound("event");
+    // Before the distance rules: a save from a draft another Member has since
+    // moved is refused as a concurrent change, not as too far from their new
+    // spot (review of PR 139, round 3).
+    if (row.version !== args.expectedVersion)
+      throw new VersionConflict({
+        table: "privateVendors",
+        id: row._id,
+        expectedVersion: args.expectedVersion,
+        currentVersion: row.version,
+        current: { marker: row.marker, version: row.version },
+      });
+    if (
+      !Number.isFinite(args.lat) ||
+      !Number.isFinite(args.lng) ||
+      Math.abs(args.lat) > 90 ||
+      Math.abs(args.lng) > 180
+    )
+      invalid("That point isn't on the map.");
+    const to = { lat: args.lat, lng: args.lng };
+    if (event.city === null || event.city.centre === null)
+      invalid("Set the Event's city before dropping a Marker.");
+    if (kmBetween(event.city.centre, to) > MAX_FROM_CITY_KM)
+      invalid(`That point is outside ${event.city.name}.`);
+    if (row.marker !== null && kmBetween(row.marker, to) > MAX_MOVE_KM)
+      invalid(
+        `A Marker moves at most ${MAX_MOVE_KM} km from where it was; that point is too far from this Vendor.`,
+      );
+    const actor: MemberActor = { kind: "member", membershipId: membership._id };
+    return await memberWrite(ctx, {
+      table: "privateVendors",
+      id: row._id,
+      patch: { marker: to },
       actor,
     });
   },
