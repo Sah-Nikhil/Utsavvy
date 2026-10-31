@@ -207,39 +207,41 @@ test.describe("a hand-typed Vendor's Marker, seeded on a local deployment", () =
     await page.waitForTimeout(1_000);
     expect((await marker.boundingBox())!.x).toBeLessThan(saved.x + 2);
 
-    // Another Member moves the Marker while this Member's keyboard draft is
-    // open. Enter is then refused instead of overwriting their move, and the
-    // Marker shows where they put it (review of PR 139, medium).
+    // A second session moves the Marker while this session's keyboard draft
+    // is open. Enter is then refused instead of overwriting that move, and
+    // the Marker shows where it went (review of PR 139, medium). The version
+    // check doesn't depend on who is signed in, so the second session is the
+    // same e2e user in its own browser, not a second seeded Member.
     for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
     await expect
       .poll(async () => (await marker.boundingBox())!.x)
       .toBeGreaterThan(saved.x + 20);
-    // A second browser, signed in on its own, stands in for the other Member.
-    const otherBrowser = await browser.newContext({
+    // The second session: its own browser context, signed in separately.
+    const secondSession = await browser.newContext({
       baseURL,
       viewport: DESKTOP,
     });
-    const other = await otherBrowser.newPage();
-    await setupClerkTestingToken({ page: other });
-    await other.goto("/");
-    await clerk.signIn({ page: other, emailAddress: ownerEmail() });
-    await other.goto(`/events/${eventId}`);
-    await expect(other.locator(".react-flow__node-section")).toHaveCount(4, {
+    const second = await secondSession.newPage();
+    await setupClerkTestingToken({ page: second });
+    await second.goto("/");
+    await clerk.signIn({ page: second, emailAddress: ownerEmail() });
+    await second.goto(`/events/${eventId}`);
+    await expect(second.locator(".react-flow__node-section")).toHaveCount(4, {
       timeout: 20_000,
     });
-    const otherMarker = (await openMap(other)).locator(
+    const secondMarker = (await openMap(second)).locator(
       "[data-hand-typed-marker]",
     );
-    const otherBefore = (await otherMarker.boundingBox())!;
-    await otherMarker.focus();
-    for (let i = 0; i < 5; i++) await other.keyboard.press("ArrowUp");
-    await other.keyboard.press("Enter");
+    const secondBefore = (await secondMarker.boundingBox())!;
+    await secondMarker.focus();
+    for (let i = 0; i < 5; i++) await second.keyboard.press("ArrowUp");
+    await second.keyboard.press("Enter");
     await expect
-      .poll(async () => (await otherMarker.boundingBox())!.y, {
+      .poll(async () => (await secondMarker.boundingBox())!.y, {
         timeout: 10_000,
       })
-      .toBeLessThan(otherBefore.y - 20);
-    await otherBrowser.close();
+      .toBeLessThan(secondBefore.y - 20);
+    await secondSession.close();
     await expect(marker).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(sheet.getByRole("alert")).toContainText(
