@@ -532,7 +532,19 @@ export default function MapCanvas({
             const at = drafting ? pinDraft : pin.marker;
             if (at === null) return null;
             const movable = canMove && onPlace !== undefined;
-            const placed = pin.marker !== null;
+            const label =
+              pin.marker !== null
+                ? `${pin.name}, ${pin.categoryLabel}, ${TONE_LABELS[pin.tone]}, Marker placed by a Member`
+                : `New Marker for ${pin.name}`;
+            const stamp = (
+              <MarkerStamp
+                category={pin.category}
+                tone={pin.tone}
+                approximate={false}
+                selected={drafting}
+                tag="none"
+              />
+            );
             return (
               <Marker
                 key={pin.id}
@@ -550,27 +562,31 @@ export default function MapCanvas({
                   );
                 }}
               >
-                <button
-                  type="button"
-                  data-hand-typed-marker={pin.id}
-                  aria-label={
-                    placed
-                      ? `${pin.name}, ${pin.categoryLabel}, ${TONE_LABELS[pin.tone]}, Marker placed by a Member`
-                      : `New Marker for ${pin.name}`
-                  }
-                  aria-describedby={movable ? "map-place-hint" : undefined}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={movable ? (e) => nudgePin(pin, e) : undefined}
-                  className="group/stamp block cursor-pointer rounded-full outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
-                >
-                  <MarkerStamp
-                    category={pin.category}
-                    tone={pin.tone}
-                    approximate={false}
-                    selected={drafting}
-                    tag="none"
-                  />
-                </button>
+                {movable ? (
+                  <button
+                    type="button"
+                    data-hand-typed-marker={pin.id}
+                    aria-label={label}
+                    aria-describedby="map-place-hint"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => nudgePin(pin, e)}
+                    className="group/stamp block cursor-pointer rounded-full outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
+                  >
+                    {stamp}
+                  </button>
+                ) : (
+                  // A Member who can't move Markers gets a picture, not a
+                  // button that does nothing; "Show" can still focus it.
+                  <span
+                    role="img"
+                    tabIndex={-1}
+                    data-hand-typed-marker={pin.id}
+                    aria-label={label}
+                    className="block rounded-full outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
+                  >
+                    {stamp}
+                  </span>
+                )}
               </Marker>
             );
           })}
