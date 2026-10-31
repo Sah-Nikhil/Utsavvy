@@ -10,7 +10,7 @@ import {
   newTest,
   seedMembership,
 } from "./lib/test.helpers";
-import { MAX_FROM_CITY_KM } from "./map";
+import { MAX_FROM_CITY_KM, MAX_MOVE_KM } from "./map";
 
 // Issue #136: a Member drops a Marker for a hand-typed Vendor (X7). The Marker
 // is the Member's own knowledge, private to the Event like the Vendor, and
@@ -119,6 +119,32 @@ describe("api.map.placeHandTypedMarker", () => {
     expect((await rowOf(t, a.privateVendorId)).marker).toEqual(MANSAROVAR);
     await expect(place(2, MALVIYA_NAGAR)).rejects.toThrow(/VersionConflict/);
     expect((await rowOf(t, a.privateVendorId)).version).toBe(3);
+  });
+
+  // Review of PR 139, round 3 (L1): a stale save is refused as a concurrent
+  // change even when it is also too far from where the other Member put the
+  // Marker, so the Member is told why.
+  it(`refuses a stale save as a VersionConflict even when it is more than ${MAX_MOVE_KM} km from the current Marker`, async () => {
+    const t = newTest();
+    const a = await setup(t);
+    const place = (expectedVersion: number, at: { lat: number; lng: number }) =>
+      as(t, a.clerkId).mutation(api.map.placeHandTypedMarker, {
+        eventId: a.eventId,
+        privateVendorId: a.privateVendorId,
+        expectedVersion,
+        ...at,
+      });
+    // Both moves are about 10 km from the city centre, one each way.
+    const east = { lat: JAIPUR.centre.lat, lng: JAIPUR.centre.lng + 0.1 };
+    const west = { lat: JAIPUR.centre.lat, lng: JAIPUR.centre.lng - 0.1 };
+    await place(1, JAIPUR.centre);
+    // Another Member moves it east while this Member's draft starts at version 2.
+    await place(2, east);
+    // West is valid from where the draft started but about 20 km from east.
+    await expect(place(2, west)).rejects.toThrow(/VersionConflict/);
+    const row = await rowOf(t, a.privateVendorId);
+    expect(row.marker).toEqual(east);
+    expect(row.version).toBe(3);
   });
 
   it(`refuses a point more than ${MAX_FROM_CITY_KM} km from the Event's city, or off the map`, async () => {
